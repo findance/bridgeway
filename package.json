@@ -1,0 +1,26 @@
+{
+  "name": "bridgeway-contracts",
+  "version": "1.0.0",
+  "description": "Bridgeway (BGW) — on-chain hybrid index fund automation wrapper",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:testnet": "hardhat run scripts/deploy.js --network arbitrumSepolia",
+    "deploy:mainnet": "hardhat run scripts/deploy.js --network arbitrum",
+    "upgrade:testnet": "hardhat run scripts/upgrade.js --network arbitrumSepolia",
+    "verify:testnet": "hardhat run scripts/verify.js --network arbitrumSepolia",
+    "clean": "hardhat clean"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
+    "@openzeppelin/hardhat-upgrades": "^3.0.0",
+    "hardhat": "^2.22.0",
+    "dotenv": "^16.0.0"
+  },
+  "dependencies": {
+    "@chainlink/contracts": "^1.2.0",
+    "@openzeppelin/contracts": "^5.0.0",
+    "@openzeppelin/contracts-upgradeable": "^5.0.0"
+  }
+}
