@@ -1,0 +1,137 @@
+# Bridgeway (BGW) — Project Summary
+
+## What it is
+
+An on-chain index fund token that gives holders a single ERC-20 (BGW) representing a basket of:
+
+- **Crypto layer** — top 20 cryptocurrencies by market cap (wrapped versions on Arbitrum)
+- **Stable layer** — top 5 stablecoins (USDC, USDT, DAI, FRAX, USDS) lent for yield via Aave
+- **Equity layer** — Ondo Finance's SPYon (S&P 500) and QQQon (Nasdaq-100)
+
+NAV is accumulating — staking and lending rewards land in the vault and raise the per-token value rather than being distributed.
+
+## Architecture
+
+```
+User deposits USDC
+        ↓
+Bridgeway Automation Wrapper  (~700 lines, custom — UUPS upgradeable)
+   - 6-way fee split
+   - Monthly buyback snapshot
+   - Hourly/daily auto-buyback with gas check
+   - 0.1% ops cut self-funds Chainlink Automation
+        ↓
+Enzyme Finance Vault on Arbitrum  (battle-tested, audited)
+   - Asset custody, NAV, rebalancing, staking adapters
+        ↓
+Underlying basket  (top 20 crypto + 5 stables + SPYon + QQQon)
+```
+
+## Final fee model
+
+| Fee | Rate |
+|-----|------|
+| Annual management | 0.50% (streamed per block) |
+| Entry / exit | 0.10% each |
+| Performance | 10% of staking yield only |
+
+## Fee split (every fee taken)
+
+| Wallet | Share | Type | Purpose |
+|--------|-------|------|---------|
+| Team | 45% | USDC | Salaries, dev, legal |
+| Holdback | 20% | USDC | Ops, gas, oracles |
+| Buyback | 15% | USDC | Monthly buyback + burn |
+| LP Seeding | 10% | USDC | DEX liquidity |
+| Reserve | 5% | USDC | User protection |
+| Burn | 5% | BGW | Immediate burn |
+
+## Buyback engine
+
+- Snapshot taken on the last day of each month of the buyback accumulator balance
+- Divided into a daily amount, then an hourly amount
+- Each hour, contract checks if hourly amount > estimated gas; executes hourly if yes, daily if not, skips if even daily is below gas
+- 0.1% of every buyback flows to holdback to self-fund Chainlink Automation
+- Anyone can trigger via Chainlink Automation, Gelato, or directly
+
+## Stack
+
+- **Chain**: Arbitrum (mainnet target; Arbitrum Sepolia for testnet)
+- **Vault**: Enzyme Finance
+- **DEX**: Camelot
+- **Oracle**: Chainlink price feeds
+- **Automation**: Chainlink Automation
+- **Contract**: UUPS upgradeable (OpenZeppelin)
+
+## Status
+
+- Smart contract iterated through v1 → v10
+- v10 reportedly passes a clean audit by the previous Claude session (zero compile errors, zero logic bugs claimed)
+- Not yet deployed to any testnet
+- Enzyme vault not yet created
+- No professional third-party audit
+
+---
+
+# Honest Design Review
+
+The previous chat is well-structured and the contract iteration shows real progress. But there are several issues that the chat either understated or skipped over. Worth weighing these before committing more time:
+
+## 1. Regulatory exposure is the single biggest unaddressed risk
+
+This product is a security in most jurisdictions. A token that pools funds, holds a managed basket of assets, charges a management fee, takes a performance cut, and promises NAV-growing exposure to the S&P 500 and Nasdaq is — by US, Canadian, EU, and UK securities tests — almost certainly a security. The Howey test in the US and the "investment contract" framing elsewhere capture exactly this fact pattern.
+
+The previous chat mentioned "structure as a DAO" and "avoid promising returns" as mitigations. That's not enough. SEC, OSC (Canada), ESMA, and FCA have all gone after on-chain index/fund products in the last two years. Pendle, Index Coop, and several others have had to geofence US users or restructure.
+
+If you intend to ship this publicly, you need an actual securities lawyer in your target jurisdictions before you write more code. Budget $5–20k for the conversation, not "if needed."
+
+## 2. Ondo SPYon / QQQon are not freely composable
+
+The chat treated these as plug-and-play exposure to S&P 500 / Nasdaq. They aren't. Ondo's tokenized securities require KYC and are restricted to non-US jurisdictions and qualified investors. Putting them inside a permissionless ERC-20 vault that anyone can buy potentially circumvents Ondo's compliance perimeter — Ondo's terms likely prohibit this, and it pulls Bridgeway into US securities law territory immediately.
+
+Realistic options: drop the equity layer entirely, OR run a permissioned (KYC'd) vault for the equity tier, OR use a fully synthetic exposure (Synthetix-style) and accept the basis risk.
+
+## 3. "Zero expenditure" was the original goal — that's no longer true
+
+You started the chat asking for zero-cost. The design now realistically requires:
+
+- Enzyme vault setup gas (~$100–500 on Arbitrum)
+- Initial LP seed (the LP allocation is recursive — you need real USDC to seed BGW/USDC before the fee allocation can flow into LP)
+- Chainlink price feed reads (priced per call on some networks)
+- Chainlink Automation LINK funding (you're self-funding via ops, but bootstrap LINK is needed)
+- Security audit (the chat mentioned $20–80k — this is real, and unaudited UUPS vault code that handles user funds is genuinely dangerous)
+- Legal review (above)
+- Domain, frontend, infra
+
+A realistic floor to launch responsibly is $30–100k, not zero. If that doesn't fit, the path is to launch as a testnet-only educational project and be explicit about that.
+
+## 4. Specific contract concerns the previous review didn't flag
+
+I'm reviewing the design rather than the actual v10 source (which wasn't fully pasted into the chat — only descriptions of it were). But based on what's described:
+
+- **`recordStakingYield(uint256) onlyOwner`** — the owner manually reports the yield amount that the performance fee is calculated against. This is a significant trust assumption. A malicious or compromised owner can over-report yield to mint more fee tokens. Mainnet should derive yield from the vault state (`vault.balance(t1) - vault.balance(t0) - net flows`), not owner input.
+- **UUPS with single-key owner** — the previous chat agreed to skip the 48h timelock "since the owner is just you." For testnet that's fine. For mainnet with real user funds this is unacceptable — the owner can upgrade to a malicious implementation and drain the vault in one transaction. Multi-sig + timelock is non-negotiable for mainnet.
+- **BGW/USDC liquidity bootstrapping** — every buyback routes USDC → BGW via Camelot. Until the LP allocation accumulates enough to seed a deep pool, the first buybacks will be entirely your own contract trading against a thin pool, with predictable sandwich/MEV losses.
+- **Hourly buyback at low AUM** — at $100k AUM the entry-fee buyback flow yields cents per hour. Gas on Arbitrum is cheap but not free. The chat handled this with a "skip if below gas" branch, but worth verifying the threshold math holds at realistic early-stage volumes.
+- **Performance fee scope** — the chat's final answer was "stake yield only, owner-reported." There's no on-chain way for a holder to verify the owner isn't double-charging or under-reporting. Consider an oracle-based or vault-introspection approach for mainnet.
+
+## 5. The contract iteration approach has a meta-risk
+
+Going from v1 → v10 in chat with the model auditing its own (and prior model's) output is a useful rapid prototyping loop, but it is **not** equivalent to a security audit. Each pass found issues, which is good — but the same model passing v10 as "perfect" doesn't mean a real auditor (Trail of Bits, OpenZeppelin, Spearbit, Cantina) wouldn't find another 5–15 issues, including ones with funds-loss severity.
+
+For testnet: v10 is fine to deploy and learn from.
+For mainnet with user funds: do not skip a real audit.
+
+---
+
+# Recommended next steps (in order)
+
+1. **Get the v10 source into the repo cleanly.** The chat included pasted code that was truncated in places. Confirm you have the full file, drop it in `contracts/BridgewayAutomationWrapper.sol`, and verify it compiles standalone with the OpenZeppelin upgradeable imports.
+2. **Hardhat scaffolding** — config, deploy script, mock contracts, tests. This is the first thing the previous Claude offered to build. It's the right next step.
+3. **Local test pass** — full Hardhat test suite covering happy paths and edge cases (zero-fee, blacklist, paused, monthly snapshot rollover, gas-skip branch).
+4. **Arbitrum Sepolia deploy** — proxy via OpenZeppelin Upgrades plugin, register on Chainlink Automation testnet, verify on Arbiscan.
+5. **Stop and assess** — at this point you'll have a working testnet deployment. Before going further, get a securities lawyer call and decide whether to scope down (drop equity layer, geofence) or commit to a proper compliance and audit budget.
+
+# How to continue this in VSCode
+
+See `VSCODE_SETUP.md` in this folder.
