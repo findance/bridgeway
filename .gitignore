@@ -1,0 +1,25 @@
+# Environment — NEVER commit private keys
+.env
+*.key
+*.pem
+
+# Foundry build artifacts
+/out/
+/cache/
+/broadcast/
+
+# Dependencies (reinstall with forge install)
+/lib/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Test coverage
+/lcov.info
+/coverage/
