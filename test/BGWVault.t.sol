@@ -6,9 +6,10 @@ import "../contracts/tokens/BGWToken.sol";
 import "../contracts/tokens/BGWGovToken.sol";
 import "../contracts/tokens/FounderVesting.sol";
 import "../contracts/core/BGWVault.sol";
+import "../contracts/mocks/MockCamelotRouter.sol";
 import "../contracts/libraries/FeeLib.sol";
 
-/// @notice Mock USDC (6 decimals)
+/// @notice Minimal mock USDC (6 decimals) etched at the Arbitrum USDC address.
 contract MockUSDC {
     string  public name     = "USD Coin";
     string  public symbol   = "USDC";
@@ -17,28 +18,31 @@ contract MockUSDC {
     mapping(address => mapping(address => uint256)) public allowance;
     uint256 public totalSupply;
 
-    function mint(address to, uint256 amount) external { balanceOf[to] += amount; totalSupply += amount; }
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply   += amount;
+    }
+
     function approve(address spender, uint256 amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount; return true;
+        allowance[msg.sender][spender] = amount;
+        return true;
     }
+
     function transfer(address to, uint256 amount) external returns (bool) {
-        balanceOf[msg.sender] -= amount; balanceOf[to] += amount; return true;
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to]         += amount;
+        return true;
     }
+
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         allowance[from][msg.sender] -= amount;
-        balanceOf[from] -= amount;
-        balanceOf[to]   += amount;
+        balanceOf[from]             -= amount;
+        balanceOf[to]               += amount;
         return true;
     }
 }
 
-/// @notice Minimal BGWVault wrapper that replaces the USDC constant
-///         with a settable address (for unit testing without forking).
-///         In a fork test, use the real Arbitrum USDC address.
 contract BGWVaultTest is Test {
-    // Note: these tests run against a locally deployed vault on a forked network.
-    // For unit tests without a fork, we need to override USDC — see MockVault below.
-
     BGWToken       bgwToken;
     BGWGovToken    govToken;
     FounderVesting vesting;
@@ -48,36 +52,32 @@ contract BGWVaultTest is Test {
     address alice    = makeAddr("alice");
     address bob      = makeAddr("bob");
 
-    // Fee wallets
     address team     = makeAddr("team");
     address holdback = makeAddr("holdback");
     address lp       = makeAddr("lp");
     address reserve  = makeAddr("reserve");
 
-    // For tests: we'll deploy on a fork so real USDC works.
-    // Fallback: use vm.etch to place mock code at the USDC address.
-    address constant USDC_ADDR = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant USDC_ADDR     = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant CAMELOT_ADDR  = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
 
     function setUp() public {
-        // If running without fork: etch a mock ERC-20 at USDC_ADDR
-        // If running with fork ($ARBITRUM_RPC): comment out the etch lines
-        _etchMockUSDC();
+        // ── Mock USDC ──────────────────────────────────────────────────────────
+        MockUSDC mockUsdc = new MockUSDC();
+        vm.etch(USDC_ADDR, address(mockUsdc).code);
 
-        // Predict vesting address so gov can mint to it
-        address deployerAddr = address(this);
-        uint256 nonce        = vm.getNonce(deployerAddr);
-        // govToken deploys first (nonce), vesting second (nonce+1)
-        address predictedVesting = computeCreateAddress(deployerAddr, nonce + 1);
+        // ── Deploy tokens ──────────────────────────────────────────────────────
+        // BGWGovToken mints 70M to FounderVesting in its constructor.
+        // Predict vesting address (govToken deploys at nonce N, vesting at N+1).
+        address predictedVesting =
+            computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
 
-        // 1. Deploy tokens
-        govToken = new BGWGovToken(predictedVesting, address(1), founder);
-        vesting  = new FounderVesting(address(govToken), founder);
-
+        govToken = new BGWGovToken(predictedVesting, founder);        // nonce N
+        vesting  = new FounderVesting(address(govToken), founder);    // nonce N+1
         require(address(vesting) == predictedVesting, "nonce drift");
 
         bgwToken = new BGWToken(founder);
 
-        // 2. Deploy vault
+        // ── Deploy vault ───────────────────────────────────────────────────────
         vault = new BGWVault(
             address(bgwToken),
             address(govToken),
@@ -88,27 +88,45 @@ contract BGWVaultTest is Test {
             founder
         );
 
-        // 3. Wire roles
-        vm.startPrank(founder);
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(),        address(vault));
-        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
-        govToken.grantRole(govToken.DISTRIBUTOR_ROLE(),   address(vault));
+        // ── Mock Camelot router ────────────────────────────────────────────────
+        // Etch MockCamelotRouter bytecode (with bgwToken + rate baked in as
+        // immutables) at the real Camelot address so buyback / _burnViaSwap work.
+        MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
+        vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
 
-        // 4. Whitelist founder + test users
+        // ── Wire roles ─────────────────────────────────────────────────────────
+        vm.startPrank(founder);
+
+        bgwToken.grantRole(bgwToken.MINTER_ROLE(),           address(vault));
+        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(),  address(vault));
+        // Vault must be whitelisted on BGWToken to receive BGW during buybacks.
+        bgwToken.setWhitelisted(address(vault), true);
+        // Camelot mock mints BGW during swap simulation — grant it MINTER_ROLE.
+        bgwToken.grantRole(bgwToken.MINTER_ROLE(), CAMELOT_ADDR);
+        bgwToken.setWhitelisted(CAMELOT_ADDR, true);
+
+        // Transfer 30M BGW-GOV community pool to vault + grant DISTRIBUTOR_ROLE.
+        govToken.initVault(address(vault));
+
+        // Whitelist users on vault (also updates BGWToken whitelist via WHITELIST_ADMIN_ROLE).
         vault.setWhitelisted(founder, true);
         vault.setWhitelisted(alice,   true);
         vault.setWhitelisted(bob,     true);
+
         vm.stopPrank();
 
-        // 5. Give alice and bob USDC
+        // ── Seed USDC balances ─────────────────────────────────────────────────
         MockUSDC(USDC_ADDR).mint(alice,   10_000e6);
         MockUSDC(USDC_ADDR).mint(bob,     10_000e6);
         MockUSDC(USDC_ADDR).mint(founder, 10_000e6);
     }
 
-    function _etchMockUSDC() internal {
-        MockUSDC mock = new MockUSDC();
-        vm.etch(USDC_ADDR, address(mock).code);
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    function _setupAutomation() internal returns (address automationAddr) {
+        automationAddr = makeAddr("automation");
+        vm.prank(founder);
+        vault.setAutomation(automationAddr);
     }
 
     // ── NAV bootstrapping ────────────────────────────────────────────────────
@@ -125,36 +143,30 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6);
         vm.stopPrank();
 
-        // At $1.00 NAV: 1000 USDC → 1000 BGW (18 dec)
+        // At $1.00 NAV: 1000 USDC → 1000 BGW
         assertEq(bgwToken.balanceOf(alice), 1_000e18);
         assertEq(vault.totalNAV(),          1_000e6);
     }
 
     function test_SecondDepositUsesUpdatedNAV() public {
-        // Alice deposits 1000
+        // Alice deposits 1000 USDC
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6);
         vm.stopPrank();
 
-        // Simulate yield: automation reports +100 USDC yield
-        address automationAddr = makeAddr("automation");
-        vm.prank(founder);
-        vault.setAutomation(automationAddr);
-
+        // Simulate NAV growth via sleeve value update (no yield = no perf fee = no Camelot)
+        address automationAddr = _setupAutomation();
         vm.prank(automationAddr);
-        vault.recordHarvest(100e6, 770e6, 275e6, 55e6); // 70/25/5 of 1100
+        vault.updateSleeveValues(770e6, 275e6, 55e6); // total = 1100; NAV = $1.10/BGW
 
-        // NAV is now 1100/1000 = $1.10 per BGW
-        // Bob deposits 1100 USDC → should get 1000 BGW
+        // Bob deposits 1100 USDC at $1.10 NAV → should receive ~1000 BGW
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_100e6);
         vault.deposit(1_100e6);
         vm.stopPrank();
 
-        uint256 bobBGW = bgwToken.balanceOf(bob);
-        // ~1000e18 (allow small rounding)
-        assertApproxEqRel(bobBGW, 1_000e18, 0.01e18); // 1% tolerance
+        assertApproxEqRel(bgwToken.balanceOf(bob), 1_000e18, 0.01e18);
     }
 
     function test_DepositRevertsIfNotWhitelisted() public {
@@ -169,10 +181,54 @@ contract BGWVaultTest is Test {
     }
 
     function test_DepositRevertsOnZero() public {
-        vm.startPrank(alice);
+        vm.prank(alice);
         vm.expectRevert(BGWVault.ZeroAmount.selector);
         vault.deposit(0);
+    }
+
+    // ── BGW-GOV distribution ──────────────────────────────────────────────────
+
+    function test_GovDistributedAtFixedRate() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
         vm.stopPrank();
+
+        // Rate: bgwMinted × (30M / 100M) = 1000e18 × 0.3 = 300e18 BGW-GOV
+        uint256 expected = (1_000e18 * 30_000_000e18) / 100_000_000e18;
+        assertEq(govToken.balanceOf(alice), expected);
+    }
+
+    function test_GovRateIsEqualForAllDepositors() public {
+        // Alice deposits first
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        uint256 aliceGov = govToken.balanceOf(alice);
+
+        // Bob deposits the same amount later (NAV unchanged)
+        vm.startPrank(bob);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        // Both should receive the same amount — no first-depositor advantage
+        assertEq(govToken.balanceOf(bob), aliceGov);
+    }
+
+    function test_GovPoolDecreasesAfterDistribution() public {
+        uint256 poolBefore = govToken.balanceOf(address(vault));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        uint256 poolAfter = govToken.balanceOf(address(vault));
+        assertLt(poolAfter, poolBefore);
+        assertEq(poolBefore - poolAfter, govToken.balanceOf(alice));
     }
 
     // ── Sleeve allocation ─────────────────────────────────────────────────────
@@ -183,15 +239,14 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6);
         vm.stopPrank();
 
-        assertEq(vault.sleeveAValue(), 700e6);  // 70%
-        assertEq(vault.sleeveBValue(), 250e6);  // 25%
-        assertEq(vault.sleeveCValue(),  50e6);  //  5%
+        assertEq(vault.sleeveAValue(), 700e6);
+        assertEq(vault.sleeveBValue(), 250e6);
+        assertEq(vault.sleeveCValue(),  50e6);
     }
 
     // ── Redeem ────────────────────────────────────────────────────────────────
 
     function test_RedeemReturnsUSDCMinusExitFee() public {
-        // Alice deposits 1000 USDC
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6);
@@ -199,19 +254,14 @@ contract BGWVaultTest is Test {
         uint256 bgwBalance = bgwToken.balanceOf(alice);
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
 
-        // Redeem all
         vault.redeem(bgwBalance, 0);
         vm.stopPrank();
 
-        uint256 usdcAfter  = MockUSDC(USDC_ADDR).balanceOf(alice);
-        uint256 received   = usdcAfter - usdcBefore;
+        uint256 received = MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore;
 
-        // Expected: 1000 USDC - 0.10% exit fee = 999 USDC
-        // (no perf fee since NAV == HWM at bootstrap)
-        uint256 expectedFee = (1_000e6 * 10) / 10_000; // 0.10%
-        uint256 expected    = 1_000e6 - expectedFee;
-
-        assertApproxEqAbs(received, expected, 1); // allow 1 wei rounding
+        // 1000 USDC - 0.10% exit fee = 999 USDC (no perf fee at HWM)
+        uint256 expectedFee = (1_000e6 * 10) / 10_000;
+        assertApproxEqAbs(received, 1_000e6 - expectedFee, 1);
     }
 
     function test_RedeemBurnsBGW() public {
@@ -233,19 +283,24 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6);
 
         vm.expectRevert();
-        vault.redeem(99_999e18, 0); // more than alice has
+        vault.redeem(99_999e18, 0);
         vm.stopPrank();
     }
 
-    function test_RedeemRevertsSlippage() public {
+    function test_RedeemRevertsOnSlippage() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6);
-
-        // Demand 100% of gross — will fail due to exit fee
-        vm.expectRevert();
-        vault.redeem(bgwToken.balanceOf(alice), 1_000e6);
         vm.stopPrank();
+
+        // Cache balance before vm.expectRevert so the balanceOf STATICCALL doesn't
+        // interfere with the cheat code in Foundry v1.x.
+        uint256 aliceBGW = bgwToken.balanceOf(alice);
+
+        // Demand full gross value — fails because 0.10% exit fee is deducted
+        vm.prank(alice);
+        vm.expectRevert();
+        vault.redeem(aliceBGW, 1_000e6);
     }
 
     // ── FeeLib math ──────────────────────────────────────────────────────────
@@ -259,35 +314,57 @@ contract BGWVaultTest is Test {
 
     function test_ExitFeeCalc() public pure {
         uint256 fee = FeeLib.calcExitFee(1_000e6, 10); // 0.10%
-        assertEq(fee, 1e6); // $1.00
+        assertEq(fee, 1e6);
     }
 
     function test_PerfFeeCalc() public pure {
         uint256 fee = FeeLib.calcPerfFee(100e6); // 15% of $100
-        assertEq(fee, 15e6); // $15.00
+        assertEq(fee, 15e6);
     }
 
     // ── High-water mark ───────────────────────────────────────────────────────
 
     function test_HWMNotUpdatedWhenNAVBelow() public {
-        // Deposit
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6);
         vm.stopPrank();
 
-        uint256 hwmBefore = vault.highWaterMark();
-
-        // Report a loss (sleeve values drop)
-        address automationAddr = makeAddr("automation");
-        vm.prank(founder);
-        vault.setAutomation(automationAddr);
+        uint256 hwmBefore      = vault.highWaterMark();
+        address automationAddr = _setupAutomation();
 
         vm.prank(automationAddr);
-        vault.recordHarvest(0, 630e6, 215e6, 45e6); // 10% loss
+        vault.recordHarvest(0, 630e6, 215e6, 45e6); // 10% loss, no yield
 
-        // HWM should not change
         assertEq(vault.highWaterMark(), hwmBefore);
+    }
+
+    function test_HarvestWithYieldTakesPerfFeeAndUpdateHWM() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        // Give vault extra USDC to cover perf-fee distribution
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+
+        address automationAddr = _setupAutomation();
+        uint256 hwmBefore = vault.highWaterMark();
+
+        // Pre-fund mock Camelot with Alice's BGW so directBurn can transfer
+        // existing BGW (safeTransfer) rather than minting, keeping supply accurate.
+        // directBurn = 5% of perfFee(100e6) = 5% of 15e6 = 0.75e6 USDC → 0.75e18 BGW.
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+
+        // Record 100 USDC yield — triggers perf fee (Camelot mock handles directBurn)
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+
+        // HWM must have increased
+        assertGt(vault.highWaterMark(), hwmBefore);
+        // Some USDC went to team wallet
+        assertGt(MockUSDC(USDC_ADDR).balanceOf(team), 0);
     }
 
     // ── Stress mode ───────────────────────────────────────────────────────────
@@ -305,9 +382,42 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         uint256 received = MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore;
-
-        // 0.75% stress fee → received ≈ 992.5 USDC
-        uint256 expected = 1_000e6 - (1_000e6 * 75 / 10_000);
+        uint256 expected = 1_000e6 - (1_000e6 * 75 / 10_000); // 0.75% stress fee
         assertApproxEqAbs(received, expected, 1);
+    }
+
+    // ── Buyback ───────────────────────────────────────────────────────────────
+
+    function test_BuybackBurnsBGW() public {
+        // Seed vault buyback accumulator by triggering a perf fee harvest
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+
+        address automationAddr = _setupAutomation();
+
+        // Pre-fund mock Camelot with Alice's BGW so both directBurn (0.75e18) and the
+        // subsequent executeBuyback (2.25e18) can safeTransfer existing BGW.
+        // This makes the burn genuinely deflationary (removes circulating supply).
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+
+        uint256 accumulator = vault.buybackAccumulator();
+        assertGt(accumulator, 0);
+
+        uint256 supplyBefore = bgwToken.totalSupply();
+
+        // Execute buyback — mock Camelot mints BGW to vault, vault burns it
+        vm.prank(automationAddr);
+        vault.executeBuyback(accumulator);
+
+        assertEq(vault.buybackAccumulator(), 0);
+        assertLt(bgwToken.totalSupply(), supplyBefore);
     }
 }

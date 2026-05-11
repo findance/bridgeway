@@ -65,12 +65,17 @@ contract DeployVault is Script {
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         console.log("Granted WHITELIST_ADMIN_ROLE to vault on BGWToken");
 
-        // 4. Grant DISTRIBUTOR_ROLE on BGWGovToken to vault
-        //    (so vault can distribute community pool on deposit)
-        govToken.grantRole(govToken.DISTRIBUTOR_ROLE(), address(vault));
-        console.log("Granted DISTRIBUTOR_ROLE to vault on BGWGovToken");
+        // 4. Whitelist the vault contract itself on BGWToken so it can receive BGW
+        //    during buyback swaps (Camelot sends BGW to vault before vault burns it).
+        bgwToken.setWhitelisted(address(vault), true);
+        console.log("Whitelisted vault on BGWToken for buyback receipt");
 
-        // 5. Whitelist the founder so they can make the first deposit
+        // 5. Wire community GOV pool to vault: transfers 30M BGW-GOV from the
+        //    govToken contract to vault, and grants vault DISTRIBUTOR_ROLE.
+        govToken.initVault(address(vault));
+        console.log("Initialized vault in BGWGovToken (30M GOV transferred)");
+
+        // 6. Whitelist the founder so they can make the first deposit
         vault.setWhitelisted(founderAddr, true);
         console.log("Whitelisted founder:", founderAddr);
 

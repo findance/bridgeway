@@ -54,6 +54,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @dev Max slippage allowed on DEX swaps (default 1 %).
     uint256 public constant MAX_SLIPPAGE_BPS = 100;
 
+    // ── BGW-GOV distribution rate ─────────────────────────────────────────────
+    // Fixed-rate formula: each depositor gets bgwMinted × (30M / 100M) BGW-GOV.
+    // Using a fixed denominator ensures equal governance rate for all depositors
+    // regardless of deposit order — the first depositor has no advantage.
+    uint256 private constant GOV_COMMUNITY_ALLOC = 30_000_000e18;
+    uint256 private constant GOV_TOTAL_SUPPLY    = 100_000_000e18;
+
     // ─────────────────────────────────────────────────────────────────────────
     // State — tokens
     // ─────────────────────────────────────────────────────────────────────────
@@ -623,15 +630,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @dev Calculate BGW-GOV to distribute to a new depositor.
-    ///      Formula: govAmount = (bgwMinted / newTotalBGW) × communityPool
-    ///      Community pool = govToken.balanceOf(address(this)) [vault holds it].
+    ///      Fixed-rate formula: govAmount = bgwMinted × (COMMUNITY_ALLOC / TOTAL_SUPPLY)
+    ///                                    = bgwMinted × 30%
+    ///      The fixed denominator (100 M, the GOV total supply) means every depositor
+    ///      receives the same rate regardless of when they deposit or how large the
+    ///      existing BGW supply is. Pool depletes gracefully once 100 M BGW is minted.
     function _calcGovDistribution(uint256 bgwMinted) internal view returns (uint256) {
         uint256 communityPool = govToken.balanceOf(address(this));
-        if (communityPool == 0) return 0;
+        if (communityPool == 0 || bgwMinted == 0) return 0;
 
-        uint256 newTotalBGW = bgwToken.totalSupply() + bgwMinted;
-        if (newTotalBGW == 0) return 0;
-
-        return (bgwMinted * communityPool) / newTotalBGW;
+        uint256 govAmount = (bgwMinted * GOV_COMMUNITY_ALLOC) / GOV_TOTAL_SUPPLY;
+        return govAmount > communityPool ? communityPool : govAmount;
     }
 }

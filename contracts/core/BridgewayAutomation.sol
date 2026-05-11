@@ -4,7 +4,13 @@ pragma solidity ^0.8.24;
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
+// Inlined to avoid Chainlink package path fragility across install methods.
+interface AutomationCompatibleInterface {
+    function checkUpkeep(bytes calldata checkData)
+        external
+        returns (bool upkeepNeeded, bytes memory performData);
+    function performUpkeep(bytes calldata performData) external;
+}
 
 import "./BGWVault.sol";
 import "../libraries/FeeLib.sol";
