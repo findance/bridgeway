@@ -62,14 +62,15 @@ contract AutomationTest is Test {
 
         bgwToken = new BGWToken(founder);
 
-        vault = new BGWVault(
-            address(bgwToken), address(govToken),
-            team, holdback, lp, reserve, founder
-        );
-
         // Mock Camelot
         MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
+
+        vault = new BGWVault(
+            address(bgwToken), address(govToken),
+            team, holdback, lp, reserve, founder,
+            USDC_ADDR, CAMELOT_ADDR, address(1)
+        );
 
         // Wire roles
         vm.startPrank(founder);
@@ -84,7 +85,7 @@ contract AutomationTest is Test {
         vm.stopPrank();
 
         // Deploy automation and wire to vault
-        automation = new BridgewayAutomation(address(vault), founder);
+        automation = new BridgewayAutomation(address(vault), founder, USDC_ADDR);
         vm.prank(founder);
         vault.setAutomation(address(automation));
 

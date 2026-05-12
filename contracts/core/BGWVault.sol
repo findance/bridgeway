@@ -41,18 +41,21 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Arbitrum One addresses — verify before mainnet deploy.
-    address public constant USDC            = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address public constant WETH            = 0x82aF49447D8a07e3bd95BD0d56f35241523fBab1;
-    address public constant CAMELOT_ROUTER  = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
-    address public constant AAVE_POOL       = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address public constant ETH_USD_FEED    = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612;
-
     /// @dev Chainlink price staleness threshold.
     uint256 public constant ORACLE_STALE_THRESHOLD = 1 hours;
 
     /// @dev Max slippage allowed on DEX swaps (default 1 %).
     uint256 public constant MAX_SLIPPAGE_BPS = 100;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Immutables — set once at construction, never changed (M-06)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice USDC token address (6 dec). Passed at deploy — no bytecode hardcoding.
+    address public immutable USDC;
+
+    /// @notice Chainlink ETH/USD price feed. Passed at deploy for testnet flexibility.
+    address public immutable ETH_USD_FEED;
 
     // ── BGW-GOV distribution rate ─────────────────────────────────────────────
     // Fixed-rate formula: each depositor gets bgwMinted × (30M / 100M) BGW-GOV.
@@ -74,6 +77,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     address public holdbackWallet;
     address public lpSeedingWallet;
     address public reserveFundWallet;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // State — DEX router (M-06: settable so router upgrades don't force redeploy)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Camelot DEX router used for USDC → BGW buyback swaps.
+    ///         Owner can propose a new address via proposeRouterUpdate() + 48h timelock.
+    address public camelotRouter;
 
     // ─────────────────────────────────────────────────────────────────────────
     // State — automation
@@ -163,6 +174,15 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
     PendingWalletsChange public pendingWalletsChange;
 
+    // Router / oracle address changes share the same timelock discipline.
+    bytes32 public constant CHANGE_ROUTER = keccak256("CAMELOT_ROUTER");
+
+    struct PendingAddressChange {
+        address value;
+        uint256 executeAfter; // 0 = no pending change
+    }
+    mapping(bytes32 => PendingAddressChange) public pendingAddressChanges;
+
     // ─────────────────────────────────────────────────────────────────────────
     // Events
     // ─────────────────────────────────────────────────────────────────────────
@@ -204,6 +224,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event FeeChangeCancelled(bytes32 indexed changeType);
     event FeeWalletsProposed(address team, address holdback, address lp, address reserve, uint256 executeAfter);
     event FeeWalletsCancelled();
+    event AddressChangeProposed(bytes32 indexed changeType, address newValue, uint256 executeAfter);
+    event AddressChangeExecuted(bytes32 indexed changeType, address newValue);
+    event AddressChangeCancelled(bytes32 indexed changeType);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Errors
@@ -245,7 +268,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         address _holdbackWallet,
         address _lpSeedingWallet,
         address _reserveFundWallet,
-        address _admin
+        address _admin,
+        address _usdc,
+        address _camelotRouter,
+        address _ethUsdFeed
     ) Ownable(_admin) {
         if (_bgwToken          == address(0)) revert ZeroAddress();
         if (_govToken          == address(0)) revert ZeroAddress();
@@ -253,6 +279,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (_holdbackWallet    == address(0)) revert ZeroAddress();
         if (_lpSeedingWallet   == address(0)) revert ZeroAddress();
         if (_reserveFundWallet == address(0)) revert ZeroAddress();
+        if (_usdc              == address(0)) revert ZeroAddress();
+        if (_camelotRouter     == address(0)) revert ZeroAddress();
+        if (_ethUsdFeed        == address(0)) revert ZeroAddress();
 
         bgwToken          = BGWToken(_bgwToken);
         govToken          = BGWGovToken(_govToken);
@@ -260,6 +289,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         holdbackWallet    = _holdbackWallet;
         lpSeedingWallet   = _lpSeedingWallet;
         reserveFundWallet = _reserveFundWallet;
+        USDC              = _usdc;
+        camelotRouter     = _camelotRouter;
+        ETH_USD_FEED      = _ethUsdFeed;
 
         highWaterMark     = 1e18;
         lastHWMUpdateTime = block.timestamp;
@@ -480,7 +512,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         buybackAccumulator -= usdcAmount;
 
-        IERC20(USDC).forceApprove(CAMELOT_ROUTER, usdcAmount);
+        IERC20(USDC).forceApprove(camelotRouter, usdcAmount);
 
         address[] memory path = new address[](2);
         path[0] = USDC;
@@ -493,7 +525,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         uint256 bgwBefore = bgwToken.balanceOf(address(this));
 
-        ICamelotRouter(CAMELOT_ROUTER)
+        ICamelotRouter(camelotRouter)
             .swapExactTokensForTokensSupportingFeeOnTransferTokens(
                 usdcAmount,
                 minBGW,
@@ -692,6 +724,30 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit FeeWalletsCancelled();
     }
 
+    /// @notice Propose replacing the Camelot DEX router (e.g., after a protocol upgrade).
+    ///         48-hour timelock gives depositors time to react to an unexpected change.
+    function proposeRouterUpdate(address newRouter) external onlyOwner {
+        if (newRouter == address(0)) revert ZeroAddress();
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        pendingAddressChanges[CHANGE_ROUTER] = PendingAddressChange(newRouter, eta);
+        emit AddressChangeProposed(CHANGE_ROUTER, newRouter, eta);
+    }
+
+    function executeRouterUpdate() external onlyOwner {
+        PendingAddressChange memory p = pendingAddressChanges[CHANGE_ROUTER];
+        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_ROUTER);
+        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
+        delete pendingAddressChanges[CHANGE_ROUTER];
+        camelotRouter = p.value;
+        emit AddressChangeExecuted(CHANGE_ROUTER, p.value);
+    }
+
+    function cancelRouterUpdate() external onlyOwner {
+        if (pendingAddressChanges[CHANGE_ROUTER].executeAfter == 0) revert NoPendingChange(CHANGE_ROUTER);
+        delete pendingAddressChanges[CHANGE_ROUTER];
+        emit AddressChangeCancelled(CHANGE_ROUTER);
+    }
+
     function pause()   external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
@@ -797,7 +853,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///      On swap failure, emits DirectBurnDeferred and leaves USDC in vault
     ///      rather than reverting and blocking the entire harvest (H-04/H-07).
     function _burnViaSwap(uint256 usdcAmount) internal {
-        IERC20(USDC).forceApprove(CAMELOT_ROUTER, usdcAmount);
+        IERC20(USDC).forceApprove(camelotRouter, usdcAmount);
 
         address[] memory path = new address[](2);
         path[0] = USDC;
@@ -810,7 +866,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         uint256 bgwBefore = bgwToken.balanceOf(address(this));
 
-        try ICamelotRouter(CAMELOT_ROUTER)
+        try ICamelotRouter(camelotRouter)
             .swapExactTokensForTokensSupportingFeeOnTransferTokens(
                 usdcAmount,
                 minBGW,
@@ -823,7 +879,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             uint256 received = bgwToken.balanceOf(address(this)) - bgwBefore;
             if (received > 0) bgwToken.burn(received);
         } catch {
-            IERC20(USDC).forceApprove(CAMELOT_ROUTER, 0);
+            IERC20(USDC).forceApprove(camelotRouter, 0);
             emit DirectBurnDeferred(usdcAmount);
         }
     }

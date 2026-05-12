@@ -39,9 +39,8 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     // Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    address public constant USDC          = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address public constant AAVE_POOL     = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address public constant ETH_USD_FEED  = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612;
+    /// @notice USDC token address — set at deploy for testnet / mainnet flexibility (M-06).
+    address public immutable USDC;
 
     uint256 public constant HARVEST_INTERVAL  = 30 days;
     uint256 public constant BUYBACK_THRESHOLD = 50e6;       // 50 USDC minimum
@@ -74,9 +73,11 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
-    constructor(address _vault, address _admin) Ownable(_admin) {
+    constructor(address _vault, address _admin, address _usdc) Ownable(_admin) {
         require(_vault != address(0), "BA: zero vault");
+        require(_usdc  != address(0), "BA: zero usdc");
         vault = BGWVault(_vault);
+        USDC  = _usdc;
         // Initialise to deployment time so the first harvest isn't immediately due (H-10)
         lastHarvestTime = block.timestamp;
     }

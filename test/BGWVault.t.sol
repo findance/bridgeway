@@ -77,6 +77,13 @@ contract BGWVaultTest is Test {
 
         bgwToken = new BGWToken(founder);
 
+        // ── Mock Camelot router ────────────────────────────────────────────────
+        // Etch MockCamelotRouter bytecode (with bgwToken + rate baked in as
+        // immutables) at CAMELOT_ADDR so the vault's camelotRouter immutable
+        // resolves to the mock without changing the test address constants.
+        MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
+        vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
+
         // ── Deploy vault ───────────────────────────────────────────────────────
         vault = new BGWVault(
             address(bgwToken),
@@ -85,14 +92,11 @@ contract BGWVaultTest is Test {
             holdback,
             lp,
             reserve,
-            founder
+            founder,
+            USDC_ADDR,   // _usdc    (M-06: constructor-injected, not bytecode-hardcoded)
+            CAMELOT_ADDR, // _camelotRouter
+            address(1)   // _ethUsdFeed (not exercised in unit tests; any non-zero address)
         );
-
-        // ── Mock Camelot router ────────────────────────────────────────────────
-        // Etch MockCamelotRouter bytecode (with bgwToken + rate baked in as
-        // immutables) at the real Camelot address so buyback / _burnViaSwap work.
-        MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
-        vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
 
         // ── Wire roles ─────────────────────────────────────────────────────────
         vm.startPrank(founder);
@@ -488,6 +492,26 @@ contract BGWVaultTest is Test {
         assertEq(vault.holdbackWallet(),    newHoldback);
         assertEq(vault.lpSeedingWallet(),   newLp);
         assertEq(vault.reserveFundWallet(), newReserve);
+    }
+
+    function test_RouterUpdateTimelockAppliableAfterDelay() public {
+        address newRouter = makeAddr("newRouter");
+
+        vm.prank(founder);
+        vault.proposeRouterUpdate(newRouter);
+
+        // Before delay: execute reverts
+        vm.prank(founder);
+        vm.expectRevert(
+            abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours)
+        );
+        vault.executeRouterUpdate();
+
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(founder);
+        vault.executeRouterUpdate();
+
+        assertEq(vault.camelotRouter(), newRouter);
     }
 
     function test_OnlyOwnerCanProposeFeeChange() public {
