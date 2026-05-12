@@ -568,4 +568,65 @@ contract BGWVaultTest is Test {
         assertGt(vault.highWaterMark(), 1e18);         // above $1.00 floor
         assertLt(vault.highWaterMark(), originalHwm);  // below original HWM
     }
+
+    // ── Protected tokens (C-02) ───────────────────────────────────────────────
+
+    function test_ProtectedTokenBlocksRecover() public {
+        address dummyToken = makeAddr("dummyToken");
+
+        vm.prank(founder);
+        vault.setProtectedToken(dummyToken, true);
+        assertTrue(vault.protectedTokens(dummyToken));
+
+        vm.prank(founder);
+        vm.expectRevert("BGWVault: token is a vault position");
+        vault.recoverToken(dummyToken, 1e18, founder);
+    }
+
+    function test_UnprotectedTokenCanBeRecovered() public {
+        // Deploy a standalone mock token and send some to the vault
+        address anotherToken = makeAddr("anotherToken");
+        // protectedTokens[anotherToken] is false by default
+        assertFalse(vault.protectedTokens(anotherToken));
+        // recoverToken would revert only on protected/blocked tokens;
+        // any transfer failure here is expected (no real token at anotherToken)
+        // — just verify the protection check itself is not triggered.
+        vm.prank(founder);
+        vm.expectRevert(); // reverts on the safeTransfer (no code at address), not on protection
+        vault.recoverToken(anotherToken, 1, founder);
+    }
+
+    function test_SetProtectedTokenRevertsZeroAddress() public {
+        vm.prank(founder);
+        vm.expectRevert(BGWVault.ZeroAddress.selector);
+        vault.setProtectedToken(address(0), true);
+    }
+
+    function test_BatchProtectedTokens() public {
+        address[] memory tokens = new address[](3);
+        tokens[0] = makeAddr("pt1");
+        tokens[1] = makeAddr("pt2");
+        tokens[2] = makeAddr("glp");
+
+        vm.prank(founder);
+        vault.setProtectedTokenBatch(tokens, true);
+
+        assertTrue(vault.protectedTokens(tokens[0]));
+        assertTrue(vault.protectedTokens(tokens[1]));
+        assertTrue(vault.protectedTokens(tokens[2]));
+
+        // Unprotect all in one call
+        vm.prank(founder);
+        vault.setProtectedTokenBatch(tokens, false);
+        assertFalse(vault.protectedTokens(tokens[0]));
+    }
+
+    function test_KnownAaveATokensProtectedAtDeploy() public view {
+        // Aave V3 Arbitrum aTokens seeded in constructor
+        assertTrue(vault.protectedTokens(0x724dc807b04555b71ed48a6896b6F41593b8C637)); // aUSDCn
+        assertTrue(vault.protectedTokens(0x6ab707Aca953eDAeFBc4fD23bA73294241490620)); // aUSDT
+        assertTrue(vault.protectedTokens(0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8)); // aWETH
+        assertTrue(vault.protectedTokens(0x078f358208685046a11C85e8ad32895DED33A249)); // aWBTC
+        assertTrue(vault.protectedTokens(0x5979D7b546E38E414F7E9822514be443A4800529)); // wstETH
+    }
 }

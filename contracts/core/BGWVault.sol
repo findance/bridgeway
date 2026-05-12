@@ -118,6 +118,17 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     mapping(address => bool) public whitelist;
 
     // ─────────────────────────────────────────────────────────────────────────
+    // State — protected tokens (C-02)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Tokens that cannot be swept via recoverToken().
+    ///         Populated at construction with known Aave aTokens + LST wrappers.
+    ///         Owner registers new entries whenever the vault deploys into a new
+    ///         protocol (Pendle PTs, GMX GLP, Morpho shares, etc.) and removes
+    ///         them once the position is fully unwound.
+    mapping(address => bool) public protectedTokens;
+
+    // ─────────────────────────────────────────────────────────────────────────
     // State — pending fees (pull-escrow for failed fee-wallet transfers)
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -159,6 +170,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event AutomationSet(address indexed automation);
     event AutomationRevoked(address indexed old);
     event FeeWalletsUpdated(address team, address holdback, address lp, address reserve);
+    event ProtectedTokenUpdated(address indexed token, bool protected);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Errors
@@ -216,6 +228,22 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         highWaterMark     = 1e18;
         lastHWMUpdateTime = block.timestamp;
+
+        // ── Seed protectedTokens with Aave V3 Arbitrum One aTokens + LST wrappers ──
+        // These are the yield-bearing tokens the vault holds on behalf of depositors.
+        // Owner must add new entries (Pendle PTs, GMX GLP, etc.) before each deploy
+        // and remove them once the position is fully unwound.
+        //
+        // Aave V3 Arbitrum One — verify at https://aave.com/docs before mainnet deploy.
+        protectedTokens[0x724dc807b04555b71ed48a6896b6F41593b8C637] = true; // aUSDCn
+        protectedTokens[0x6ab707Aca953eDAeFBc4fD23bA73294241490620] = true; // aUSDT
+        protectedTokens[0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8] = true; // aWETH
+        protectedTokens[0x078f358208685046a11C85e8ad32895DED33A249] = true; // aWBTC
+        protectedTokens[0x513c7E3a9c69cA3e22550eF58AC1C0088e918FFf] = true; // awstETH
+        // Lido wstETH on Arbitrum (underlying of Aave sleeve A)
+        protectedTokens[0x5979D7b546E38E414F7E9822514be443A4800529] = true; // wstETH
+        // Pendle PT tokens, GMX GLP, Morpho shares, sUSDe → add via setProtectedToken
+        // before each protocol deployment.
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -558,7 +586,31 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function pause()   external onlyOwner { _pause(); }
     function unpause() external onlyOwner { _unpause(); }
 
+    /// @notice Mark a token as protected (true) or unprotected (false).
+    ///         Call with true before deploying vault funds into a new protocol.
+    ///         Call with false only after the position is fully unwound.
+    function setProtectedToken(address token, bool _protected) external onlyOwner {
+        if (token == address(0)) revert ZeroAddress();
+        protectedTokens[token] = _protected;
+        emit ProtectedTokenUpdated(token, _protected);
+    }
+
+    /// @notice Batch version of setProtectedToken for initial setup.
+    function setProtectedTokenBatch(address[] calldata tokens, bool _protected)
+        external
+        onlyOwner
+    {
+        require(tokens.length <= 50, "BGWVault: batch too large");
+        for (uint256 i; i < tokens.length; ++i) {
+            if (tokens[i] == address(0)) revert ZeroAddress();
+            protectedTokens[tokens[i]] = _protected;
+            emit ProtectedTokenUpdated(tokens[i], _protected);
+        }
+    }
+
     /// @notice Emergency: recover tokens accidentally sent to the vault.
+    ///         Blocked for USDC (vault funds), BGW, BGW-GOV, and any token
+    ///         registered as a vault position via setProtectedToken (C-02).
     function recoverToken(address token, uint256 amount, address to)
         external
         onlyOwner
@@ -567,6 +619,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         require(token != USDC,                  "BGWVault: cannot recover vault USDC");
         require(token != address(bgwToken),     "BGWVault: cannot recover BGW");
         require(token != address(govToken),     "BGWVault: cannot recover BGW-GOV");
+        require(!protectedTokens[token],        "BGWVault: token is a vault position");
         IERC20(token).safeTransfer(to, amount);
     }
 
