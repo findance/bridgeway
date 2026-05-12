@@ -509,27 +509,61 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
+        // Seed vault with extra USDC so NAV > HWM after first harvest.
+        // H-06: management fee is waived when navPerBGW <= decayedHWM, so we
+        // must crystallise HWM above $1.00 before the fee-collecting harvest.
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+
         address automationAddr = _setupAutomation();
 
-        // Pre-fund Camelot: mgmt fee directBurn = 5% of fee
-        // fee ≈ $1000 × 0.5% × 30/365 ≈ $0.41  →  directBurn ≈ $0.021 → 0.021e18 BGW
+        // Pre-fund Camelot for directBurn in both harvests:
+        //   First harvest perf fee: 15% of 100e6 = 15e6, directBurn 5% = 0.75e6 → 0.75e18 BGW
+        //   Mgmt fee (second harvest): ~0.45e6 total, directBurn 5% ≈ 0.023e18 BGW
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 1e18);
+        bgwToken.transfer(CAMELOT_ADDR, 2e18);
 
-        // First harvest — sets lastHarvestTime, no fee charged
+        // First harvest — crystallises HWM above $1.00 via perf fee on 100e6 yield;
+        // no management fee charged because lastHarvestTime == 0
         vm.prank(automationAddr);
-        vault.recordHarvest(0, 700e6, 250e6, 50e6);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
         vm.warp(block.timestamp + 30 days);
 
         uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
 
-        // Second harvest — 30 days elapsed → management fee charged
+        // Second harvest — 30 days elapsed, NAV still above HWM → management fee charged
         vm.prank(automationAddr);
-        vault.recordHarvest(0, 700e6, 250e6, 50e6);
+        vault.recordHarvest(0, 770e6, 275e6, 55e6);
 
         // Team received 45% of the management fee
         assertGt(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
+    }
+
+    function test_MgmtFeeWaivedWhenBelowHWM() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+
+        address automationAddr = _setupAutomation();
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 2e18);
+
+        // First harvest — crystallises HWM above $1.00
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+
+        vm.warp(block.timestamp + 30 days);
+
+        uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
+
+        // Second harvest with NAV below HWM ($0.90/BGW < ~$1.09 HWM) — fee waived (H-06)
+        vm.prank(automationAddr);
+        vault.recordHarvest(0, 630e6, 225e6, 45e6);
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
     }
 
     // ── HWM decay ─────────────────────────────────────────────────────────────

@@ -744,10 +744,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @dev Charge the annual management fee proportional to time since last harvest.
     ///      Elapsed time is capped at 90 days to prevent fee shock after long gaps (M-04).
+    ///
+    ///      H-06: Fee is waived when vault NAV is at or below the effective HWM.
+    ///      Depositors who are already underwater should not be charged an additional
+    ///      annual fee on top of their unrealised losses.  The fee resumes automatically
+    ///      once the vault recovers above the (decayed) HWM.
     function _chargeManagementFee() internal {
         if (managementFeeBps == 0 || lastHarvestTime == 0) return;
         uint256 nav = totalNAV();
         if (nav == 0) return;
+
+        // Waive management fee when vault is underwater (H-06)
+        if (navPerBGW18() <= _decayedHWM()) return;
+
         uint256 elapsed = block.timestamp - lastHarvestTime;
         if (elapsed == 0) return;
 
