@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.24;
 
 /// @title  FeeLib
 /// @notice Pure fee-math helpers for the Bridgeway Protocol.
@@ -12,6 +12,17 @@ library FeeLib {
     uint256 internal constant PERF_FEE_BPS     = 1_500;   // 15 %  performance fee
     uint256 internal constant EXIT_FEE_BPS     = 10;      // 0.10% normal exit fee
     uint256 internal constant STRESS_EXIT_BPS  = 75;      // 0.75% stress exit fee
+
+    // ── Management fee ───────────────────────────────────────────────────────
+    uint256 internal constant MANAGEMENT_FEE_BPS = 50;    // 0.50% annual; accrued each harvest
+
+    // ── HWM decay ────────────────────────────────────────────────────────────
+    // If NAV stays below the HWM for HWM_DECAY_START, the HWM begins to slide
+    // linearly from its crystallised value toward HWM_FLOOR over HWM_DECAY_PERIOD.
+    // Fees can resume once NAV > effective (decayed) HWM.
+    uint256 internal constant HWM_DECAY_START  = 365 days; // 1 year grace before decay
+    uint256 internal constant HWM_DECAY_PERIOD = 730 days; // 2 years to reach HWM_FLOOR
+    uint256 internal constant HWM_FLOOR        = 1e18;     // $1.00 — minimum HWM floor
 
     // ── Performance-fee distribution (must sum to BPS_DENOM) ─────────────────
     uint256 internal constant TEAM_BPS         = 4_500;   // 45 %

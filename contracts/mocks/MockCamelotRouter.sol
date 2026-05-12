@@ -1,25 +1,55 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.24;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-interface IMintable {
-    function mint(address to, uint256 amount) external;
-}
-
-// Simulates a Camelot (Uniswap V2-style) router.
-// Returns amountIn * rate BGW for every USDC swap.
-// rate = 1e12 means 1 USDC (6 dec) → 1 BGW (18 dec) at a 1:1 price.
+/// @notice Mock Camelot router for tests.
+///         Implements the ICamelotRouter interface used by BGWVault.
+///         Swap logic: pulls USDC from caller, transfers existing BGW from this
+///         contract's balance to recipient (simulating market liquidity).
+///         Rate: 1e12 → 1 USDC (6 dec) = 1 BGW (18 dec) at $1.00 per BGW.
+///         Tests must pre-fund this address with BGW before triggering swaps.
 contract MockCamelotRouter {
     using SafeERC20 for IERC20;
 
     address public immutable bgwToken;
-    uint256 public immutable rate; // BGW units out per 1 USDC unit in
+    uint256 public immutable rate;
 
     constructor(address _bgwToken, uint256 _rate) {
         bgwToken = _bgwToken;
         rate     = _rate;
+    }
+
+    // ── ICamelotRouter (used by BGWVault) ────────────────────────────────────
+
+    function getAmountsOut(uint256 amountIn, address[] calldata path)
+        external
+        view
+        returns (uint256[] memory amounts)
+    {
+        amounts = new uint256[](path.length);
+        amounts[0] = amountIn;
+        amounts[path.length - 1] = amountIn * rate;
+    }
+
+    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        address, // referrer
+        uint256  // deadline
+    ) external {
+        IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
+
+        uint256 amountOut = amountIn * rate;
+        require(amountOut >= amountOutMin, "MockCamelot: slippage");
+
+        // Transfer existing BGW from this contract's balance (pre-funded in test setUp).
+        // Using transfer instead of mint keeps the total supply accurate: the burned BGW
+        // in executeBuyback/directBurn was already in circulation, not freshly minted.
+        IERC20(path[path.length - 1]).safeTransfer(to, amountOut);
     }
 
     function swapExactTokensForTokens(
@@ -27,19 +57,15 @@ contract MockCamelotRouter {
         uint256 amountOutMin,
         address[] calldata path,
         address to,
-        address, // referrer (unused)
-        uint256  // deadline (unused in mock)
+        address, // referrer
+        uint256  // deadline
     ) external returns (uint256[] memory amounts) {
-        require(path.length >= 2, "invalid path");
-
-        // Pull USDC from caller
         IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
 
         uint256 amountOut = amountIn * rate;
-        require(amountOut >= amountOutMin, "insufficient output");
+        require(amountOut >= amountOutMin, "MockCamelot: slippage");
 
-        // Send BGW to recipient
-        IERC20(bgwToken).safeTransfer(to, amountOut);
+        IERC20(path[path.length - 1]).safeTransfer(to, amountOut);
 
         amounts = new uint256[](2);
         amounts[0] = amountIn;

@@ -17,15 +17,11 @@ contract BGWTokenTest is Test {
         vm.prank(admin);
         token = new BGWToken(admin);
 
-        // Grant minter role to simulated vault
-        vm.prank(admin);
-        token.grantRole(token.MINTER_ROLE(), minter);
-
-        // Whitelist alice and bob
+        // Use startPrank so token.MINTER_ROLE() STATICCALL does not consume the prank
         vm.startPrank(admin);
-        token.setWhitelisted(alice, true);
-        token.setWhitelisted(bob,   true);
-        // Also whitelist the minter (vault) so it can receive tokens during buyback
+        token.grantRole(token.MINTER_ROLE(), minter);
+        token.setWhitelisted(alice,  true);
+        token.setWhitelisted(bob,    true);
         token.setWhitelisted(minter, true);
         vm.stopPrank();
     }

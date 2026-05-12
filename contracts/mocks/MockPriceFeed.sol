@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.26;
+pragma solidity 0.8.24;
 
 // Simulates a Chainlink AggregatorV3 price feed.
 contract MockPriceFeed {

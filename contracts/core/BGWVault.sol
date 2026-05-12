@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
@@ -54,6 +54,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @dev Max slippage allowed on DEX swaps (default 1 %).
     uint256 public constant MAX_SLIPPAGE_BPS = 100;
 
+    // ── BGW-GOV distribution rate ─────────────────────────────────────────────
+    // Fixed-rate formula: each depositor gets bgwMinted × (30M / 100M) BGW-GOV.
+    // Using a fixed denominator ensures equal governance rate for all depositors
+    // regardless of deposit order — the first depositor has no advantage.
+    uint256 private constant GOV_COMMUNITY_ALLOC = 30_000_000e18;
+    uint256 private constant GOV_TOTAL_SUPPLY    = 100_000_000e18;
+
     // ─────────────────────────────────────────────────────────────────────────
     // State — tokens
     // ─────────────────────────────────────────────────────────────────────────
@@ -91,6 +98,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Expressed as USDC per BGW × 1e12 to retain precision.
     ///         E.g., $1.00 NAV/BGW  →  1_000_000 × 1e12 = 1e18.
     uint256 public highWaterMark;   // USD-per-BGW in 18 dec
+
+    /// @notice Timestamp when highWaterMark was last crystallised (moved upward).
+    ///         Used as the reference point for HWM decay timing.
+    uint256 public lastHWMUpdateTime;
+
+    /// @notice Annual management fee in basis points (default 50 = 0.50 %).
+    ///         Accrued at every harvest proportional to elapsed time.
+    uint256 public managementFeeBps = FeeLib.MANAGEMENT_FEE_BPS;
 
     /// @notice USDC accumulated for next BGW buyback (6 dec).
     uint256 public buybackAccumulator;
@@ -141,6 +156,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     );
     event BuybackExecuted(uint256 usdcSpent, uint256 bgwBurned);
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
+    event ManagementFeeCharged(uint256 feeUsdc, uint256 elapsed);
+    event ManagementFeeBpsUpdated(uint256 newBps);
+    event ExitFeeBpsUpdated(uint256 newBps);
+    event StressExitFeeBpsUpdated(uint256 newBps);
     event WhitelistUpdated(address indexed account, bool status);
     event StressModeToggled(bool active);
     event AutomationSet(address indexed automation);
@@ -209,7 +228,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         reserveFundWallet = _reserveFundWallet;
 
         // Bootstrap high-water mark at $1.00 per BGW (18 dec)
-        highWaterMark = 1e18;
+        highWaterMark     = 1e18;
+        lastHWMUpdateTime = block.timestamp;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -221,7 +241,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Morpho positions, etc. For MVP, we track sleeve values manually
     ///         updated by the automation contract each harvest.
     function totalNAV() public view returns (uint256) {
-        return sleeveAValue + sleeveBValue + sleeveCValue;
+        return sleeveAValue + sleeveBValue + sleeveCValue + buybackAccumulator;
     }
 
     /// @notice NAV per BGW token in USDC (6 dec).
@@ -240,13 +260,22 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return navPerBGW() * 1e12;
     }
 
+    /// @notice Effective HWM after time-based decay.
+    ///         If NAV has been below HWM for over 1 year, HWM slides linearly
+    ///         from its crystallised value toward $1.00 over the following 2 years.
+    ///         This is what recordHarvest and redeem actually compare against.
+    function effectiveHighWaterMark() public view returns (uint256) {
+        return _decayedHWM();
+    }
+
     /// @notice Fetch ETH/USD price from Chainlink (8 dec).
     ///         Reverts if feed is stale (>1 hour).
     function getETHPrice() public view returns (uint256 price) {
-        (, int256 answer, , uint256 updatedAt, ) =
+        (uint80 roundId, int256 answer, , uint256 updatedAt, uint80 answeredInRound) =
             IChainlinkAggregator(ETH_USD_FEED).latestRoundData();
         if (block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD)
             revert StaleOracle(updatedAt);
+        require(answeredInRound >= roundId, "BGWVault: stale round");
         require(answer > 0, "BGWVault: negative oracle price");
         price = uint256(answer); // 8 decimals
     }
@@ -278,16 +307,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         // (so the formula uses post-mint supply denominator)
         uint256 govAmount = _calcGovDistribution(bgwToMint);
 
-        // Mint BGW to depositor
-        bgwToken.mint(msg.sender, bgwToMint);
+        // Effects before interactions (CEI): update sleeve accounting first
+        _deployToSleeves(usdcAmount);
 
-        // Distribute BGW-GOV (vault holds community pool)
+        // Interactions: external token calls after all state changes
+        bgwToken.mint(msg.sender, bgwToMint);
         if (govAmount > 0) {
             govToken.distributeToDepositor(msg.sender, govAmount);
         }
-
-        // Deploy USDC into sleeves
-        _deployToSleeves(usdcAmount);
 
         emit Deposited(msg.sender, usdcAmount, bgwToMint, govAmount);
     }
@@ -317,12 +344,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 feeBps      = stressModeActive ? stressExitFeeBps : exitFeeBps;
         uint256 exitFeeUsdc = FeeLib.calcExitFee(grossUsdc, feeBps);
 
-        // ── Performance fee on accrued yield (if above HWM) ───────────────
+        // ── Performance fee on accrued yield (if above effective HWM) ────
         uint256 perfFeeUsdc;
         uint256 currentNav18 = navPerBGW18();
-        if (currentNav18 > highWaterMark) {
-            // Yield per BGW since HWM (in 18 dec)
-            uint256 yieldPerBGW18 = currentNav18 - highWaterMark;
+        uint256 effectiveHwm = _decayedHWM();
+        if (currentNav18 > effectiveHwm) {
+            // Yield per BGW since effective HWM (in 18 dec)
+            uint256 yieldPerBGW18 = currentNav18 - effectiveHwm;
             // Total yield attributable to this redemption (6 dec)
             uint256 yieldUsdc = (bgwAmount * yieldPerBGW18) / 1e30; // 18+12=30 → 6 dec
             perfFeeUsdc = FeeLib.calcPerfFee(yieldUsdc);
@@ -338,11 +366,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         // Update sleeve values (proportional reduction)
         _reduceSleevesProRata(grossUsdc);
 
-        // Distribute performance fee
+        // Distribute performance fee and crystallise HWM
         if (perfFeeUsdc > 0) {
             _distributePerfFee(perfFeeUsdc);
-            // Update HWM after crystallisation
-            highWaterMark = navPerBGW18();
+            highWaterMark     = navPerBGW18();
+            lastHWMUpdateTime = block.timestamp;
         }
 
         // Exit fee → holdback wallet (conservative; could be burned)
@@ -374,24 +402,34 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 newSleeveA,
         uint256 newSleeveB,
         uint256 newSleeveC
-    ) external onlyAutomation {
-        // Update sleeve values
+    ) external nonReentrant onlyAutomation {
+        // Effects first (CEI): update sleeve values before any external calls
         sleeveAValue = newSleeveA;
         sleeveBValue = newSleeveB;
         sleeveCValue = newSleeveC;
-        lastHarvestTime = block.timestamp;
-
         emit SleeveValuesUpdated(newSleeveA, newSleeveB, newSleeveC);
+
+        // Charge management fee against the updated NAV (before updating lastHarvestTime)
+        _chargeManagementFee();
+
+        lastHarvestTime = block.timestamp;
 
         if (netYieldUsdc == 0) return;
 
-        // Take performance fee only if current NAV > HWM
+        // Take performance fee only if current NAV > effective (decayed) HWM
         uint256 currentNav18 = navPerBGW18();
+        uint256 effectiveHwm = _decayedHWM();
         uint256 perfFeeUsdc;
-        if (currentNav18 > highWaterMark) {
+        if (currentNav18 > effectiveHwm) {
             perfFeeUsdc = FeeLib.calcPerfFee(netYieldUsdc);
             _distributePerfFee(perfFeeUsdc);
-            highWaterMark = navPerBGW18();
+            // Reduce sleeve values to keep totalNAV() consistent with vault USDC balance.
+            // buyback portion stays in vault (tracked by buybackAccumulator in totalNAV),
+            // so we reduce by the full fee — the buyback share is already counted via
+            // buybackAccumulator which was incremented inside _distributePerfFee.
+            _reduceSleevesProRata(perfFeeUsdc);
+            highWaterMark     = navPerBGW18();
+            lastHWMUpdateTime = block.timestamp;
         }
 
         emit HarvestRecorded(netYieldUsdc, perfFeeUsdc, highWaterMark);
@@ -480,11 +518,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit WhitelistUpdated(account, status);
     }
 
-    /// @notice Batch whitelist update.
+    /// @notice Batch whitelist update (max 200 accounts per call).
     function setWhitelistedBatch(address[] calldata accounts, bool status)
         external
         onlyOwner
     {
+        require(accounts.length <= 200, "BGWVault: batch too large");
         for (uint256 i; i < accounts.length; ++i) {
             whitelist[accounts[i]] = status;
             bgwToken.setWhitelisted(accounts[i], status);
@@ -496,18 +535,27 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function setExitFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 100) revert InvalidFeeBps(feeBps);
         exitFeeBps = feeBps;
+        emit ExitFeeBpsUpdated(feeBps);
     }
 
     /// @notice Set stress exit fee (max 200 bps = 2 %).
     function setStressExitFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 200) revert InvalidFeeBps(feeBps);
         stressExitFeeBps = feeBps;
+        emit StressExitFeeBpsUpdated(feeBps);
     }
 
     /// @notice Activate or deactivate stress mode (higher exit fee).
     function setStressMode(bool active) external onlyOwner {
         stressModeActive = active;
         emit StressModeToggled(active);
+    }
+
+    /// @notice Set annual management fee (max 100 bps = 1.00 %).
+    function setManagementFeeBps(uint256 feeBps) external onlyOwner {
+        if (feeBps > 100) revert InvalidFeeBps(feeBps);
+        managementFeeBps = feeBps;
+        emit ManagementFeeBpsUpdated(feeBps);
     }
 
     /// @notice Update fee recipient wallets.
@@ -539,7 +587,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         external
         onlyOwner
     {
-        require(token != USDC, "BGWVault: cannot recover vault USDC");
+        require(token != USDC,              "BGWVault: cannot recover vault USDC");
+        require(token != address(bgwToken), "BGWVault: cannot recover BGW");
+        require(token != address(govToken), "BGWVault: cannot recover BGW-GOV");
         IERC20(token).safeTransfer(to, amount);
     }
 
@@ -622,16 +672,66 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (received > 0) bgwToken.burn(received);
     }
 
+    /// @dev Returns the effective HWM after time-based linear decay.
+    ///
+    ///      Timeline (t = time since last HWM crystallisation):
+    ///        0 – 1yr          : no decay, returns highWaterMark
+    ///        1yr – 3yr        : HWM slides linearly from highWaterMark → HWM_FLOOR ($1.00)
+    ///        > 3yr            : returns HWM_FLOOR
+    ///
+    ///      The decay is purely time-based — independent of current NAV — so the
+    ///      effective HWM is predictable and cannot be gamed by temporarily moving NAV.
+    function _decayedHWM() internal view returns (uint256) {
+        uint256 elapsed = block.timestamp - lastHWMUpdateTime;
+        if (elapsed <= FeeLib.HWM_DECAY_START) return highWaterMark;
+
+        uint256 decayElapsed = elapsed - FeeLib.HWM_DECAY_START;
+        if (decayElapsed >= FeeLib.HWM_DECAY_PERIOD) return FeeLib.HWM_FLOOR;
+
+        if (highWaterMark <= FeeLib.HWM_FLOOR) return highWaterMark;
+        uint256 gap     = highWaterMark - FeeLib.HWM_FLOOR;
+        uint256 decayed = (gap * decayElapsed) / FeeLib.HWM_DECAY_PERIOD;
+        return highWaterMark - decayed;
+    }
+
+    /// @dev Charge the annual management fee proportional to time since the
+    ///      last harvest. Called at the top of recordHarvest before updating
+    ///      lastHarvestTime so the elapsed window is always correct.
+    ///
+    ///      Skipped on the very first harvest (lastHarvestTime == 0) and when
+    ///      the vault holds no NAV or USDC.
+    function _chargeManagementFee() internal {
+        if (managementFeeBps == 0 || lastHarvestTime == 0) return;
+        uint256 nav = totalNAV();
+        if (nav == 0) return;
+        uint256 elapsed = block.timestamp - lastHarvestTime;
+        if (elapsed == 0) return;
+
+        // fee = NAV × bps/10000 × elapsed/365days
+        uint256 fee = (nav * managementFeeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
+        if (fee == 0) return;
+
+        // Cap at available vault USDC so a temporarily empty vault never reverts
+        uint256 available = IERC20(USDC).balanceOf(address(this));
+        if (fee > available) fee = available;
+        if (fee == 0) return;
+
+        _distributePerfFee(fee);
+        _reduceSleevesProRata(fee); // keep totalNAV() consistent with vault USDC balance
+        emit ManagementFeeCharged(fee, elapsed);
+    }
+
     /// @dev Calculate BGW-GOV to distribute to a new depositor.
-    ///      Formula: govAmount = (bgwMinted / newTotalBGW) × communityPool
-    ///      Community pool = govToken.balanceOf(address(this)) [vault holds it].
+    ///      Fixed-rate formula: govAmount = bgwMinted × (COMMUNITY_ALLOC / TOTAL_SUPPLY)
+    ///                                    = bgwMinted × 30%
+    ///      The fixed denominator (100 M, the GOV total supply) means every depositor
+    ///      receives the same rate regardless of when they deposit or how large the
+    ///      existing BGW supply is. Pool depletes gracefully once 100 M BGW is minted.
     function _calcGovDistribution(uint256 bgwMinted) internal view returns (uint256) {
         uint256 communityPool = govToken.balanceOf(address(this));
-        if (communityPool == 0) return 0;
+        if (communityPool == 0 || bgwMinted == 0) return 0;
 
-        uint256 newTotalBGW = bgwToken.totalSupply() + bgwMinted;
-        if (newTotalBGW == 0) return 0;
-
-        return (bgwMinted * communityPool) / newTotalBGW;
+        uint256 govAmount = (bgwMinted * GOV_COMMUNITY_ALLOC) / GOV_TOTAL_SUPPLY;
+        return govAmount > communityPool ? communityPool : govAmount;
     }
 }
