@@ -6,6 +6,11 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
+/// @dev Minimal vault interface — avoids a circular import with BGWVault.sol.
+interface IWhitelistVault {
+    function whitelist(address account) external view returns (bool);
+}
+
 /// @title  BGWGovToken
 /// @notice Bridgeway Governance Token (BGW-GOV).
 ///
@@ -105,10 +110,29 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     // ── ERC20Votes overrides (required by OZ) ────────────────────────────────
 
+    /// @dev H-11: restrict GOV transfers to vault-whitelisted addresses.
+    ///      Exempt paths that must move tokens outside normal user transfers:
+    ///        - Mints/burns (from or to == address(0))
+    ///        - initVault seed: address(this) → vault
+    ///        - Vault distributing community pool: vault → depositor
+    ///        - FounderVesting releasing to founder: founderVestingContract → founder
     function _update(address from, address to, uint256 amount)
         internal
         override(ERC20, ERC20Votes)
     {
+        if (
+            vaultInitialized       &&
+            from != address(0)     &&
+            to   != address(0)     &&
+            from != address(this)  &&
+            from != vault          &&
+            from != founderVestingContract
+        ) {
+            require(
+                IWhitelistVault(vault).whitelist(to),
+                "GOV: recipient not whitelisted"
+            );
+        }
         super._update(from, to, amount);
     }
 

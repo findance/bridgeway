@@ -231,6 +231,38 @@ contract BGWVaultTest is Test {
         assertEq(poolBefore - poolAfter, govToken.balanceOf(alice));
     }
 
+    // ── BGW-GOV transfer restrictions (H-11) ─────────────────────────────────
+
+    function test_GovTransferBetweenWhitelistedUsers() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        uint256 aliceGov = govToken.balanceOf(alice);
+        assertGt(aliceGov, 0);
+
+        vm.prank(alice);
+        govToken.transfer(bob, aliceGov);
+
+        assertEq(govToken.balanceOf(bob),  aliceGov);
+        assertEq(govToken.balanceOf(alice), 0);
+    }
+
+    function test_GovTransferToNonWhitelistedReverts() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        address outsider = makeAddr("outsider");
+        uint256 aliceGov = govToken.balanceOf(alice); // capture before prank (vm.prank is one-shot)
+
+        vm.prank(alice);
+        vm.expectRevert("GOV: recipient not whitelisted");
+        govToken.transfer(outsider, aliceGov);
+    }
+
     // ── Sleeve allocation ─────────────────────────────────────────────────────
 
     function test_DepositAllocatesCorrectSleeveWeights() public {
