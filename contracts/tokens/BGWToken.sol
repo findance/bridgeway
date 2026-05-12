@@ -55,7 +55,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
 
     /// @notice Burn BGW from `from`. Only callable by BGWVault (MINTER_ROLE).
     ///         Used during redemptions.
-    function burnFrom(address from, uint256 amount) external onlyRole(MINTER_ROLE) {
+    function adminBurn(address from, uint256 amount) external onlyRole(MINTER_ROLE) {
         _burn(from, amount);
     }
 
@@ -81,6 +81,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
         external
         onlyRole(WHITELIST_ADMIN_ROLE)
     {
+        require(accounts.length <= 200, "BGW: batch too large");
         for (uint256 i; i < accounts.length; ++i) {
             whitelist[accounts[i]] = status;
             emit Whitelisted(accounts[i], status);
@@ -107,9 +108,15 @@ contract BGWToken is ERC20, AccessControl, Pausable {
 
     /// @dev Enforces whitelist and blacklist on every transfer, mint, and burn.
     ///      - Mints:     `from` == address(0) — only `to` checked.
-    ///      - Burns:     `to`   == address(0) — only `from` checked.
-    ///      - Transfers: both sides checked.
-    function _update(address from, address to, uint256 amount) internal override whenNotPaused {
+    ///      - Burns:     `to`   == address(0) — bypass pause so vault redemptions
+    ///                   always succeed even when the token is paused (H-03).
+    ///      - Transfers: both sides checked; blocked when paused.
+    function _update(address from, address to, uint256 amount) internal override {
+        bool isBurn = (to == address(0));
+
+        // Mints and transfers are blocked when paused; burns are always allowed
+        if (!isBurn) _requireNotPaused();
+
         // Blacklist check (both sides)
         if (from != address(0) && blacklisted[from]) revert AccountBlacklisted(from);
         if (to   != address(0) && blacklisted[to])   revert AccountBlacklisted(to);

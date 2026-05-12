@@ -77,6 +77,8 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     constructor(address _vault, address _admin) Ownable(_admin) {
         require(_vault != address(0), "BA: zero vault");
         vault = BGWVault(_vault);
+        // Initialise to deployment time so the first harvest isn't immediately due (H-10)
+        lastHarvestTime = block.timestamp;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

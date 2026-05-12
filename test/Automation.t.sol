@@ -140,7 +140,7 @@ contract AutomationTest is Test {
         // First give alice a deposit so BGW supply > 0.
         vm.startPrank(alice);
         MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // Pre-fund mock Camelot with Alice's BGW for the directBurn path in recordHarvest.
@@ -150,13 +150,17 @@ contract AutomationTest is Test {
 
         MockUSDCAutomation(USDC_ADDR).mint(address(vault), 100e6);
 
-        // recordHarvest triggers perf fee → buyback accumulator gets 15% × 15% = 2.25 USDC
-        // Need accumulator >= 50 USDC threshold. Trigger a large enough yield.
-        // 15% perf fee of X; 15% of that to accumulator → need X × 0.15 × 0.15 ≥ 50
-        // → X ≥ 2222 USDC yield. Let's use 2500e6 yield.
+        // Set vault NAV to 100,000 USDC so that the pro-rata sleeve reduction after
+        // fee distribution is negligible (~0.4%), keeping buybackAccumulator >> 50 USDC.
+        // (Without large NAV the H-05 fix reduces the accumulator below threshold.)
+        vm.prank(address(automation));
+        vault.updateSleeveValues(70_000e6, 25_000e6, 5_000e6); // NAV = 100,000 USDC
+
+        // recordHarvest triggers perf fee → buyback accumulator ≈ 56 USDC after reduction.
+        // Need accumulator >= 50 USDC threshold. Use 2500e6 yield (perf fee = 375, buyback ≈ 56).
         MockUSDCAutomation(USDC_ADDR).mint(address(vault), 2_500e6);
         vm.prank(address(automation));
-        vault.recordHarvest(2_500e6, 770e6, 275e6, 55e6);
+        vault.recordHarvest(2_500e6, 70_000e6, 25_000e6, 5_000e6);
 
         uint256 acc = vault.buybackAccumulator();
         assertGe(acc, BUYBACK_THRESHOLD, "accumulator should be above threshold");
@@ -221,6 +225,7 @@ contract AutomationTest is Test {
 
     function test_ManualHarvestUpdatesTimestamp() public {
         uint256 before = automation.lastHarvestTime();
+        vm.warp(block.timestamp + 1); // advance time so harvest records a new timestamp
         vm.prank(founder);
         automation.manualHarvest();
         assertGt(automation.lastHarvestTime(), before);

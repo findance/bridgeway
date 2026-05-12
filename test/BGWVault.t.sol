@@ -140,7 +140,7 @@ contract BGWVaultTest is Test {
     function test_FirstDepositMintsBGW1to1() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // At $1.00 NAV: 1000 USDC → 1000 BGW
@@ -152,7 +152,7 @@ contract BGWVaultTest is Test {
         // Alice deposits 1000 USDC
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // Simulate NAV growth via sleeve value update (no yield = no perf fee = no Camelot)
@@ -163,7 +163,7 @@ contract BGWVaultTest is Test {
         // Bob deposits 1100 USDC at $1.10 NAV → should receive ~1000 BGW
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_100e6);
-        vault.deposit(1_100e6);
+        vault.deposit(1_100e6, 0);
         vm.stopPrank();
 
         assertApproxEqRel(bgwToken.balanceOf(bob), 1_000e18, 0.01e18);
@@ -176,14 +176,14 @@ contract BGWVaultTest is Test {
         vm.startPrank(stranger);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vm.expectRevert(abi.encodeWithSelector(BGWVault.NotWhitelisted.selector, stranger));
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
     }
 
     function test_DepositRevertsOnZero() public {
         vm.prank(alice);
         vm.expectRevert(BGWVault.ZeroAmount.selector);
-        vault.deposit(0);
+        vault.deposit(0, 0);
     }
 
     // ── BGW-GOV distribution ──────────────────────────────────────────────────
@@ -191,7 +191,7 @@ contract BGWVaultTest is Test {
     function test_GovDistributedAtFixedRate() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // Rate: bgwMinted × (30M / 100M) = 1000e18 × 0.3 = 300e18 BGW-GOV
@@ -203,7 +203,7 @@ contract BGWVaultTest is Test {
         // Alice deposits first
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         uint256 aliceGov = govToken.balanceOf(alice);
@@ -211,7 +211,7 @@ contract BGWVaultTest is Test {
         // Bob deposits the same amount later (NAV unchanged)
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // Both should receive the same amount — no first-depositor advantage
@@ -223,7 +223,7 @@ contract BGWVaultTest is Test {
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         uint256 poolAfter = govToken.balanceOf(address(vault));
@@ -236,7 +236,7 @@ contract BGWVaultTest is Test {
     function test_DepositAllocatesCorrectSleeveWeights() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         assertEq(vault.sleeveAValue(), 700e6);
@@ -249,7 +249,7 @@ contract BGWVaultTest is Test {
     function test_RedeemReturnsUSDCMinusExitFee() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
 
         uint256 bgwBalance = bgwToken.balanceOf(alice);
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
@@ -267,7 +267,7 @@ contract BGWVaultTest is Test {
     function test_RedeemBurnsBGW() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         uint256 bgwBefore = bgwToken.totalSupply();
 
         vault.redeem(bgwToken.balanceOf(alice), 0);
@@ -280,7 +280,7 @@ contract BGWVaultTest is Test {
     function test_RedeemRevertsIfInsufficientBGW() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
 
         vm.expectRevert();
         vault.redeem(99_999e18, 0);
@@ -290,7 +290,7 @@ contract BGWVaultTest is Test {
     function test_RedeemRevertsOnSlippage() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // Cache balance before vm.expectRevert so the balanceOf STATICCALL doesn't
@@ -327,7 +327,7 @@ contract BGWVaultTest is Test {
     function test_HWMNotUpdatedWhenNAVBelow() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         uint256 hwmBefore      = vault.highWaterMark();
@@ -342,7 +342,7 @@ contract BGWVaultTest is Test {
     function test_HarvestWithYieldTakesPerfFeeAndUpdateHWM() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // Give vault extra USDC to cover perf-fee distribution
@@ -375,7 +375,7 @@ contract BGWVaultTest is Test {
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
 
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
         vault.redeem(bgwToken.balanceOf(alice), 0);
@@ -392,7 +392,7 @@ contract BGWVaultTest is Test {
         // Seed vault buyback accumulator by triggering a perf fee harvest
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
@@ -426,7 +426,7 @@ contract BGWVaultTest is Test {
     function test_NoMgmtFeeOnFirstHarvest() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         address automationAddr = _setupAutomation();
@@ -442,7 +442,7 @@ contract BGWVaultTest is Test {
     function test_MgmtFeeAccruedAfterInterval() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         address automationAddr = _setupAutomation();
@@ -473,7 +473,7 @@ contract BGWVaultTest is Test {
     function test_EffectiveHWMUnchangedWithinOneYear() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
@@ -498,7 +498,7 @@ contract BGWVaultTest is Test {
     function test_EffectiveHWMDecaysAfterOneYear() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
@@ -521,7 +521,7 @@ contract BGWVaultTest is Test {
     function test_PerfFeeFiresOnDecayedHWM() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6);
+        vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
