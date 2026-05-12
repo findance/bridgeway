@@ -418,6 +418,92 @@ contract BGWVaultTest is Test {
         assertApproxEqAbs(received, expected, 1);
     }
 
+    // ── Fee-change timelock (M-03) ────────────────────────────────────────────
+
+    function test_ExitFeeTimelockPreventsImmediateExecution() public {
+        vm.prank(founder);
+        vault.proposeExitFeeBps(20);
+
+        vm.prank(founder);
+        vm.expectRevert(
+            abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours)
+        );
+        vault.executeExitFeeBps();
+    }
+
+    function test_ExitFeeTimelockAppliableAfterDelay() public {
+        vm.prank(founder);
+        vault.proposeExitFeeBps(20);
+
+        vm.warp(block.timestamp + 48 hours);
+
+        vm.prank(founder);
+        vault.executeExitFeeBps();
+
+        assertEq(vault.exitFeeBps(), 20);
+    }
+
+    function test_ExitFeeTimelockCancelClearsProposal() public {
+        vm.prank(founder);
+        vault.proposeExitFeeBps(20);
+
+        vm.prank(founder);
+        vault.cancelExitFeeBps();
+
+        // Capture key before prank — staticcall inside expectRevert would otherwise consume it
+        bytes32 key = vault.CHANGE_EXIT_FEE();
+        vm.warp(block.timestamp + 48 hours);
+        vm.prank(founder);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.NoPendingChange.selector, key));
+        vault.executeExitFeeBps();
+    }
+
+    function test_ManagementFeeTimelockAppliableAfterDelay() public {
+        vm.prank(founder);
+        vault.proposeManagementFeeBps(30);
+
+        vm.warp(block.timestamp + 48 hours);
+
+        vm.prank(founder);
+        vault.executeManagementFeeBps();
+
+        assertEq(vault.managementFeeBps(), 30);
+    }
+
+    function test_FeeWalletsTimelockAppliableAfterDelay() public {
+        address newTeam     = makeAddr("newTeam");
+        address newHoldback = makeAddr("newHoldback");
+        address newLp       = makeAddr("newLp");
+        address newReserve  = makeAddr("newReserve");
+
+        vm.prank(founder);
+        vault.proposeFeeWallets(newTeam, newHoldback, newLp, newReserve);
+
+        vm.warp(block.timestamp + 48 hours);
+
+        vm.prank(founder);
+        vault.executeFeeWallets();
+
+        assertEq(vault.teamWallet(),        newTeam);
+        assertEq(vault.holdbackWallet(),    newHoldback);
+        assertEq(vault.lpSeedingWallet(),   newLp);
+        assertEq(vault.reserveFundWallet(), newReserve);
+    }
+
+    function test_OnlyOwnerCanProposeFeeChange() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        vault.proposeExitFeeBps(20);
+    }
+
+    function test_FeeChangeRevertsWithNoPendingChange() public {
+        // Capture key before prank — staticcall inside expectRevert would otherwise consume it
+        bytes32 key = vault.CHANGE_EXIT_FEE();
+        vm.prank(founder);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.NoPendingChange.selector, key));
+        vault.executeExitFeeBps();
+    }
+
     // ── Buyback ───────────────────────────────────────────────────────────────
 
     function test_BuybackBurnsBGW() public {

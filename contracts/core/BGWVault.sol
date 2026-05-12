@@ -137,6 +137,33 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     mapping(address => uint256) public pendingFees;
 
     // ─────────────────────────────────────────────────────────────────────────
+    // State — fee-change timelock (M-03)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Minimum delay between proposing and executing a fee-level change.
+    ///         Gives depositors time to exit before a higher fee takes effect.
+    uint256 public constant FEE_CHANGE_DELAY = 48 hours;
+
+    bytes32 public constant CHANGE_EXIT_FEE   = keccak256("EXIT_FEE");
+    bytes32 public constant CHANGE_STRESS_FEE = keccak256("STRESS_EXIT_FEE");
+    bytes32 public constant CHANGE_MGMT_FEE   = keccak256("MANAGEMENT_FEE");
+
+    struct PendingFeeChange {
+        uint256 value;
+        uint256 executeAfter; // 0 = no pending change
+    }
+    mapping(bytes32 => PendingFeeChange) public pendingFeeChanges;
+
+    struct PendingWalletsChange {
+        address team;
+        address holdback;
+        address lp;
+        address reserve;
+        uint256 executeAfter; // 0 = no pending change
+    }
+    PendingWalletsChange public pendingWalletsChange;
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Events
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -171,6 +198,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event AutomationRevoked(address indexed old);
     event FeeWalletsUpdated(address team, address holdback, address lp, address reserve);
     event ProtectedTokenUpdated(address indexed token, bool protected);
+    // Timelock events (M-03)
+    event FeeChangeProposed(bytes32 indexed changeType, uint256 newValue, uint256 executeAfter);
+    event FeeChangeExecuted(bytes32 indexed changeType, uint256 newValue);
+    event FeeChangeCancelled(bytes32 indexed changeType);
+    event FeeWalletsProposed(address team, address holdback, address lp, address reserve, uint256 executeAfter);
+    event FeeWalletsCancelled();
 
     // ─────────────────────────────────────────────────────────────────────────
     // Errors
@@ -184,6 +217,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error InsufficientBGW(uint256 have, uint256 need);
     error InvalidFeeBps(uint256 bps);
     error ZeroAddress();
+    error NoPendingChange(bytes32 changeType);
+    error TimelockNotElapsed(uint256 executeAfter);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
@@ -542,49 +577,119 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Set normal exit fee (max 100 bps = 1 %).
-    function setExitFeeBps(uint256 feeBps) external onlyOwner {
+    // ── Fee-change timelock (M-03) ────────────────────────────────────────────
+    // Fee-level changes (BPS) and wallet updates follow a two-step pattern:
+    //   1. propose*  — queues the new value; emits a propose event for off-chain monitoring
+    //   2. execute*  — applies the change once FEE_CHANGE_DELAY (48 h) has elapsed
+    //   3. cancel*   — discards the pending change before it executes
+    // setStressMode remains instant — it is an emergency circuit-breaker, not a fee increase.
+
+    function proposeExitFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 100) revert InvalidFeeBps(feeBps);
-        exitFeeBps = feeBps;
-        emit ExitFeeBpsUpdated(feeBps);
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        pendingFeeChanges[CHANGE_EXIT_FEE] = PendingFeeChange(feeBps, eta);
+        emit FeeChangeProposed(CHANGE_EXIT_FEE, feeBps, eta);
     }
 
-    /// @notice Set stress exit fee (max 200 bps = 2 %).
-    function setStressExitFeeBps(uint256 feeBps) external onlyOwner {
+    function executeExitFeeBps() external onlyOwner {
+        PendingFeeChange memory p = pendingFeeChanges[CHANGE_EXIT_FEE];
+        if (p.executeAfter == 0)                    revert NoPendingChange(CHANGE_EXIT_FEE);
+        if (block.timestamp < p.executeAfter)        revert TimelockNotElapsed(p.executeAfter);
+        delete pendingFeeChanges[CHANGE_EXIT_FEE];
+        exitFeeBps = p.value;
+        emit FeeChangeExecuted(CHANGE_EXIT_FEE, p.value);
+        emit ExitFeeBpsUpdated(p.value);
+    }
+
+    function cancelExitFeeBps() external onlyOwner {
+        if (pendingFeeChanges[CHANGE_EXIT_FEE].executeAfter == 0) revert NoPendingChange(CHANGE_EXIT_FEE);
+        delete pendingFeeChanges[CHANGE_EXIT_FEE];
+        emit FeeChangeCancelled(CHANGE_EXIT_FEE);
+    }
+
+    function proposeStressExitFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 200) revert InvalidFeeBps(feeBps);
-        stressExitFeeBps = feeBps;
-        emit StressExitFeeBpsUpdated(feeBps);
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        pendingFeeChanges[CHANGE_STRESS_FEE] = PendingFeeChange(feeBps, eta);
+        emit FeeChangeProposed(CHANGE_STRESS_FEE, feeBps, eta);
     }
 
-    /// @notice Activate or deactivate stress mode (higher exit fee).
+    function executeStressExitFeeBps() external onlyOwner {
+        PendingFeeChange memory p = pendingFeeChanges[CHANGE_STRESS_FEE];
+        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_STRESS_FEE);
+        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
+        delete pendingFeeChanges[CHANGE_STRESS_FEE];
+        stressExitFeeBps = p.value;
+        emit FeeChangeExecuted(CHANGE_STRESS_FEE, p.value);
+        emit StressExitFeeBpsUpdated(p.value);
+    }
+
+    function cancelStressExitFeeBps() external onlyOwner {
+        if (pendingFeeChanges[CHANGE_STRESS_FEE].executeAfter == 0) revert NoPendingChange(CHANGE_STRESS_FEE);
+        delete pendingFeeChanges[CHANGE_STRESS_FEE];
+        emit FeeChangeCancelled(CHANGE_STRESS_FEE);
+    }
+
+    /// @notice Activate or deactivate stress mode (higher exit fee). Instant — emergency use.
     function setStressMode(bool active) external onlyOwner {
         stressModeActive = active;
         emit StressModeToggled(active);
     }
 
-    /// @notice Set annual management fee (max 100 bps = 1.00 %).
-    function setManagementFeeBps(uint256 feeBps) external onlyOwner {
+    function proposeManagementFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 100) revert InvalidFeeBps(feeBps);
-        managementFeeBps = feeBps;
-        emit ManagementFeeBpsUpdated(feeBps);
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        pendingFeeChanges[CHANGE_MGMT_FEE] = PendingFeeChange(feeBps, eta);
+        emit FeeChangeProposed(CHANGE_MGMT_FEE, feeBps, eta);
     }
 
-    /// @notice Update fee recipient wallets.
-    function updateFeeWallets(
+    function executeManagementFeeBps() external onlyOwner {
+        PendingFeeChange memory p = pendingFeeChanges[CHANGE_MGMT_FEE];
+        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_MGMT_FEE);
+        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
+        delete pendingFeeChanges[CHANGE_MGMT_FEE];
+        managementFeeBps = p.value;
+        emit FeeChangeExecuted(CHANGE_MGMT_FEE, p.value);
+        emit ManagementFeeBpsUpdated(p.value);
+    }
+
+    function cancelManagementFeeBps() external onlyOwner {
+        if (pendingFeeChanges[CHANGE_MGMT_FEE].executeAfter == 0) revert NoPendingChange(CHANGE_MGMT_FEE);
+        delete pendingFeeChanges[CHANGE_MGMT_FEE];
+        emit FeeChangeCancelled(CHANGE_MGMT_FEE);
+    }
+
+    function proposeFeeWallets(
         address _team,
         address _holdback,
         address _lp,
         address _reserve
     ) external onlyOwner {
-        if (_team    == address(0)) revert ZeroAddress();
+        if (_team     == address(0)) revert ZeroAddress();
         if (_holdback == address(0)) revert ZeroAddress();
-        if (_lp      == address(0)) revert ZeroAddress();
-        if (_reserve == address(0)) revert ZeroAddress();
+        if (_lp       == address(0)) revert ZeroAddress();
+        if (_reserve  == address(0)) revert ZeroAddress();
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        pendingWalletsChange = PendingWalletsChange(_team, _holdback, _lp, _reserve, eta);
+        emit FeeWalletsProposed(_team, _holdback, _lp, _reserve, eta);
+    }
 
-        teamWallet        = _team;
-        holdbackWallet    = _holdback;
-        lpSeedingWallet   = _lp;
-        reserveFundWallet = _reserve;
-        emit FeeWalletsUpdated(_team, _holdback, _lp, _reserve);
+    function executeFeeWallets() external onlyOwner {
+        PendingWalletsChange memory p = pendingWalletsChange;
+        if (p.executeAfter == 0)             revert NoPendingChange(bytes32("FEE_WALLETS"));
+        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
+        delete pendingWalletsChange;
+        teamWallet        = p.team;
+        holdbackWallet    = p.holdback;
+        lpSeedingWallet   = p.lp;
+        reserveFundWallet = p.reserve;
+        emit FeeWalletsUpdated(p.team, p.holdback, p.lp, p.reserve);
+    }
+
+    function cancelFeeWallets() external onlyOwner {
+        if (pendingWalletsChange.executeAfter == 0) revert NoPendingChange(bytes32("FEE_WALLETS"));
+        delete pendingWalletsChange;
+        emit FeeWalletsCancelled();
     }
 
     function pause()   external onlyOwner { _pause(); }
