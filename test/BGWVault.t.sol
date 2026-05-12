@@ -539,7 +539,7 @@ contract BGWVaultTest is Test {
         assertGt(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
     }
 
-    function test_MgmtFeeWaivedWhenBelowHWM() public {
+    function test_MgmtFeeReducedWhenBelowHWM() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -559,11 +559,21 @@ contract BGWVaultTest is Test {
 
         uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
 
-        // Second harvest with NAV below HWM ($0.90/BGW < ~$1.09 HWM) — fee waived (H-06)
+        // Second harvest: NAV below HWM ($0.90/BGW < ~$1.09 HWM).
+        // H-06: base rate (0.1%/year) charged instead of full rate (0.5%/year).
         vm.prank(automationAddr);
         vault.recordHarvest(0, 630e6, 225e6, 45e6);
 
-        assertEq(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
+        // Team still receives a fee (base rate), but less than the full rate
+        uint256 teamFee = MockUSDC(USDC_ADDR).balanceOf(team) - teamBefore;
+        assertGt(teamFee, 0, "base fee should be charged");
+
+        // Full-rate fee on ~$900 NAV × 0.5% × 30/365 ≈ 3.70e6 → team 45% ≈ 1.67e6
+        // Base-rate fee on ~$900 NAV × 0.1% × 30/365 ≈ 0.74e6 → team 45% ≈ 0.33e6
+        // Verify team received strictly less than a full-rate fee would have given
+        uint256 fullRateFee = (uint256(900e6) * 50 * 30 days) / (10_000 * uint256(365 days));
+        uint256 fullRateTeam = (fullRateFee * 4_500) / 10_000;
+        assertLt(teamFee, fullRateTeam, "reduced fee should be less than full-rate fee");
     }
 
     // ── HWM decay ─────────────────────────────────────────────────────────────

@@ -754,16 +754,17 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 nav = totalNAV();
         if (nav == 0) return;
 
-        // Waive management fee when vault is underwater (H-06)
-        if (navPerBGW18() <= _decayedHWM()) return;
-
         uint256 elapsed = block.timestamp - lastHarvestTime;
         if (elapsed == 0) return;
 
         // Cap at 90 days to prevent excessive fee accrual after automation downtime
         if (elapsed > 90 days) elapsed = 90 days;
 
-        uint256 fee = (nav * managementFeeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
+        // H-06: charge base rate (0.1%/year) always; full rate (0.5%/year) only above HWM
+        bool aboveHWM  = navPerBGW18() > _decayedHWM();
+        uint256 feeBps = aboveHWM ? managementFeeBps : FeeLib.BASE_MGMT_FEE_BPS;
+
+        uint256 fee = (nav * feeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
         if (fee == 0) return;
 
         uint256 available = IERC20(USDC).balanceOf(address(this));
