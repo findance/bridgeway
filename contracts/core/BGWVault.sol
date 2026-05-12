@@ -99,6 +99,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         E.g., $1.00 NAV/BGW  →  1_000_000 × 1e12 = 1e18.
     uint256 public highWaterMark;   // USD-per-BGW in 18 dec
 
+    /// @notice Timestamp when highWaterMark was last crystallised (moved upward).
+    ///         Used as the reference point for HWM decay timing.
+    uint256 public lastHWMUpdateTime;
+
+    /// @notice Annual management fee in basis points (default 50 = 0.50 %).
+    ///         Accrued at every harvest proportional to elapsed time.
+    uint256 public managementFeeBps = FeeLib.MANAGEMENT_FEE_BPS;
+
     /// @notice USDC accumulated for next BGW buyback (6 dec).
     uint256 public buybackAccumulator;
 
@@ -148,6 +156,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     );
     event BuybackExecuted(uint256 usdcSpent, uint256 bgwBurned);
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
+    event ManagementFeeCharged(uint256 feeUsdc, uint256 elapsed);
+    event ManagementFeeBpsUpdated(uint256 newBps);
     event WhitelistUpdated(address indexed account, bool status);
     event StressModeToggled(bool active);
     event AutomationSet(address indexed automation);
@@ -216,7 +226,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         reserveFundWallet = _reserveFundWallet;
 
         // Bootstrap high-water mark at $1.00 per BGW (18 dec)
-        highWaterMark = 1e18;
+        highWaterMark     = 1e18;
+        lastHWMUpdateTime = block.timestamp;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -245,6 +256,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function navPerBGW18() public view returns (uint256) {
         // navPerBGW is 6 dec; scale up to 18 dec
         return navPerBGW() * 1e12;
+    }
+
+    /// @notice Effective HWM after time-based decay.
+    ///         If NAV has been below HWM for over 1 year, HWM slides linearly
+    ///         from its crystallised value toward $1.00 over the following 2 years.
+    ///         This is what recordHarvest and redeem actually compare against.
+    function effectiveHighWaterMark() public view returns (uint256) {
+        return _decayedHWM();
     }
 
     /// @notice Fetch ETH/USD price from Chainlink (8 dec).
@@ -324,12 +343,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 feeBps      = stressModeActive ? stressExitFeeBps : exitFeeBps;
         uint256 exitFeeUsdc = FeeLib.calcExitFee(grossUsdc, feeBps);
 
-        // ── Performance fee on accrued yield (if above HWM) ───────────────
+        // ── Performance fee on accrued yield (if above effective HWM) ────
         uint256 perfFeeUsdc;
         uint256 currentNav18 = navPerBGW18();
-        if (currentNav18 > highWaterMark) {
-            // Yield per BGW since HWM (in 18 dec)
-            uint256 yieldPerBGW18 = currentNav18 - highWaterMark;
+        uint256 effectiveHwm = _decayedHWM();
+        if (currentNav18 > effectiveHwm) {
+            // Yield per BGW since effective HWM (in 18 dec)
+            uint256 yieldPerBGW18 = currentNav18 - effectiveHwm;
             // Total yield attributable to this redemption (6 dec)
             uint256 yieldUsdc = (bgwAmount * yieldPerBGW18) / 1e30; // 18+12=30 → 6 dec
             perfFeeUsdc = FeeLib.calcPerfFee(yieldUsdc);
@@ -345,11 +365,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         // Update sleeve values (proportional reduction)
         _reduceSleevesProRata(grossUsdc);
 
-        // Distribute performance fee
+        // Distribute performance fee and crystallise HWM
         if (perfFeeUsdc > 0) {
             _distributePerfFee(perfFeeUsdc);
-            // Update HWM after crystallisation
-            highWaterMark = navPerBGW18();
+            highWaterMark     = navPerBGW18();
+            lastHWMUpdateTime = block.timestamp;
         }
 
         // Exit fee → holdback wallet (conservative; could be burned)
@@ -382,23 +402,28 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 newSleeveB,
         uint256 newSleeveC
     ) external onlyAutomation {
-        // Update sleeve values
-        sleeveAValue = newSleeveA;
-        sleeveBValue = newSleeveB;
-        sleeveCValue = newSleeveC;
+        // Charge management fee for time elapsed since last harvest (before updating lastHarvestTime)
+        _chargeManagementFee();
+
+        // Update sleeve values and harvest timestamp
+        sleeveAValue    = newSleeveA;
+        sleeveBValue    = newSleeveB;
+        sleeveCValue    = newSleeveC;
         lastHarvestTime = block.timestamp;
 
         emit SleeveValuesUpdated(newSleeveA, newSleeveB, newSleeveC);
 
         if (netYieldUsdc == 0) return;
 
-        // Take performance fee only if current NAV > HWM
+        // Take performance fee only if current NAV > effective (decayed) HWM
         uint256 currentNav18 = navPerBGW18();
+        uint256 effectiveHwm = _decayedHWM();
         uint256 perfFeeUsdc;
-        if (currentNav18 > highWaterMark) {
+        if (currentNav18 > effectiveHwm) {
             perfFeeUsdc = FeeLib.calcPerfFee(netYieldUsdc);
             _distributePerfFee(perfFeeUsdc);
-            highWaterMark = navPerBGW18();
+            highWaterMark     = navPerBGW18();
+            lastHWMUpdateTime = block.timestamp;
         }
 
         emit HarvestRecorded(netYieldUsdc, perfFeeUsdc, highWaterMark);
@@ -517,6 +542,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit StressModeToggled(active);
     }
 
+    /// @notice Set annual management fee (max 100 bps = 1.00 %).
+    function setManagementFeeBps(uint256 feeBps) external onlyOwner {
+        if (feeBps > 100) revert InvalidFeeBps(feeBps);
+        managementFeeBps = feeBps;
+        emit ManagementFeeBpsUpdated(feeBps);
+    }
+
     /// @notice Update fee recipient wallets.
     function updateFeeWallets(
         address _team,
@@ -627,6 +659,54 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         uint256 received = bgwToken.balanceOf(address(this)) - bgwBefore;
         if (received > 0) bgwToken.burn(received);
+    }
+
+    /// @dev Returns the effective HWM after time-based linear decay.
+    ///
+    ///      Timeline (t = time since last HWM crystallisation):
+    ///        0 – 1yr          : no decay, returns highWaterMark
+    ///        1yr – 3yr        : HWM slides linearly from highWaterMark → HWM_FLOOR ($1.00)
+    ///        > 3yr            : returns HWM_FLOOR
+    ///
+    ///      The decay is purely time-based — independent of current NAV — so the
+    ///      effective HWM is predictable and cannot be gamed by temporarily moving NAV.
+    function _decayedHWM() internal view returns (uint256) {
+        uint256 elapsed = block.timestamp - lastHWMUpdateTime;
+        if (elapsed <= FeeLib.HWM_DECAY_START) return highWaterMark;
+
+        uint256 decayElapsed = elapsed - FeeLib.HWM_DECAY_START;
+        if (decayElapsed >= FeeLib.HWM_DECAY_PERIOD) return FeeLib.HWM_FLOOR;
+
+        if (highWaterMark <= FeeLib.HWM_FLOOR) return highWaterMark;
+        uint256 gap     = highWaterMark - FeeLib.HWM_FLOOR;
+        uint256 decayed = (gap * decayElapsed) / FeeLib.HWM_DECAY_PERIOD;
+        return highWaterMark - decayed;
+    }
+
+    /// @dev Charge the annual management fee proportional to time since the
+    ///      last harvest. Called at the top of recordHarvest before updating
+    ///      lastHarvestTime so the elapsed window is always correct.
+    ///
+    ///      Skipped on the very first harvest (lastHarvestTime == 0) and when
+    ///      the vault holds no NAV or USDC.
+    function _chargeManagementFee() internal {
+        if (managementFeeBps == 0 || lastHarvestTime == 0) return;
+        uint256 nav = totalNAV();
+        if (nav == 0) return;
+        uint256 elapsed = block.timestamp - lastHarvestTime;
+        if (elapsed == 0) return;
+
+        // fee = NAV × bps/10000 × elapsed/365days
+        uint256 fee = (nav * managementFeeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
+        if (fee == 0) return;
+
+        // Cap at available vault USDC so a temporarily empty vault never reverts
+        uint256 available = IERC20(USDC).balanceOf(address(this));
+        if (fee > available) fee = available;
+        if (fee == 0) return;
+
+        _distributePerfFee(fee);
+        emit ManagementFeeCharged(fee, elapsed);
     }
 
     /// @dev Calculate BGW-GOV to distribute to a new depositor.

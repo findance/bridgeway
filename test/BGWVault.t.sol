@@ -420,4 +420,151 @@ contract BGWVaultTest is Test {
         assertEq(vault.buybackAccumulator(), 0);
         assertLt(bgwToken.totalSupply(), supplyBefore);
     }
+
+    // ── Management fee ────────────────────────────────────────────────────────
+
+    function test_NoMgmtFeeOnFirstHarvest() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        address automationAddr = _setupAutomation();
+        uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
+
+        // First-ever harvest: lastHarvestTime == 0, management fee skipped
+        vm.prank(automationAddr);
+        vault.recordHarvest(0, 700e6, 250e6, 50e6);
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
+    }
+
+    function test_MgmtFeeAccruedAfterInterval() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        address automationAddr = _setupAutomation();
+
+        // Pre-fund Camelot: mgmt fee directBurn = 5% of fee
+        // fee ≈ $1000 × 0.5% × 30/365 ≈ $0.41  →  directBurn ≈ $0.021 → 0.021e18 BGW
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 1e18);
+
+        // First harvest — sets lastHarvestTime, no fee charged
+        vm.prank(automationAddr);
+        vault.recordHarvest(0, 700e6, 250e6, 50e6);
+
+        vm.warp(block.timestamp + 30 days);
+
+        uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
+
+        // Second harvest — 30 days elapsed → management fee charged
+        vm.prank(automationAddr);
+        vault.recordHarvest(0, 700e6, 250e6, 50e6);
+
+        // Team received 45% of the management fee
+        assertGt(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
+    }
+
+    // ── HWM decay ─────────────────────────────────────────────────────────────
+
+    function test_EffectiveHWMUnchangedWithinOneYear() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+        address automationAddr = _setupAutomation();
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+
+        // Crystallise HWM above $1.00
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+        uint256 hwm = vault.highWaterMark();
+
+        // Simulate NAV dropping below HWM
+        vm.prank(automationAddr);
+        vault.updateSleeveValues(630e6, 225e6, 45e6); // total $900
+
+        // 364 days — still within grace period, no decay
+        vm.warp(block.timestamp + 364 days);
+        assertEq(vault.effectiveHighWaterMark(), hwm);
+    }
+
+    function test_EffectiveHWMDecaysAfterOneYear() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+        address automationAddr = _setupAutomation();
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+        uint256 hwm = vault.highWaterMark();
+
+        vm.prank(automationAddr);
+        vault.updateSleeveValues(630e6, 225e6, 45e6); // NAV below HWM
+
+        // One day past the 1-year mark: decay starts
+        vm.warp(block.timestamp + 366 days);
+        assertLt(vault.effectiveHighWaterMark(), hwm);
+    }
+
+    function test_PerfFeeFiresOnDecayedHWM() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+        address automationAddr = _setupAutomation();
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 10e18); // covers directBurn in both harvests
+
+        // Step 1: crystallise HWM at ~$1.10
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+        uint256 originalHwm = vault.highWaterMark(); // ≈ 1.10075e18
+
+        // Step 2: simulate bear market — NAV drops to ~$0.90
+        vm.prank(automationAddr);
+        vault.updateSleeveValues(630e6, 225e6, 45e6);
+
+        // Step 3: warp 2.5 years past crystallisation
+        //   decay starts at 1yr, so 1.5 years into the 2-year decay period (75% decayed)
+        //   effectiveHWM ≈ 1.10075e18 - 0.10075e18 × (547/730) ≈ 1.025e18
+        vm.warp(block.timestamp + 912 days);
+
+        uint256 effHwm = vault.effectiveHighWaterMark();
+        assertLt(effHwm, originalHwm); // decay is active
+
+        // Step 4: partial recovery — NAV ~$1.03, above effectiveHWM but below original HWM
+        //   sleeves: 721 + 257 + 52 = 1030 → navPerBGW18 ≈ 1.031e18
+        vm.prank(automationAddr);
+        vault.updateSleeveValues(721e6, 257e6, 52e6);
+
+        assertLt(vault.navPerBGW18(), originalHwm); // still below original HWM
+        assertGt(vault.navPerBGW18(), effHwm);      // above decayed HWM → fee should fire
+
+        // Step 5: recordHarvest — perf fee should fire due to decayed HWM
+        MockUSDC(USDC_ADDR).mint(address(vault), 50e6);
+        uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
+
+        vm.prank(automationAddr);
+        vault.recordHarvest(20e6, 721e6, 257e6, 52e6);
+
+        // Perf fee was taken (team wallet received USDC)
+        assertGt(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
+        // HWM crystallised to new (lower) level
+        assertGt(vault.highWaterMark(), effHwm);
+        assertLt(vault.highWaterMark(), originalHwm);
+    }
 }
