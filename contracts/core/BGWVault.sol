@@ -431,6 +431,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice Spend `usdcAmount` from the buyback accumulator:
     ///         swap USDC → BGW on Camelot, then burn the received BGW.
+    ///
+    ///         minBGW is derived from the vault's own NAV rather than Camelot's
+    ///         spot price, preventing sandwich attacks that inflate the pool price
+    ///         just before the swap to reduce the floor (C-03).
     function executeBuyback(uint256 usdcAmount)
         external
         nonReentrant
@@ -447,9 +451,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         path[0] = USDC;
         path[1] = address(bgwToken);
 
-        uint256[] memory amountsOut =
-            ICamelotRouter(CAMELOT_ROUTER).getAmountsOut(usdcAmount, path);
-        uint256 minBGW = (amountsOut[1] * (FeeLib.BPS_DENOM - MAX_SLIPPAGE_BPS)) /
+        // NAV-based floor: expectedBGW = usdcAmount / navPerBGW (both 6 dec → 18 dec result)
+        uint256 expectedBGW = (usdcAmount * 1e18) / navPerBGW();
+        uint256 minBGW      = (expectedBGW * (FeeLib.BPS_DENOM - MAX_SLIPPAGE_BPS)) /
             FeeLib.BPS_DENOM;
 
         uint256 bgwBefore = bgwToken.balanceOf(address(this));
@@ -684,6 +688,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @dev Swap USDC → BGW on Camelot and burn (used for direct-burn fee split).
+    ///      minBGW is derived from vault NAV to resist sandwich attacks (C-03).
     ///      On swap failure, emits DirectBurnDeferred and leaves USDC in vault
     ///      rather than reverting and blocking the entire harvest (H-04/H-07).
     function _burnViaSwap(uint256 usdcAmount) internal {
@@ -693,29 +698,25 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         path[0] = USDC;
         path[1] = address(bgwToken);
 
-        try ICamelotRouter(CAMELOT_ROUTER).getAmountsOut(usdcAmount, path)
-            returns (uint256[] memory amountsOut)
-        {
-            uint256 minBGW = (amountsOut[1] * (FeeLib.BPS_DENOM - MAX_SLIPPAGE_BPS)) /
-                FeeLib.BPS_DENOM;
-            uint256 bgwBefore = bgwToken.balanceOf(address(this));
+        // NAV-based floor prevents the pool spot price being used as the sandwich target
+        uint256 expectedBGW = (usdcAmount * 1e18) / navPerBGW();
+        uint256 minBGW      = (expectedBGW * (FeeLib.BPS_DENOM - MAX_SLIPPAGE_BPS)) /
+            FeeLib.BPS_DENOM;
 
-            try ICamelotRouter(CAMELOT_ROUTER)
-                .swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                    usdcAmount,
-                    minBGW,
-                    path,
-                    address(this),
-                    address(0),
-                    block.timestamp + 5 minutes
-                )
-            {
-                uint256 received = bgwToken.balanceOf(address(this)) - bgwBefore;
-                if (received > 0) bgwToken.burn(received);
-            } catch {
-                IERC20(USDC).forceApprove(CAMELOT_ROUTER, 0);
-                emit DirectBurnDeferred(usdcAmount);
-            }
+        uint256 bgwBefore = bgwToken.balanceOf(address(this));
+
+        try ICamelotRouter(CAMELOT_ROUTER)
+            .swapExactTokensForTokensSupportingFeeOnTransferTokens(
+                usdcAmount,
+                minBGW,
+                path,
+                address(this),
+                address(0),
+                block.timestamp + 5 minutes
+            )
+        {
+            uint256 received = bgwToken.balanceOf(address(this)) - bgwBefore;
+            if (received > 0) bgwToken.burn(received);
         } catch {
             IERC20(USDC).forceApprove(CAMELOT_ROUTER, 0);
             emit DirectBurnDeferred(usdcAmount);

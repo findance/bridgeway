@@ -421,6 +421,70 @@ contract BGWVaultTest is Test {
         assertLt(bgwToken.totalSupply(), supplyBefore);
     }
 
+    // ── C-03: NAV-based slippage floor ───────────────────────────────────────
+
+    function test_BuybackRevertsWhenSwapManipulated() public {
+        // Build up buyback accumulator via a normal harvest
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+        address automationAddr = _setupAutomation();
+
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+
+        uint256 accumulator = vault.buybackAccumulator();
+        assertGt(accumulator, 0);
+
+        // Etch a "sandwiched" router that only returns 10% of fair value.
+        // NAV-based minBGW is ~99% of expected, so this should revert.
+        MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
+        vm.etch(CAMELOT_ADDR, address(sandwiched).code);
+
+        vm.prank(automationAddr);
+        vm.expectRevert("MockCamelot: slippage");
+        vault.executeBuyback(accumulator);
+
+        // Accumulator is intact after revert (no state change committed)
+        assertEq(vault.buybackAccumulator(), accumulator);
+
+        // Restore normal router for other tests
+        MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
+        vm.etch(CAMELOT_ADDR, address(normal).code);
+    }
+
+    function test_DirectBurnDefersWhenSwapManipulated() public {
+        // Etch a sandwiched router before the harvest so directBurn defers
+        MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
+        vm.etch(CAMELOT_ADDR, address(sandwiched).code);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+        address automationAddr = _setupAutomation();
+
+        // Expect the DirectBurnDeferred event instead of a successful burn
+        uint256 expectedDirectBurn = (FeeLib.calcPerfFee(100e6) * 500) / 10_000; // 5%
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit BGWVault.DirectBurnDeferred(expectedDirectBurn);
+
+        vm.prank(automationAddr);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+
+        // Restore normal router
+        MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
+        vm.etch(CAMELOT_ADDR, address(normal).code);
+    }
+
     // ── Management fee ────────────────────────────────────────────────────────
 
     function test_NoMgmtFeeOnFirstHarvest() public {
