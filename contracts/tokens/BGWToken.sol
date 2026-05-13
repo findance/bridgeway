@@ -14,8 +14,9 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 ///         - Non-upgradeable; all logic lives in BGWVault.
 contract BGWToken is ERC20, AccessControl, Pausable {
     // ── Roles ────────────────────────────────────────────────────────────────
-    bytes32 public constant MINTER_ROLE        = keccak256("MINTER_ROLE");
-    bytes32 public constant PAUSER_ROLE        = keccak256("PAUSER_ROLE");
+    bytes32 public constant MINTER_ROLE          = keccak256("MINTER_ROLE");
+    bytes32 public constant BURNER_ROLE          = keccak256("BURNER_ROLE");
+    bytes32 public constant PAUSER_ROLE          = keccak256("PAUSER_ROLE");
     bytes32 public constant BLACKLIST_ADMIN_ROLE = keccak256("BLACKLIST_ADMIN_ROLE");
     bytes32 public constant WHITELIST_ADMIN_ROLE = keccak256("WHITELIST_ADMIN_ROLE");
 
@@ -53,9 +54,9 @@ contract BGWToken is ERC20, AccessControl, Pausable {
         _mint(to, amount);
     }
 
-    /// @notice Burn BGW from `from`. Only callable by BGWVault (MINTER_ROLE).
+    /// @notice Burn BGW from `from`. Only callable by BGWVault (BURNER_ROLE).
     ///         Used during redemptions.
-    function adminBurn(address from, uint256 amount) external onlyRole(MINTER_ROLE) {
+    function adminBurn(address from, uint256 amount) external onlyRole(BURNER_ROLE) {
         _burn(from, amount);
     }
 

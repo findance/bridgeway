@@ -61,6 +61,9 @@ contract DeployVault is Script {
         bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
         console.log("Granted MINTER_ROLE to vault on BGWToken");
 
+        bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault));
+        console.log("Granted BURNER_ROLE to vault on BGWToken");
+
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         console.log("Granted WHITELIST_ADMIN_ROLE to vault on BGWToken");
 
@@ -77,5 +80,9 @@ contract DeployVault is Script {
 
         console.log("\n=== Save these for script 03 ===");
         console.log("VAULT=", address(vault));
+        console.log("\n=== Post-deploy step (H-07) ===");
+        console.log("After seeding Camelot BGW/USDC liquidity, call:");
+        console.log("  vault.bootstrapPair(<camelot_pair_address>)");
+        console.log("This whitelists the pair so buybacks can receive BGW.");
     }
 }

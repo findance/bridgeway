@@ -38,13 +38,25 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     // ── State ────────────────────────────────────────────────────────────────
     address public immutable founderVestingContract;
 
-    /// @notice BGWVault address — set once by initVault() after vault is deployed.
+    /// @notice BGWVault address — set once by initVault(), updatable via timelock.
     address public vault;
     bool    public vaultInitialized;
+
+    // ── Vault-reference timelock (H-05) ──────────────────────────────────────
+    uint256 public constant VAULT_REF_DELAY = 48 hours;
+
+    struct PendingVaultRef {
+        address value;
+        uint256 executeAfter;
+    }
+    PendingVaultRef public pendingVaultRef;
 
     // ── Events ───────────────────────────────────────────────────────────────
     event VaultInitialized(address indexed vault);
     event CommunityDistributed(address indexed to, uint256 amount);
+    event VaultReferenceProposed(address indexed candidate, uint256 executeAfter);
+    event VaultReferenceExecuted(address indexed oldVault, address indexed newVault);
+    event VaultReferenceCancelled(address indexed candidate);
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param _founderVesting  FounderVesting contract address (receives 70 M)
@@ -134,6 +146,43 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
             );
         }
         super._update(from, to, amount);
+    }
+
+    // ── Vault-reference upgrade (H-05) ───────────────────────────────────────
+
+    /// @notice Propose replacing the vault whitelist reference (48-hour timelock).
+    ///         Required when the vault is redeployed so GOV token transfers remain usable.
+    function proposeVaultReference(address _vault)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        require(vaultInitialized, "GOV: vault not initialized yet");
+        require(_vault != address(0), "GOV: zero vault");
+        uint256 eta = block.timestamp + VAULT_REF_DELAY;
+        pendingVaultRef = PendingVaultRef(_vault, eta);
+        emit VaultReferenceProposed(_vault, eta);
+    }
+
+    /// @notice Execute a pending vault reference update once the 48-hour delay has elapsed.
+    ///         Revokes DISTRIBUTOR_ROLE from the old vault and grants it to the new one.
+    function executeVaultReference() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        PendingVaultRef memory p = pendingVaultRef;
+        require(p.value != address(0), "GOV: no pending vault ref");
+        require(block.timestamp >= p.executeAfter, "GOV: timelock not elapsed");
+        delete pendingVaultRef;
+        address oldVault = vault;
+        vault = p.value;
+        _revokeRole(DISTRIBUTOR_ROLE, oldVault);
+        _grantRole(DISTRIBUTOR_ROLE, p.value);
+        emit VaultReferenceExecuted(oldVault, p.value);
+    }
+
+    /// @notice Cancel a pending vault reference update before it executes.
+    function cancelVaultReference() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address candidate = pendingVaultRef.value;
+        require(candidate != address(0), "GOV: no pending vault ref");
+        delete pendingVaultRef;
+        emit VaultReferenceCancelled(candidate);
     }
 
     function nonces(address owner)

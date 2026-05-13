@@ -60,6 +60,14 @@ library FeeLib {
     uint256 internal constant MIN_HARVEST_GAP           = 12 hours;
     uint256 internal constant AUTOMATION_TIMELOCK_DELAY = 48 hours;
 
+    // ── HWM crystallisation minimum delta (H-03/H-14) ────────────────────────
+    // HWM is only updated when NAV is at least 1% above the effective HWM.
+    // Prevents choppy markets from repeatedly resetting the 1-year decay clock.
+    uint256 internal constant HWM_MIN_CRYSTALLISE_BPS = 10_100; // 101% of effectiveHwm
+
+    // ── Stale-fee sweep delay (H-13) ─────────────────────────────────────────
+    uint256 internal constant STALE_FEE_DELAY = 365 days;
+
     // ── Struct returned by splitPerfFee ──────────────────────────────────────
     struct FeeSplit {
         uint256 team;

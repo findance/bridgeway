@@ -174,6 +174,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Fee recipients call claimFees() to withdraw their balance.
     mapping(address => uint256) public pendingFees;
 
+    /// @notice Sum of all escrowed pendingFees — included in totalNAV() so deposits
+    ///         during an escrow window price BGW correctly (C-03).
+    uint256 public totalPendingFees;
+
+    /// @notice Timestamp when fees last failed for each recipient (used by sweepStaleFees).
+    mapping(address => uint256) public lastFeeAccrual;
+
     // ─────────────────────────────────────────────────────────────────────────
     // State — fee-change timelock (M-03)
     // ─────────────────────────────────────────────────────────────────────────
@@ -233,7 +240,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 newHighWaterMark
     );
     event BuybackExecuted(uint256 usdcSpent, uint256 bgwBurned);
-    event DirectBurnDeferred(uint256 usdcAmount);
+    event DirectBurnDeferred(uint256 indexed usdcAmount, bytes reason); // H-08
+    event PairBootstrapped(address indexed pair);                       // H-07
+    event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
     event ManagementFeeCharged(uint256 feeUsdc, uint256 elapsed);
     event ManagementFeeBpsUpdated(uint256 newBps);
@@ -351,9 +360,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // NAV & Pricing
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Total vault NAV: sum of all sleeve values + buyback accumulator (USDC, 6 dec).
+    /// @notice Total vault NAV: sum of all sleeve values + buyback accumulator + escrowed
+    ///         pending fees (C-03: prevents NAV under-reporting when fee pushes fail).
     function totalNAV() public view returns (uint256) {
-        return sleeveAValue + sleeveBValue + sleeveCValue + buybackAccumulator;
+        return sleeveAValue + sleeveBValue + sleeveCValue + buybackAccumulator + totalPendingFees;
     }
 
     /// @notice NAV per BGW token in USDC (6 dec). Returns 1e6 ($1.00) if no BGW minted.
@@ -470,8 +480,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         if (perfFeeUsdc > 0) {
             _distributePerfFee(perfFeeUsdc);
-            highWaterMark     = navPerBGW18();
-            lastHWMUpdateTime = block.timestamp;
+            // H-03/H-14: same 1% minimum delta required for HWM crystallisation.
+            if (currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
+                highWaterMark     = navPerBGW18();
+                lastHWMUpdateTime = block.timestamp;
+            }
         }
 
         if (exitFeeUsdc > 0) {
@@ -542,8 +555,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             perfFeeUsdc = FeeLib.calcPerfFee(netYieldUsdc);
             _distributePerfFee(perfFeeUsdc);
             _reduceSleevesProRata(perfFeeUsdc);
-            highWaterMark     = navPerBGW18();
-            lastHWMUpdateTime = block.timestamp;
+            // H-03/H-14: only crystallise when NAV is at least 1% above effective HWM,
+            // preventing choppy markets from resetting the 1-year decay clock on every tick.
+            if (currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
+                highWaterMark     = navPerBGW18();
+                lastHWMUpdateTime = block.timestamp;
+            }
         }
 
         emit HarvestRecorded(netYieldUsdc, perfFeeUsdc, highWaterMark);
@@ -665,6 +682,15 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit AutomationRevoked(old);
     }
 
+    /// @notice Whitelist a Camelot BGW/USDC pair address so buybacks can receive BGW (H-07).
+    ///         Must be called after LP is seeded and before the first executeBuyback.
+    function bootstrapPair(address pair) external onlyOwner {
+        if (pair == address(0)) revert ZeroAddress();
+        whitelist[pair] = true;
+        bgwToken.setWhitelisted(pair, true);
+        emit PairBootstrapped(pair);
+    }
+
     // ── Realised-loss governance (C-01) ──────────────────────────────────────────
     // Large genuine losses (exploit, liquidation) that exceed the automation shrink
     // cap require owner acknowledgement with a 48-hour timelock so depositors can
@@ -697,7 +723,25 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 amount = pendingFees[msg.sender];
         if (amount == 0) return;
         pendingFees[msg.sender] = 0;
+        totalPendingFees -= amount; // C-03: keep NAV consistent
         IERC20(USDC).safeTransfer(msg.sender, amount);
+    }
+
+    /// @notice Owner can redirect fees that have been unclaimed for STALE_FEE_DELAY (1 year).
+    ///         Protects against permanently locked funds if a fee wallet is permanently inaccessible (H-13).
+    function sweepStaleFees(address staleWallet, address newRecipient) external onlyOwner nonReentrant {
+        require(newRecipient != address(0), "BGWVault: zero recipient");
+        uint256 amount = pendingFees[staleWallet];
+        require(amount > 0, "BGWVault: no pending fees");
+        require(
+            lastFeeAccrual[staleWallet] > 0 &&
+            block.timestamp >= lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY,
+            "BGWVault: fees not stale"
+        );
+        pendingFees[staleWallet] = 0;
+        totalPendingFees -= amount;
+        emit StaleFeeSwept(staleWallet, newRecipient, amount);
+        IERC20(USDC).safeTransfer(newRecipient, amount);
     }
 
     /// @notice Add or remove an address from the vault whitelist.
@@ -957,7 +1001,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         );
         bool success = ok && (ret.length == 0 || abi.decode(ret, (bool)));
         if (!success) {
-            pendingFees[recipient] += amount;
+            pendingFees[recipient]   += amount;
+            totalPendingFees         += amount; // C-03: track for totalNAV()
+            lastFeeAccrual[recipient] = block.timestamp; // H-13: stale-fee clock
         }
     }
 
@@ -991,9 +1037,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         {
             uint256 received = bgwToken.balanceOf(address(this)) - bgwBefore;
             if (received > 0) bgwToken.burn(received);
-        } catch {
+        } catch (bytes memory reason) {
+            // C-05: route deferred USDC to buyback accumulator so it isn't stranded.
             IERC20(USDC).forceApprove(camelotRouter, 0);
-            emit DirectBurnDeferred(usdcAmount);
+            buybackAccumulator += usdcAmount;
+            emit DirectBurnDeferred(usdcAmount, reason); // H-08: include revert reason
         }
     }
 

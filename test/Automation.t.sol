@@ -77,6 +77,7 @@ contract AutomationTest is Test {
         // Wire roles
         vm.startPrank(founder);
         bgwToken.grantRole(bgwToken.MINTER_ROLE(),          address(vault));
+        bgwToken.grantRole(bgwToken.BURNER_ROLE(),          address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         bgwToken.setWhitelisted(address(vault), true);
         bgwToken.grantRole(bgwToken.MINTER_ROLE(), CAMELOT_ADDR);
