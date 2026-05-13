@@ -39,12 +39,12 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     // Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    address public constant USDC          = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address public constant AAVE_POOL     = 0x794a61358D6845594F94dc1DB02A252b5b4814aD;
-    address public constant ETH_USD_FEED  = 0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612;
+    /// @notice USDC token address — set at deploy for testnet / mainnet flexibility (M-06).
+    address public immutable USDC;
 
     uint256 public constant HARVEST_INTERVAL  = 30 days;
-    uint256 public constant BUYBACK_THRESHOLD = 50e6;       // 50 USDC minimum
+    uint256 public constant BUYBACK_THRESHOLD = 500e6;      // 500 USDC minimum (M-07)
+    uint256 public constant BUYBACK_INTERVAL  = 30 days;    // min gap between buybacks (M-07)
     uint256 public constant ORACLE_STALE      = 1 hours;
 
     // Upkeep action identifiers (packed into performData)
@@ -58,6 +58,7 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     BGWVault public immutable vault;
 
     uint256 public lastHarvestTime;
+    uint256 public lastBuybackTime;
     bool    public harvestEnabled = true;
     bool    public buybackEnabled = true;
 
@@ -74,9 +75,14 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
-    constructor(address _vault, address _admin) Ownable(_admin) {
+    constructor(address _vault, address _admin, address _usdc) Ownable(_admin) {
         require(_vault != address(0), "BA: zero vault");
+        require(_usdc  != address(0), "BA: zero usdc");
         vault = BGWVault(_vault);
+        USDC  = _usdc;
+        // Initialise to deployment time so neither harvest nor buyback fires immediately.
+        lastHarvestTime = block.timestamp;
+        lastBuybackTime = block.timestamp;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -98,8 +104,12 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
             return (true, abi.encode(ACTION_HARVEST));
         }
 
-        // Priority 2: Buyback if accumulator is large enough
-        if (buybackEnabled && vault.buybackAccumulator() >= BUYBACK_THRESHOLD) {
+        // Priority 2: Buyback — both conditions must be met (M-07):
+        //   accumulator >= 500 USDC  AND  >= 30 days since last buyback.
+        //   "Whichever is last" — neither condition alone is sufficient.
+        if (buybackEnabled &&
+            vault.buybackAccumulator() >= BUYBACK_THRESHOLD &&
+            block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL) {
             return (true, abi.encode(ACTION_BUYBACK));
         }
 
@@ -118,6 +128,10 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
             require(
                 vault.buybackAccumulator() >= BUYBACK_THRESHOLD,
                 "BA: buyback threshold not met"
+            );
+            require(
+                block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL,
+                "BA: buyback interval not elapsed"
             );
             _buyback();
         } else {
@@ -218,6 +232,7 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
         uint256 amount = vault.buybackAccumulator();
         if (amount == 0) return;
 
+        lastBuybackTime = block.timestamp;
         vault.executeBuyback(amount);
         emit BuybackTriggered(amount);
     }

@@ -88,8 +88,12 @@ contract FounderVesting is Ownable2Step {
     // ── Claim ────────────────────────────────────────────────────────────────
 
     /// @notice Founder claims all currently vested tokens.
+    ///         Blocked while a 2-step ownership transfer is pending (H-12):
+    ///         prevents the old founder from draining tokens before the
+    ///         successor accepts.
     function claim() external {
         if (msg.sender != founder) revert NotFounder();
+        require(pendingOwner() == address(0), "FV: transfer pending");
 
         uint256 amount = claimable();
         if (amount == 0) revert NothingToClaim();

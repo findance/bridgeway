@@ -127,23 +127,23 @@ contract BGWTokenTest is Test {
         assertEq(token.totalSupply(),     60e18);
     }
 
-    function test_BurnFromByMinter() public {
+    function test_AdminBurnByMinter() public {
         vm.prank(minter);
         token.mint(alice, 100e18);
 
         vm.prank(minter);
-        token.burnFrom(alice, 40e18);
+        token.adminBurn(alice, 40e18);
 
         assertEq(token.balanceOf(alice), 60e18);
     }
 
-    function test_BurnFromRevertsIfNotMinter() public {
+    function test_AdminBurnRevertsIfNotMinter() public {
         vm.prank(minter);
         token.mint(alice, 100e18);
 
         vm.prank(bob);
         vm.expectRevert();
-        token.burnFrom(alice, 40e18);
+        token.adminBurn(alice, 40e18);
     }
 
     // ── Whitelist management ──────────────────────────────────────────────────

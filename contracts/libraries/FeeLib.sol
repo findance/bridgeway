@@ -14,7 +14,8 @@ library FeeLib {
     uint256 internal constant STRESS_EXIT_BPS  = 75;      // 0.75% stress exit fee
 
     // ── Management fee ───────────────────────────────────────────────────────
-    uint256 internal constant MANAGEMENT_FEE_BPS = 50;    // 0.50% annual; accrued each harvest
+    uint256 internal constant MANAGEMENT_FEE_BPS      = 50; // 0.50% annual when NAV > HWM
+    uint256 internal constant BASE_MGMT_FEE_BPS       = 10; // 0.10% annual floor, always charged
 
     // ── HWM decay ────────────────────────────────────────────────────────────
     // If NAV stays below the HWM for HWM_DECAY_START, the HWM begins to slide
