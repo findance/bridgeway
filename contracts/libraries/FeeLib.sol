@@ -45,6 +45,29 @@ library FeeLib {
     // ── Redemption thresholds ────────────────────────────────────────────────
     uint256 internal constant LARGE_REDEEM_USD = 10_000e6; // $10,000 in USDC (6 dec)
 
+    // ── Anti-manipulation bounds (C-01 remediation) ───────────────────────────
+    // Time-weighted ceilings on what automation may report in any single call.
+    // Using time-weighting prevents bypassing these bounds by batching rapid calls.
+    //
+    // Yield ceiling: 50 %/yr covers all realistic DeFi yields with headroom
+    //   (stETH 3-4%, Aave 2-8%, GMX GLP 8-15%, Pendle PT 15-30%, restaking 10-20%).
+    // Sleeve growth: 10 %/day  — BTC's worst week was ~50% in 7d (2013); 70% room.
+    // Sleeve shrink: 25 %/day  — asymmetric; sudden real losses can exceed 10%.
+    //   Larger write-downs require owner to call proposeRealisedLoss (48h timelock).
+    uint256 internal constant MAX_YIELD_APR_BPS         = 5_000; // 50 %/yr
+    uint256 internal constant MAX_SLEEVE_GROWTH_BPS_DAY = 1_000; // 10 %/day
+    uint256 internal constant MAX_SLEEVE_SHRINK_BPS_DAY = 2_500; // 25 %/day
+    uint256 internal constant MIN_HARVEST_GAP           = 12 hours;
+    uint256 internal constant AUTOMATION_TIMELOCK_DELAY = 48 hours;
+
+    // ── HWM crystallisation minimum delta (H-03/H-14) ────────────────────────
+    // HWM is only updated when NAV is at least 1% above the effective HWM.
+    // Prevents choppy markets from repeatedly resetting the 1-year decay clock.
+    uint256 internal constant HWM_MIN_CRYSTALLISE_BPS = 10_100; // 101% of effectiveHwm
+
+    // ── Stale-fee sweep delay (H-13) ─────────────────────────────────────────
+    uint256 internal constant STALE_FEE_DELAY = 365 days;
+
     // ── Struct returned by splitPerfFee ──────────────────────────────────────
     struct FeeSplit {
         uint256 team;

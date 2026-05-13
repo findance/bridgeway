@@ -33,30 +33,33 @@ contract SetupAutomation is Script {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address founderAddr = vm.envAddress("FOUNDER_ADDRESS");
         address vaultAddr   = vm.envAddress("VAULT");
+        address usdcAddr    = vm.envAddress("USDC_ADDRESS");
 
         BGWVault vault = BGWVault(vaultAddr);
 
         vm.startBroadcast(deployerKey);
 
         // 1. Deploy BridgewayAutomation
-        BridgewayAutomation automation = new BridgewayAutomation(vaultAddr, founderAddr);
+        BridgewayAutomation automation = new BridgewayAutomation(vaultAddr, founderAddr, usdcAddr);
         console.log("BridgewayAutomation:", address(automation));
 
-        // 2. Wire automation → vault (one-time, irreversible)
-        vault.setAutomation(address(automation));
-        console.log("Automation wired to vault");
+        // 2. Propose automation → vault (48-hour timelock — C-01).
+        //    Call vault.executeAutomation() from the founder multisig after 48 hours.
+        vault.proposeAutomation(address(automation));
+        console.log("Automation proposed - call executeAutomation() after 48 hours");
 
         vm.stopBroadcast();
 
         console.log("\n=== Next steps ===");
-        console.log("1. Go to https://automation.chain.link");
-        console.log("2. Register upkeep:");
+        console.log("1. Wait 48 hours, then call vault.executeAutomation() from founder multisig");
+        console.log("2. Go to https://automation.chain.link");
+        console.log("3. Register upkeep:");
         console.log("   Network:  Arbitrum One");
         console.log("   Trigger:  Custom logic");
         console.log("   Address: ", address(automation));
         console.log("   Gas limit: 500000");
         console.log("   Fund with 10-20 LINK");
-        console.log("3. Verify contracts on Arbiscan");
-        console.log("4. Make first deposit to bootstrap NAV at $1.00");
+        console.log("4. Verify contracts on Arbiscan");
+        console.log("5. Make first deposit to bootstrap NAV at $1.00");
     }
 }

@@ -17,9 +17,10 @@ contract BGWTokenTest is Test {
         vm.prank(admin);
         token = new BGWToken(admin);
 
-        // Use startPrank so token.MINTER_ROLE() STATICCALL does not consume the prank
+        // Use startPrank so STATICCALL role lookups do not consume the prank
         vm.startPrank(admin);
         token.grantRole(token.MINTER_ROLE(), minter);
+        token.grantRole(token.BURNER_ROLE(), minter); // H-11: separate burn role
         token.setWhitelisted(alice,  true);
         token.setWhitelisted(bob,    true);
         token.setWhitelisted(minter, true);
@@ -127,22 +128,38 @@ contract BGWTokenTest is Test {
         assertEq(token.totalSupply(),     60e18);
     }
 
-    function test_AdminBurnByMinter() public {
+    function test_AdminBurnByBurner() public {
         vm.prank(minter);
         token.mint(alice, 100e18);
 
-        vm.prank(minter);
+        vm.prank(minter); // minter also holds BURNER_ROLE in setUp
         token.adminBurn(alice, 40e18);
 
         assertEq(token.balanceOf(alice), 60e18);
     }
 
-    function test_AdminBurnRevertsIfNotMinter() public {
+    function test_AdminBurnRevertsIfNotBurnerRole() public {
         vm.prank(minter);
         token.mint(alice, 100e18);
 
-        vm.prank(bob);
+        vm.prank(bob); // bob has no BURNER_ROLE
         vm.expectRevert();
+        token.adminBurn(alice, 40e18);
+    }
+
+    function test_MinterRoleAloneCannotAdminBurn() public {
+        // H-11: MINTER_ROLE and BURNER_ROLE are now separate.
+        address mintOnly = makeAddr("mintOnly");
+        vm.startPrank(admin);
+        token.grantRole(token.MINTER_ROLE(), mintOnly);
+        token.setWhitelisted(mintOnly, true);
+        vm.stopPrank();
+
+        vm.prank(mintOnly);
+        token.mint(alice, 100e18); // mint works
+
+        vm.prank(mintOnly);
+        vm.expectRevert(); // burn must fail — only BURNER_ROLE can adminBurn
         token.adminBurn(alice, 40e18);
     }
 

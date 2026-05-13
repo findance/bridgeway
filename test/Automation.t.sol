@@ -8,6 +8,7 @@ import "../contracts/tokens/FounderVesting.sol";
 import "../contracts/core/BGWVault.sol";
 import "../contracts/core/BridgewayAutomation.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
+import "../contracts/libraries/FeeLib.sol";
 
 /// @notice Minimal mock USDC (duplicated to avoid test-file coupling).
 contract MockUSDCAutomation {
@@ -76,6 +77,7 @@ contract AutomationTest is Test {
         // Wire roles
         vm.startPrank(founder);
         bgwToken.grantRole(bgwToken.MINTER_ROLE(),          address(vault));
+        bgwToken.grantRole(bgwToken.BURNER_ROLE(),          address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         bgwToken.setWhitelisted(address(vault), true);
         bgwToken.grantRole(bgwToken.MINTER_ROLE(), CAMELOT_ADDR);
@@ -85,10 +87,13 @@ contract AutomationTest is Test {
         vault.setWhitelisted(alice,   true);
         vm.stopPrank();
 
-        // Deploy automation and wire to vault
+        // Deploy automation and wire to vault via 48-hour timelock (C-01).
         automation = new BridgewayAutomation(address(vault), founder, USDC_ADDR);
         vm.prank(founder);
-        vault.setAutomation(address(automation));
+        vault.proposeAutomation(address(automation));
+        vm.warp(block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY + 1);
+        vm.prank(founder);
+        vault.executeAutomation();
 
         // Seed alice with USDC
         MockUSDCAutomation(USDC_ADDR).mint(alice, 10_000e6);
@@ -130,39 +135,39 @@ contract AutomationTest is Test {
     }
 
     function test_CheckUpkeepTrueWhenAccumulatorAboveThreshold() public {
-        // Step 1: first harvest to set lastHarvestTime = now (harvest not immediately due again).
-        vm.prank(founder);
-        automation.manualHarvest();
+        // Strategy: use the first recordHarvest (lastHarvestTime==0 → no rate bounds)
+        // to fill the accumulator, then warp 30 days for the buyback interval.
 
-        // Step 2: deposit so BGW supply > 0, give vault extra USDC.
-        MockUSDCAutomation(USDC_ADDR).mint(address(vault), 1_000e6);
+        // Step 1: deposit all 10_000e6 so sleeves are large enough that the buyback
+        // share survives _reduceSleevesProRata and stays above BUYBACK_THRESHOLD.
         vm.startPrank(alice);
-        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6, 0);
+        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 10_000e6);
+        vault.deposit(10_000e6, 0);
         vm.stopPrank();
+        // sleeves: A=7_000e6, B=2_500e6, C=500e6; alice has 10_000e18 BGW.
 
-        // Step 3: pre-fund Camelot for directBurn.
-        // yield = 25_000e6 → perfFee = 3_750e6 → directBurn = 5% = 187.5e6 USDC
-        // at rate 1e12 → 187.5e18 BGW.  Alice has 1_000e18 BGW from her deposit.
+        // Step 2: pre-fund Camelot for directBurn (187.5 BGW needed at 1e12 rate).
         vm.prank(alice);
         bgwToken.transfer(CAMELOT_ADDR, 200e18);
 
-        // Step 4: set sleeve NAV to 100,000 USDC so pro-rata reduction is negligible.
-        vm.prank(address(automation));
-        vault.updateSleeveValues(70_000e6, 25_000e6, 5_000e6);
-
-        // Step 5: recordHarvest with 25_000e6 yield.
-        // buyback = 15% of 15% of 25_000 = 562.5e6, net of reduction ≈ 541e6 >> 500e6.
+        // Step 3: mint yield USDC to vault and call first recordHarvest.
+        // yield = 25_000e6 → perfFee 15% = 3_750e6 → buyback gross 562.5e6.
+        // After _reduceSleevesProRata the net accumulator ≈ 503e6 > 500e6.
+        // First harvest: lastHarvestTime==0, all rate bounds skipped.
         MockUSDCAutomation(USDC_ADDR).mint(address(vault), 25_000e6);
         vm.prank(address(automation));
-        vault.recordHarvest(25_000e6, 70_000e6, 25_000e6, 5_000e6);
+        vault.recordHarvest(
+            25_000e6,
+            7_000e6 + (25_000e6 * 70) / 100,  // 7_000 + 17_500 = 24_500e6
+            2_500e6 + (25_000e6 * 25) / 100,  // 2_500 +  6_250 =  8_750e6
+              500e6 + (25_000e6 *  5) / 100   //   500 +  1_250 =  1_750e6
+        );
 
         uint256 acc = vault.buybackAccumulator();
         assertGe(acc, BUYBACK_THRESHOLD, "accumulator should be above 500 USDC threshold");
 
-        // Step 6: satisfy the 30-day buyback interval (M-07).
-        // Warping also makes the harvest due; reset it with manualHarvest so buyback
-        // stays as priority-1 in checkUpkeep.
+        // Step 4: satisfy the 30-day buyback interval (M-07).
+        // Warp also makes harvest due; reset with manualHarvest so buyback is priority.
         vm.warp(block.timestamp + BUYBACK_INTERVAL);
         vm.prank(founder);
         automation.manualHarvest(); // resets lastHarvestTime → harvest no longer due
@@ -174,30 +179,34 @@ contract AutomationTest is Test {
     }
 
     function test_CheckUpkeepFalseWhenAccumulatorAboveThresholdButIntervalNotElapsed() public {
-        // Harvest not due
-        vm.prank(founder);
-        automation.manualHarvest();
+        // Same first-harvest approach but WITHOUT the 30-day warp:
+        // accumulator fills but lastBuybackTime (set at automation deploy, ~48h ago) means
+        // the 30-day interval has not elapsed → checkUpkeep must return false.
 
-        // Fill accumulator above threshold (same setup as above test)
-        MockUSDCAutomation(USDC_ADDR).mint(address(vault), 1_000e6);
+        // Step 1: deposit all 10_000e6 (same sizing as the "true" sibling test).
         vm.startPrank(alice);
-        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6, 0);
+        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 10_000e6);
+        vault.deposit(10_000e6, 0);
         vm.stopPrank();
 
+        // Step 2: pre-fund Camelot for directBurn.
         vm.prank(alice);
         bgwToken.transfer(CAMELOT_ADDR, 200e18);
 
-        vm.prank(address(automation));
-        vault.updateSleeveValues(70_000e6, 25_000e6, 5_000e6);
-
+        // Step 3: first recordHarvest (unconstrained) fills the accumulator.
         MockUSDCAutomation(USDC_ADDR).mint(address(vault), 25_000e6);
         vm.prank(address(automation));
-        vault.recordHarvest(25_000e6, 70_000e6, 25_000e6, 5_000e6);
+        vault.recordHarvest(
+            25_000e6,
+            7_000e6 + (25_000e6 * 70) / 100,
+            2_500e6 + (25_000e6 * 25) / 100,
+              500e6 + (25_000e6 *  5) / 100
+        );
 
         assertGe(vault.buybackAccumulator(), BUYBACK_THRESHOLD);
 
-        // Do NOT warp — interval has not elapsed, so buyback must not trigger
+        // Do NOT warp — only ~48h elapsed since automation deployment (setUp warp),
+        // which is less than the 30-day BUYBACK_INTERVAL → buyback must not fire.
         (bool needed, ) = automation.checkUpkeep("");
         assertFalse(needed, "buyback must not fire before interval elapses");
     }
