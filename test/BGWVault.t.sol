@@ -42,6 +42,9 @@ contract MockUSDC {
     }
 }
 
+/// @dev Minimal contract so proposeAutomation's code-length check passes.
+contract MockAutomationStub {}
+
 contract BGWVaultTest is Test {
     BGWToken       bgwToken;
     BGWGovToken    govToken;
@@ -128,9 +131,13 @@ contract BGWVaultTest is Test {
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     function _setupAutomation() internal returns (address automationAddr) {
-        automationAddr = makeAddr("automation");
+        MockAutomationStub stub = new MockAutomationStub();
+        automationAddr = address(stub);
         vm.prank(founder);
-        vault.setAutomation(automationAddr);
+        vault.proposeAutomation(automationAddr);
+        vm.warp(block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY + 1);
+        vm.prank(founder);
+        vault.executeAutomation();
     }
 
     // ── NAV bootstrapping ────────────────────────────────────────────────────
@@ -736,6 +743,9 @@ contract BGWVaultTest is Test {
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
         uint256 hwm = vault.highWaterMark();
 
+        // Advance 1 day so the sleeve shrink cap allows the NAV drop below.
+        vm.warp(block.timestamp + 1 days);
+
         // Simulate NAV dropping below HWM
         vm.prank(automationAddr);
         vault.updateSleeveValues(630e6, 225e6, 45e6); // total $900
@@ -759,6 +769,9 @@ contract BGWVaultTest is Test {
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
         uint256 hwm = vault.highWaterMark();
+
+        // Advance 1 day so the sleeve shrink cap allows the NAV drop below.
+        vm.warp(block.timestamp + 1 days);
 
         vm.prank(automationAddr);
         vault.updateSleeveValues(630e6, 225e6, 45e6); // NAV below HWM
@@ -784,7 +797,9 @@ contract BGWVaultTest is Test {
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
         uint256 originalHwm = vault.highWaterMark(); // ≈ 1.10075e18
 
-        // Step 2: simulate bear market — NAV drops to ~$0.90
+        // Step 2: simulate bear market — NAV drops to ~$0.90.
+        // Advance 1 day first so the sleeve shrink cap allows the drop.
+        vm.warp(block.timestamp + 1 days);
         vm.prank(automationAddr);
         vault.updateSleeveValues(630e6, 225e6, 45e6);
 

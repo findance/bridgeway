@@ -123,6 +123,33 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     bool    public stressModeActive;
 
     // ─────────────────────────────────────────────────────────────────────────
+    // State — principal tracking (C-01)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Running total of all USDC deposited minus proportional redemptions.
+    uint256 public cumulativePrincipal;
+
+    /// @notice Realised losses formally acknowledged by the owner via proposeRealisedLoss.
+    uint256 public authorisedLosses;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // State — automation timelock (C-01)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    address public pendingAutomation;
+    uint256 public automationProposalEta;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // State — realised-loss timelock (C-01)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    struct PendingLossMark {
+        uint256 amount;
+        uint256 executeAfter;
+    }
+    PendingLossMark public pendingLossMark;
+
+    // ─────────────────────────────────────────────────────────────────────────
     // State — whitelist
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -216,6 +243,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event StressModeToggled(bool active);
     event AutomationSet(address indexed automation);
     event AutomationRevoked(address indexed old);
+    // C-01 — automation timelock
+    event AutomationProposed(address indexed candidate, uint256 executeAfter);
+    event AutomationCancelled(address indexed candidate);
+    // C-01 — realised loss governance
+    event LossMarkProposed(uint256 amount, uint256 executeAfter);
+    event LossMarkExecuted(uint256 amount);
+    event LossMarkCancelled();
     event FeeWalletsUpdated(address team, address holdback, address lp, address reserve);
     event ProtectedTokenUpdated(address indexed token, bool protected);
     // Timelock events (M-03)
@@ -367,6 +401,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (usdcAmount == 0) revert ZeroAmount();
 
         IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
+        cumulativePrincipal += usdcAmount;
 
         uint256 nav6      = navPerBGW();
         uint256 bgwToMint = (usdcAmount * 1e18) / nav6;
@@ -421,6 +456,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 netUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
         if (netUsdc < minUSDC) revert SlippageTooHigh(netUsdc, minUSDC);
 
+        // Proportionally reduce cumulative principal before burning (C-01).
+        // Must be done before adminBurn because totalSupply changes after the burn.
+        uint256 supply = bgwToken.totalSupply();
+        if (supply > 0 && cumulativePrincipal > 0) {
+            uint256 principalSlice = (bgwAmount * cumulativePrincipal) / supply;
+            cumulativePrincipal -= principalSlice;
+        }
+
         bgwToken.adminBurn(msg.sender, bgwAmount);
 
         _reduceSleevesProRata(grossUsdc);
@@ -456,16 +499,30 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 newSleeveB,
         uint256 newSleeveC
     ) external nonReentrant whenNotPaused onlyAutomation {
-        // Sanity bounds (C-01 partial mitigation):
-        //   1. Reported sleeve total must not exceed 2× pre-harvest NAV.
-        //   2. Claimed yield must not exceed actual vault USDC balance —
-        //      automation cannot claim more than what physically arrived.
-        uint256 reportedTotal = newSleeveA + newSleeveB + newSleeveC;
-        require(reportedTotal <= totalNAV() * 2, "BGWVault: sleeve report too high");
+        // Yield must not exceed actual USDC received — fundamental sanity check (C-01).
         require(
             netYieldUsdc <= IERC20(USDC).balanceOf(address(this)),
             "BGWVault: yield exceeds balance"
         );
+
+        // Time-weighted anti-manipulation bounds (C-01).
+        // Gated on lastHarvestTime > 0 so the very first harvest is unconstrained
+        // (no baseline exists to measure rate against).
+        if (lastHarvestTime > 0) {
+            uint256 sinceLastHarvest = block.timestamp - lastHarvestTime;
+            require(sinceLastHarvest >= FeeLib.MIN_HARVEST_GAP, "BGWVault: harvest gap too short");
+
+            uint256 nav = totalNAV();
+            if (nav > 0 && netYieldUsdc > 0) {
+                uint256 maxYield = (nav * FeeLib.MAX_YIELD_APR_BPS * sinceLastHarvest) /
+                    (FeeLib.BPS_DENOM * 365 days);
+                require(netYieldUsdc <= maxYield, "BGWVault: yield rate too high");
+            }
+
+            _checkSleeveMove(sleeveAValue, newSleeveA, sinceLastHarvest);
+            _checkSleeveMove(sleeveBValue, newSleeveB, sinceLastHarvest);
+            _checkSleeveMove(sleeveCValue, newSleeveC, sinceLastHarvest);
+        }
 
         sleeveAValue = newSleeveA;
         sleeveBValue = newSleeveB;
@@ -551,7 +608,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 newSleeveA,
         uint256 newSleeveB,
         uint256 newSleeveC
-    ) external whenNotPaused onlyAutomation {
+    ) external nonReentrant whenNotPaused onlyAutomation {
+        // Time-weighted anti-manipulation bounds (C-01).
+        // No MIN_HARVEST_GAP here — rebalancing may legitimately follow a harvest.
+        // Gated on lastHarvestTime > 0 so pre-harvest setup calls are unconstrained.
+        if (lastHarvestTime > 0) {
+            uint256 elapsed = block.timestamp - lastHarvestTime;
+            _checkSleeveMove(sleeveAValue, newSleeveA, elapsed);
+            _checkSleeveMove(sleeveBValue, newSleeveB, elapsed);
+            _checkSleeveMove(sleeveCValue, newSleeveC, elapsed);
+        }
         sleeveAValue = newSleeveA;
         sleeveBValue = newSleeveB;
         sleeveCValue = newSleeveC;
@@ -562,21 +628,68 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Admin functions
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Set or replace the automation contract address.
-    ///         Replaceable so a compromised automation contract can be rotated.
-    function setAutomation(address _automation) external onlyOwner {
+    /// @notice Propose replacing the automation contract (48-hour timelock, C-01).
+    ///         Only contract addresses accepted — EOAs cannot call vault functions.
+    function proposeAutomation(address _automation) external onlyOwner {
         if (_automation == address(0)) revert ZeroAddress();
-        automation = _automation;
-        emit AutomationSet(_automation);
+        require(_automation.code.length > 0, "BGWVault: not a contract");
+        uint256 eta = block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY;
+        pendingAutomation     = _automation;
+        automationProposalEta = eta;
+        emit AutomationProposed(_automation, eta);
     }
 
-    /// @notice Revoke the current automation contract (sets to address(0)).
-    ///         Use in emergencies to stop all harvest/buyback until a new
-    ///         automation address is set via setAutomation.
+    function executeAutomation() external onlyOwner {
+        address candidate = pendingAutomation;
+        require(candidate != address(0), "BGWVault: no pending automation");
+        require(block.timestamp >= automationProposalEta, "BGWVault: timelock not elapsed");
+        pendingAutomation     = address(0);
+        automationProposalEta = 0;
+        automation            = candidate;
+        emit AutomationSet(candidate);
+    }
+
+    function cancelAutomation() external onlyOwner {
+        address candidate = pendingAutomation;
+        require(candidate != address(0), "BGWVault: no pending automation");
+        pendingAutomation     = address(0);
+        automationProposalEta = 0;
+        emit AutomationCancelled(candidate);
+    }
+
+    /// @notice Instantly revoke the current automation contract.
+    ///         Emergency circuit-breaker — stops all harvest/buyback immediately.
     function revokeAutomation() external onlyOwner {
         address old = automation;
         automation = address(0);
         emit AutomationRevoked(old);
+    }
+
+    // ── Realised-loss governance (C-01) ──────────────────────────────────────────
+    // Large genuine losses (exploit, liquidation) that exceed the automation shrink
+    // cap require owner acknowledgement with a 48-hour timelock so depositors can
+    // observe and react before the loss is recorded as authorised.
+
+    function proposeRealisedLoss(uint256 amount) external onlyOwner {
+        require(amount > 0, "BGWVault: zero loss");
+        uint256 eta = block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY;
+        pendingLossMark = PendingLossMark(amount, eta);
+        emit LossMarkProposed(amount, eta);
+    }
+
+    function executeRealisedLoss() external onlyOwner {
+        PendingLossMark memory p = pendingLossMark;
+        require(p.executeAfter > 0,                   "BGWVault: no pending loss");
+        require(block.timestamp >= p.executeAfter,    "BGWVault: timelock not elapsed");
+        delete pendingLossMark;
+        authorisedLosses += p.amount;
+        emit LossMarkExecuted(p.amount);
+    }
+
+    function cancelRealisedLoss() external onlyOwner {
+        require(pendingLossMark.executeAfter > 0, "BGWVault: no pending loss");
+        delete pendingLossMark;
+        emit LossMarkCancelled();
     }
 
     /// @notice Fee recipients pull any USDC that failed to push automatically.
@@ -935,6 +1048,22 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _distributePerfFee(fee);
         _reduceSleevesProRata(fee);
         emit ManagementFeeCharged(fee, elapsed);
+    }
+
+    /// @dev Revert if a sleeve value move exceeds the time-weighted daily cap.
+    ///      Growth cap: 10%/day × elapsed.  Shrink cap: 25%/day × elapsed.
+    ///      Skipped when oldVal == 0 — first seeding of a sleeve is unconstrained.
+    function _checkSleeveMove(uint256 oldVal, uint256 newVal, uint256 elapsed) internal pure {
+        if (oldVal == 0) return;
+        if (newVal >= oldVal) {
+            uint256 maxGrow = (oldVal * FeeLib.MAX_SLEEVE_GROWTH_BPS_DAY * elapsed) /
+                (FeeLib.BPS_DENOM * 1 days);
+            require(newVal - oldVal <= maxGrow, "BGWVault: sleeve growth too fast");
+        } else {
+            uint256 maxShrink = (oldVal * FeeLib.MAX_SLEEVE_SHRINK_BPS_DAY * elapsed) /
+                (FeeLib.BPS_DENOM * 1 days);
+            require(oldVal - newVal <= maxShrink, "BGWVault: sleeve shrink too fast");
+        }
     }
 
     /// @dev Calculate BGW-GOV to distribute to a new depositor.
