@@ -111,12 +111,13 @@ All findings from an independent security audit (v1.22) have been resolved:
 
 | Finding | Fix |
 |---------|-----|
-| C-01 | `recordHarvest` sanity bounds — yield cannot exceed vault USDC balance |
+| C-01 | `recordHarvest` sanity bounds — yield cannot exceed non-escrowed vault USDC balance and the first harvest is rate-limited from deployment time |
 | C-02 | Protected-token registry blocks aToken / LST drain via `recoverToken` |
 | C-03 | NAV-based `minBGW` floor on buyback swaps — sandwich-attack resistant |
 | C-04 | `whenNotPaused` on all automation-facing state-changing functions |
 | C-05 | `minBgwOut` slippage guard on `deposit()` |
 | H-02 | Fee-wallet transfers use pull-escrow (`pendingFees`) on failure |
+| H-02a | Escrowed `pendingFees` are excluded from holder NAV so redeemers cannot capture fee liabilities |
 | H-03 | Burns bypass pause; transfers and mints still check `whenNotPaused` |
 | H-04 | Single try/catch on Camelot swap; deferred burn on failure |
 | H-05 | `_reduceSleevesProRata` includes `buybackAccumulator` — NAV invariant preserved |

@@ -177,8 +177,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Fee recipients call claimFees() to withdraw their balance.
     mapping(address => uint256) public pendingFees;
 
-    /// @notice Sum of all escrowed pendingFees — included in totalNAV() so deposits
-    ///         during an escrow window price BGW correctly (C-03).
+    /// @notice Sum of all escrowed pendingFees. This is deliberately excluded
+    ///         from totalNAV() because it belongs to fee recipients, not BGW holders.
     uint256 public totalPendingFees;
 
     /// @notice Timestamp when fees last failed for each recipient (used by sweepStaleFees).
@@ -343,6 +343,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         highWaterMark     = 1e18;
         lastHWMUpdateTime = block.timestamp;
+        lastHarvestTime   = block.timestamp;
 
         // ── Seed protectedTokens with Aave V3 Arbitrum One aTokens + LST wrappers ──
         // These are the yield-bearing tokens the vault holds on behalf of depositors.
@@ -365,10 +366,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // NAV & Pricing
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Total vault NAV: sum of all sleeve values + buyback accumulator + escrowed
-    ///         pending fees (C-03: prevents NAV under-reporting when fee pushes fail).
+    /// @notice Total vault NAV attributable to BGW holders.
+    ///         Pending fees are excluded because they are liabilities owed to fee
+    ///         recipients, even when their USDC is still held by the vault.
     function totalNAV() public view returns (uint256) {
-        return sleeveAValue + sleeveBValue + sleeveCValue + buybackAccumulator + totalPendingFees;
+        return sleeveAValue + sleeveBValue + sleeveCValue + buybackAccumulator;
     }
 
     /// @notice NAV per BGW token in USDC (6 dec). Returns 1e6 ($1.00) if no BGW minted.
@@ -520,29 +522,27 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 newSleeveC
     ) external nonReentrant whenNotPaused onlyAutomation {
         // Yield must not exceed actual USDC received — fundamental sanity check (C-01).
-        require(
-            netYieldUsdc <= IERC20(USDC).balanceOf(address(this)),
-            "BGWVault: yield exceeds balance"
-        );
+        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
+        uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
+        require(netYieldUsdc <= availableUsdc, "BGWVault: yield exceeds balance");
 
         // Time-weighted anti-manipulation bounds (C-01).
-        // Gated on lastHarvestTime > 0 so the very first harvest is unconstrained
-        // (no baseline exists to measure rate against).
-        if (lastHarvestTime > 0) {
-            uint256 sinceLastHarvest = block.timestamp - lastHarvestTime;
-            require(sinceLastHarvest >= FeeLib.MIN_HARVEST_GAP, "BGWVault: harvest gap too short");
+        // lastHarvestTime is initialised in the constructor so the first harvest
+        // is constrained against the deployment timestamp instead of receiving
+        // a one-time unrestricted reporting window.
+        uint256 sinceLastHarvest = block.timestamp - lastHarvestTime;
+        require(sinceLastHarvest >= FeeLib.MIN_HARVEST_GAP, "BGWVault: harvest gap too short");
 
-            uint256 nav = totalNAV();
-            if (nav > 0 && netYieldUsdc > 0) {
-                uint256 maxYield = (nav * FeeLib.MAX_YIELD_APR_BPS * sinceLastHarvest) /
-                    (FeeLib.BPS_DENOM * 365 days);
-                require(netYieldUsdc <= maxYield, "BGWVault: yield rate too high");
-            }
-
-            _checkSleeveMove(sleeveAValue, newSleeveA, sinceLastHarvest);
-            _checkSleeveMove(sleeveBValue, newSleeveB, sinceLastHarvest);
-            _checkSleeveMove(sleeveCValue, newSleeveC, sinceLastHarvest);
+        uint256 nav = totalNAV();
+        if (nav > 0 && netYieldUsdc > 0) {
+            uint256 maxYield = (nav * FeeLib.MAX_YIELD_APR_BPS * sinceLastHarvest) /
+                (FeeLib.BPS_DENOM * 365 days);
+            require(netYieldUsdc <= maxYield, "BGWVault: yield rate too high");
         }
+
+        _checkSleeveMove(sleeveAValue, newSleeveA, sinceLastHarvest);
+        _checkSleeveMove(sleeveBValue, newSleeveB, sinceLastHarvest);
+        _checkSleeveMove(sleeveCValue, newSleeveC, sinceLastHarvest);
 
         sleeveAValue = newSleeveA;
         sleeveBValue = newSleeveB;
@@ -635,13 +635,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ) external nonReentrant whenNotPaused onlyAutomation {
         // Time-weighted anti-manipulation bounds (C-01).
         // No MIN_HARVEST_GAP here — rebalancing may legitimately follow a harvest.
-        // Gated on lastHarvestTime > 0 so pre-harvest setup calls are unconstrained.
-        if (lastHarvestTime > 0) {
-            uint256 elapsed = block.timestamp - lastHarvestTime;
-            _checkSleeveMove(sleeveAValue, newSleeveA, elapsed);
-            _checkSleeveMove(sleeveBValue, newSleeveB, elapsed);
-            _checkSleeveMove(sleeveCValue, newSleeveC, elapsed);
-        }
+        uint256 elapsed = block.timestamp - lastHarvestTime;
+        _checkSleeveMove(sleeveAValue, newSleeveA, elapsed);
+        _checkSleeveMove(sleeveBValue, newSleeveB, elapsed);
+        _checkSleeveMove(sleeveCValue, newSleeveC, elapsed);
         sleeveAValue = newSleeveA;
         sleeveBValue = newSleeveB;
         sleeveCValue = newSleeveC;
@@ -730,7 +727,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 amount = pendingFees[msg.sender];
         if (amount == 0) return;
         pendingFees[msg.sender] = 0;
-        totalPendingFees -= amount; // C-03: keep NAV consistent
+        totalPendingFees -= amount;
         IERC20(USDC).safeTransfer(msg.sender, amount);
     }
 
@@ -1015,7 +1012,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         bool success = ok && (ret.length == 0 || abi.decode(ret, (bool)));
         if (!success) {
             pendingFees[recipient]   += amount;
-            totalPendingFees         += amount; // C-03: track for totalNAV()
+            totalPendingFees         += amount;
             lastFeeAccrual[recipient] = block.timestamp; // H-13: stale-fee clock
         }
     }
@@ -1102,7 +1099,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 fee = (nav * feeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
         if (fee == 0) return;
 
-        uint256 available = IERC20(USDC).balanceOf(address(this));
+        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
+        uint256 available = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
         if (fee > available) fee = available;
         if (fee == 0) return;
 
@@ -1113,7 +1111,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @dev Revert if a sleeve value move exceeds the time-weighted daily cap.
     ///      Growth cap: 10%/day × elapsed.  Shrink cap: 25%/day × elapsed.
-    ///      Skipped when oldVal == 0 — first seeding of a sleeve is unconstrained.
+    ///      Skipped when oldVal == 0 because no prior sleeve baseline exists.
     function _checkSleeveMove(uint256 oldVal, uint256 newVal, uint256 elapsed) internal pure {
         if (oldVal == 0) return;
         if (newVal >= oldVal) {

@@ -16,6 +16,7 @@ contract MockUSDC {
     uint8   public decimals = 6;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
+    mapping(address => bool) public failTransferTo;
     uint256 public totalSupply;
 
     function mint(address to, uint256 amount) external {
@@ -29,6 +30,7 @@ contract MockUSDC {
     }
 
     function transfer(address to, uint256 amount) external returns (bool) {
+        if (failTransferTo[to]) return false;
         balanceOf[msg.sender] -= amount;
         balanceOf[to]         += amount;
         return true;
@@ -39,6 +41,10 @@ contract MockUSDC {
         balanceOf[from]             -= amount;
         balanceOf[to]               += amount;
         return true;
+    }
+
+    function setTransferFailure(address to, bool shouldFail) external {
+        failTransferTo[to] = shouldFail;
     }
 }
 
@@ -139,6 +145,7 @@ contract BGWVaultTest is Test {
         vm.warp(block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY + 1);
         vm.prank(founder);
         vault.executeAutomation();
+        vm.warp(block.timestamp + 180 days);
     }
 
     // ── NAV bootstrapping ────────────────────────────────────────────────────
@@ -643,7 +650,7 @@ contract BGWVaultTest is Test {
 
     // ── Management fee ────────────────────────────────────────────────────────
 
-    function test_NoMgmtFeeOnFirstHarvest() public {
+    function test_BaseMgmtFeeChargedOnFirstBoundedHarvest() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -652,11 +659,12 @@ contract BGWVaultTest is Test {
         address automationAddr = _setupAutomation();
         uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
 
-        // First-ever harvest: lastHarvestTime == 0, management fee skipped
+        // First-ever harvest is bounded from deployment time, so the base
+        // management fee can accrue instead of being skipped.
         vm.prank(automationAddr);
         vault.recordHarvest(0, 700e6, 250e6, 50e6);
 
-        assertEq(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
+        assertGt(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
     }
 
     function test_MgmtFeeAccruedAfterInterval() public {
@@ -678,8 +686,7 @@ contract BGWVaultTest is Test {
         vm.prank(alice);
         bgwToken.transfer(CAMELOT_ADDR, 2e18);
 
-        // First harvest — crystallises HWM above $1.00 via perf fee on 100e6 yield;
-        // no management fee charged because lastHarvestTime == 0
+        // First harvest — crystallises HWM above $1.00 via perf fee on 100e6 yield.
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
@@ -904,9 +911,9 @@ contract BGWVaultTest is Test {
         assertTrue(vault.protectedTokens(0x5979D7b546E38E414F7E9822514be443A4800529)); // wstETH
     }
 
-    // ── C-03: totalPendingFees included in totalNAV ───────────────────────────
+    // ── C-03: totalPendingFees excluded from holder NAV ───────────────────────
 
-    function test_PendingFeesIncludedInTotalNAV() public {
+    function test_PendingFeesExcludedFromTotalNAV() public {
         // Deposit so there's a NAV baseline
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -922,11 +929,11 @@ contract BGWVaultTest is Test {
         // Simulate failure: overspend vault USDC so the push to teamWallet fails.
         // Easier approach: deploy a new vault variant isn't needed — we can just manually
         // call the internal path via the automation and check the invariant directly.
-        // Instead: verify the formula by checking totalNAV = sleeves + buyback + pendingFees.
+        // Instead: verify the formula by checking totalNAV = sleeves + buyback.
         assertEq(
             vault.totalNAV(),
             vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-                + vault.buybackAccumulator() + vault.totalPendingFees()
+                + vault.buybackAccumulator()
         );
         assertEq(navBefore, 1_000e6);
 
@@ -941,8 +948,41 @@ contract BGWVaultTest is Test {
         assertEq(
             vault.totalNAV(),
             vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-                + vault.buybackAccumulator() + vault.totalPendingFees()
+                + vault.buybackAccumulator()
         );
+    }
+
+    function test_RedeemCannotCapturePendingFeeLiabilities() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+        MockUSDC(USDC_ADDR).setTransferFailure(team, true);
+        address auto_ = _setupAutomation();
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+
+        vm.prank(auto_);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+
+        uint256 pendingTeamFee = vault.pendingFees(team);
+        assertGt(pendingTeamFee, 0);
+        assertEq(
+            vault.totalNAV(),
+            vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
+                + vault.buybackAccumulator()
+        );
+
+        uint256 aliceUsdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        uint256 aliceBgw = bgwToken.balanceOf(alice);
+        vm.prank(alice);
+        vault.redeem(aliceBgw, 0);
+
+        assertGe(vault.pendingFees(team), pendingTeamFee);
+        assertGe(MockUSDC(USDC_ADDR).balanceOf(address(vault)), vault.totalPendingFees());
+        assertLt(MockUSDC(USDC_ADDR).balanceOf(alice) - aliceUsdcBefore, 1_100e6);
     }
 
     // ── C-05: deferred direct-burn routes to buybackAccumulator ──────────────
@@ -976,8 +1016,7 @@ contract BGWVaultTest is Test {
     // ── H-03/H-14: 1% minimum delta before HWM crystallises ──────────────────
 
     function test_HWMNotCrystallisedOnSmallUptick() public {
-        // Step 1: crystallise HWM above $1.00 via first harvest (rate bounds don't apply,
-        // lastHarvestTime == 0 on first call).
+        // Step 1: crystallise HWM above $1.00 via a bounded first harvest.
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -1025,7 +1064,7 @@ contract BGWVaultTest is Test {
         vm.prank(alice);
         bgwToken.transfer(CAMELOT_ADDR, 5e18);
 
-        // First harvest: crystallises HWM (first call → no rate bounds).
+        // First harvest: crystallises HWM after enough elapsed time for the rate bounds.
         vm.prank(auto_);
         vault.recordHarvest(200e6, 840e6, 300e6, 60e6);
         uint256 hwmAfterFirst = vault.highWaterMark();

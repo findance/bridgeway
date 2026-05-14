@@ -3,6 +3,12 @@ const { ethers, upgrades } = require("hardhat");
 require("dotenv").config();
 
 async function main() {
+  if (process.env.ALLOW_LEGACY_WRAPPER_DEPLOY !== "true") {
+    throw new Error(
+      "Legacy BridgewayAutomationWrapper upgrade is disabled. The current audited path is the non-upgradeable core vault plus automation deployment scripts. Set ALLOW_LEGACY_WRAPPER_DEPLOY=true only for an intentional legacy testnet upgrade."
+    );
+  }
+
   const [deployer]  = await ethers.getSigners();
   const deployments = require("../deployments.json");
 

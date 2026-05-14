@@ -3,6 +3,12 @@ const { ethers, upgrades } = require("hardhat");
 require("dotenv").config();
 
 async function main() {
+  if (process.env.ALLOW_LEGACY_WRAPPER_DEPLOY !== "true") {
+    throw new Error(
+      "Legacy BridgewayAutomationWrapper deploy is disabled. Use scripts/deploy/01_DeployTokens.s.sol, 02_DeployVault.s.sol, and 03_SetupAutomation.s.sol for the audited core contracts. Set ALLOW_LEGACY_WRAPPER_DEPLOY=true only for an intentional legacy testnet deployment."
+    );
+  }
+
   const [deployer] = await ethers.getSigners();
   const network    = await ethers.provider.getNetwork();
 

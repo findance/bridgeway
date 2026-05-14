@@ -279,14 +279,23 @@ contract BridgewayAutomationWrapper is
         uint8 action = abi.decode(performData, (uint8));
 
         if (action == ACTION_SNAPSHOT) {
+            require(block.timestamp >= lastSnapshotTime + SNAPSHOT_INTERVAL, "snapshot not due");
             _takeMonthlySnapshot();
         } else if (action == ACTION_HOURLY) {
+            require(hourlyBuybackAmount > 0, "zero hourly");
+            require(hourlyBuybackAmount >= estimatedGasCostUSDC, "hourly below gas");
+            require(block.timestamp >= lastHourlyTime + HOURLY_INTERVAL, "hourly not due");
             _executeBuyback(hourlyBuybackAmount, true);
             lastHourlyTime = block.timestamp;
         } else if (action == ACTION_DAILY) {
+            require(dailyBuybackAmount > 0, "zero daily");
+            require(dailyBuybackAmount >= estimatedGasCostUSDC, "daily below gas");
+            require(block.timestamp >= lastDailyTime + DAILY_INTERVAL, "daily not due");
             _executeBuyback(dailyBuybackAmount, false);
             lastDailyTime  = block.timestamp;
             lastHourlyTime = block.timestamp;
+        } else {
+            revert("unknown action");
         }
     }
 
