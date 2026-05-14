@@ -13,7 +13,8 @@ interface IBGWGovTransferCompanion {
 /// @notice Bridgeway Index vault share token (BGW).
 ///         Price = totalVaultNAV / totalSupply (pure NAV share model).
 ///         - Minted only by BGWVault when a whitelisted user deposits.
-///         - Burned by BGWVault on redemption, or by public burn() for buybacks.
+///         - Burned by BGWVault on redemption, by protocol mint-and-burn reserve
+///           injections, or by public voluntary burns.
 ///         - Transfers restricted to whitelisted addresses.
 ///         - Non-upgradeable; all logic lives in BGWVault.
 contract BGWToken is ERC20, AccessControl, Pausable {

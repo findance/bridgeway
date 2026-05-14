@@ -17,8 +17,8 @@ User deposits USDC
         ↓
 Bridgeway Automation Wrapper  (~700 lines, custom — UUPS upgradeable)
    - 6-way fee split
-   - Monthly buyback snapshot
-   - Hourly/daily auto-buyback with gas check
+   - Monthly reserve-injection buyback check
+   - Auto buyback execution with threshold and cooldown
    - 0.1% ops cut self-funds Chainlink Automation
         ↓
 Enzyme Finance Vault on Arbitrum  (battle-tested, audited)
@@ -41,17 +41,17 @@ Underlying basket  (top 20 crypto + 5 stables + SPYon + QQQon)
 |--------|-------|------|---------|
 | Team | 45% | USDC | Salaries, dev, legal |
 | Holdback | 20% | USDC | Ops, gas, oracles |
-| Buyback | 15% | USDC | Monthly buyback + burn |
+| Buyback | 15% | USDC | Reserve injection + temporary BGW mint/burn |
 | LP Seeding | 10% | USDC | DEX liquidity |
 | Reserve | 5% | USDC | User protection |
-| Burn | 5% | BGW | Immediate burn |
+| Burn | 5% | USDC | Added to reserve-injection queue |
 
 ## Buyback engine
 
-- Snapshot taken on the last day of each month of the buyback accumulator balance
+- Automation executes reserve injection when the buyback accumulator clears threshold and cooldown
 - Divided into a daily amount, then an hourly amount
 - Each hour, contract checks if hourly amount > estimated gas; executes hourly if yes, daily if not, skips if even daily is below gas
-- 0.1% of every buyback flows to holdback to self-fund Chainlink Automation
+- Buyback execution does not trade against BGW/USDC liquidity
 - Anyone can trigger via Chainlink Automation, Gelato, or directly
 
 ## Stack
@@ -111,8 +111,8 @@ I'm reviewing the design rather than the actual v10 source (which wasn't fully p
 
 - **`recordStakingYield(uint256) onlyOwner`** — the owner manually reports the yield amount that the performance fee is calculated against. This is a significant trust assumption. A malicious or compromised owner can over-report yield to mint more fee tokens. Mainnet should derive yield from the vault state (`vault.balance(t1) - vault.balance(t0) - net flows`), not owner input.
 - **UUPS with single-key owner** — the previous chat agreed to skip the 48h timelock "since the owner is just you." For testnet that's fine. For mainnet with real user funds this is unacceptable — the owner can upgrade to a malicious implementation and drain the vault in one transaction. Multi-sig + timelock is non-negotiable for mainnet.
-- **BGW/USDC liquidity bootstrapping** — every buyback routes USDC → BGW via Camelot. Until the LP allocation accumulates enough to seed a deep pool, the first buybacks will be entirely your own contract trading against a thin pool, with predictable sandwich/MEV losses.
-- **Hourly buyback at low AUM** — at $100k AUM the entry-fee buyback flow yields cents per hour. Gas on Arbitrum is cheap but not free. The chat handled this with a "skip if below gas" branch, but worth verifying the threshold math holds at realistic early-stage volumes.
+- **BGW/USDC liquidity bootstrapping** — buybacks no longer route through Camelot, so thin LP depth does not affect buyback execution. LP depth still matters for secondary-market transfers.
+- **Buyback at low AUM** — at $100k AUM, reserve growth may be small. Gas on Arbitrum is cheap but not free, so the threshold and cooldown should still be reviewed at realistic early-stage volumes.
 - **Performance fee scope** — the chat's final answer was "stake yield only, owner-reported." There's no on-chain way for a holder to verify the owner isn't double-charging or under-reporting. Consider an oracle-based or vault-introspection approach for mainnet.
 
 ## 5. The contract iteration approach has a meta-risk
@@ -128,7 +128,7 @@ For mainnet with user funds: do not skip a real audit.
 
 1. **Get the v10 source into the repo cleanly.** The chat included pasted code that was truncated in places. Confirm you have the full file, drop it in `contracts/BridgewayAutomationWrapper.sol`, and verify it compiles standalone with the OpenZeppelin upgradeable imports.
 2. **Hardhat scaffolding** — config, deploy script, mock contracts, tests. This is the first thing the previous Claude offered to build. It's the right next step.
-3. **Local test pass** — full Hardhat test suite covering happy paths and edge cases (zero-fee, blacklist, paused, monthly snapshot rollover, gas-skip branch).
+3. **Local test pass** — full Foundry test suite covering happy paths and edge cases.
 4. **Arbitrum Sepolia deploy** — proxy via OpenZeppelin Upgrades plugin, register on Chainlink Automation testnet, verify on Arbiscan.
 5. **Stop and assess** — at this point you'll have a working testnet deployment. Before going further, get a securities lawyer call and decide whether to scope down (drop equity layer, geofence) or commit to a proper compliance and audit budget.
 

@@ -68,7 +68,7 @@ contract DeployVault is Script {
         console.log("Granted WHITELIST_ADMIN_ROLE to vault on BGWToken");
 
         vault.setWhitelisted(address(vault), true);
-        console.log("Whitelisted vault for paired BGW/BGW-GOV buyback receipt");
+        console.log("Whitelisted vault for protocol reserve mint-and-burn");
 
         govToken.initVault(address(vault));
         console.log("Initialized vault in BGWGovToken (vault can mint deposit GOV)");
@@ -80,9 +80,9 @@ contract DeployVault is Script {
 
         console.log("\n=== Save these for script 03 ===");
         console.log("VAULT=", address(vault));
-        console.log("\n=== Post-deploy step (H-07) ===");
-        console.log("After seeding Camelot BGW/USDC liquidity, call:");
+        console.log("\n=== Optional liquidity step ===");
+        console.log("After seeding Camelot BGW/USDC liquidity for secondary-market trading, call:");
         console.log("  vault.bootstrapPair(<camelot_pair_address>)");
-        console.log("This whitelists the pair so buybacks can receive BGW.");
+        console.log("This whitelists the pair for BGW transfers; buybacks do not require LP liquidity.");
     }
 }

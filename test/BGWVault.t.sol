@@ -104,7 +104,7 @@ contract BGWVaultTest is Test {
         bgwToken.grantRole(bgwToken.MINTER_ROLE(),           address(vault));
         bgwToken.grantRole(bgwToken.BURNER_ROLE(),           address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(),  address(vault));
-        // Vault must be whitelisted to receive BGW and its paired BGW-GOV during buybacks.
+        // Vault must be whitelisted to receive temporary BGW during reserve injection.
         vault.setWhitelisted(address(vault), true);
         // Camelot mock holds real BGW liquidity during swap simulation.
         bgwToken.setWhitelisted(CAMELOT_ADDR, true);

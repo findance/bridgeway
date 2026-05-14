@@ -107,7 +107,7 @@ scripts/
 - Implements Chainlink `AutomationCompatibleInterface`
 - `checkUpkeep()` returns true for:
   - Monthly harvest (1st of month)
-  - Daily/hourly buyback (when accumulator >= gas threshold)
+  - Reserve-injection buyback (when accumulator clears threshold and cooldown)
 - `performUpkeep()` dispatches to `harvestAndCompound()` or `executeBuyback()`
 - Buyback: reserve USDC is injected into sleeves, then temporary BGW is minted and burned without BGW-GOV minting
 
