@@ -155,6 +155,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     mapping(address => bool) public whitelist;
 
+    /// @notice Maximum USDC per single deposit. 0 = uncapped.
+    uint256 public maxDepositUsdc;
+
     // ─────────────────────────────────────────────────────────────────────────
     // State — protected tokens (C-02)
     // ─────────────────────────────────────────────────────────────────────────
@@ -221,6 +224,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Events
     // ─────────────────────────────────────────────────────────────────────────
 
+    event MaxDepositCapUpdated(uint256 newCap);
     event Deposited(
         address indexed user,
         uint256 usdcAmount,
@@ -285,6 +289,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error ZeroAddress();
     error NoPendingChange(bytes32 changeType);
     error TimelockNotElapsed(uint256 executeAfter);
+    error DepositExceedsCap(uint256 amount, uint256 cap);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
@@ -409,6 +414,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         onlyWhitelisted
     {
         if (usdcAmount == 0) revert ZeroAmount();
+        if (maxDepositUsdc > 0 && usdcAmount > maxDepositUsdc)
+            revert DepositExceedsCap(usdcAmount, maxDepositUsdc);
 
         IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
         cumulativePrincipal += usdcAmount;
@@ -436,13 +443,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Redeem BGW for USDC. Applies exit fee + perf fee if above HWM.
+    ///         No whitelist check — holders must always be able to exit (H-02).
     /// @param  bgwAmount  BGW to burn (18 dec).
     /// @param  minUSDC    Minimum USDC to accept (slippage guard, 6 dec).
     function redeem(uint256 bgwAmount, uint256 minUSDC)
         external
         nonReentrant
         whenNotPaused
-        onlyWhitelisted
     {
         if (bgwAmount == 0) revert ZeroAmount();
 
@@ -903,6 +910,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (pendingAddressChanges[CHANGE_ROUTER].executeAfter == 0) revert NoPendingChange(CHANGE_ROUTER);
         delete pendingAddressChanges[CHANGE_ROUTER];
         emit AddressChangeCancelled(CHANGE_ROUTER);
+    }
+
+    /// @notice Set a per-deposit USDC cap. Set to 0 to remove the cap entirely.
+    function setMaxDepositCap(uint256 cap) external onlyOwner {
+        maxDepositUsdc = cap;
+        emit MaxDepositCapUpdated(cap);
     }
 
     function pause()   external onlyOwner { _pause(); }
