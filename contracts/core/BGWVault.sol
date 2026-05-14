@@ -11,7 +11,6 @@ import "../tokens/BGWToken.sol";
 import "../tokens/BGWGovToken.sol";
 import "../interfaces/IChainlinkAggregator.sol";
 import "../interfaces/IAaveV3.sol";
-import "../interfaces/ICamelotRouter.sol";
 import "../interfaces/IMorphoBlue.sol";
 import "../libraries/FeeLib.sol";
 
@@ -44,7 +43,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @dev Chainlink price staleness threshold.
     uint256 public constant ORACLE_STALE_THRESHOLD = 1 hours;
 
-    /// @dev Max slippage allowed on DEX swaps (default 1 %).
+    /// @dev Legacy slippage constant retained for router compatibility.
     uint256 public constant MAX_SLIPPAGE_BPS = 100;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -77,7 +76,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // State — DEX router (M-06: settable so router upgrades don't force redeploy)
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Camelot DEX router used for USDC → BGW buyback swaps.
+    /// @notice Legacy Camelot DEX router reference.
     ///         Owner can propose a new address via proposeRouterUpdate() + 48h timelock.
     address public camelotRouter;
 
@@ -103,7 +102,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Annual management fee in basis points (default 50 = 0.50 %).
     uint256 public managementFeeBps = FeeLib.MANAGEMENT_FEE_BPS;
 
-    /// @notice USDC accumulated for next BGW buyback (6 dec).
+    /// @notice USDC accumulated for next BGW reserve injection and burn (6 dec).
     uint256 public buybackAccumulator;
 
     /// @notice Timestamp of last monthly harvest.
@@ -238,8 +237,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 perfFeeUsdc,
         uint256 newHighWaterMark
     );
-    event BuybackExecuted(uint256 usdcSpent, uint256 bgwBurned);
-    event DirectBurnDeferred(uint256 indexed usdcAmount, bytes reason); // H-08
+    event BuybackExecuted(uint256 usdcInjected, uint256 bgwMintedAndBurned);
     event PairBootstrapped(address indexed pair);                       // H-07
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
@@ -575,12 +573,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Automation-only: Buyback & Burn
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Spend `usdcAmount` from the buyback accumulator:
-    ///         swap USDC → BGW on Camelot, then burn the received BGW.
-    ///
-    ///         minBGW is derived from the vault's own NAV rather than Camelot's
-    ///         spot price, preventing sandwich attacks that inflate the pool price
-    ///         just before the swap to reduce the floor (C-03).
+    /// @notice Spend `usdcAmount` from the buyback accumulator by injecting it
+    ///         into portfolio sleeves, then minting and immediately burning the
+    ///         corresponding BGW. No BGW-GOV is minted for this protocol-only
+    ///         cycle, and no LP liquidity is touched.
     function executeBuyback(uint256 usdcAmount)
         external
         nonReentrant
@@ -588,37 +584,17 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         onlyAutomation
     {
         if (usdcAmount == 0 || usdcAmount > buybackAccumulator) return;
+        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
+        uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
+        require(usdcAmount <= availableUsdc, "BGWVault: insufficient reserve USDC");
 
         buybackAccumulator -= usdcAmount;
 
-        IERC20(USDC).forceApprove(camelotRouter, usdcAmount);
+        uint256 bgwToMintAndBurn = (usdcAmount * 1e18) / navPerBGW();
+        _deployToSleeves(usdcAmount);
+        bgwToken.protocolMintAndBurn(address(this), bgwToMintAndBurn);
 
-        address[] memory path = new address[](2);
-        path[0] = USDC;
-        path[1] = address(bgwToken);
-
-        // NAV-based floor: expectedBGW = usdcAmount / navPerBGW (both 6 dec → 18 dec result)
-        uint256 expectedBGW = (usdcAmount * 1e18) / navPerBGW();
-        uint256 minBGW      = (expectedBGW * (FeeLib.BPS_DENOM - MAX_SLIPPAGE_BPS)) /
-            FeeLib.BPS_DENOM;
-
-        uint256 bgwBefore = bgwToken.balanceOf(address(this));
-
-        ICamelotRouter(camelotRouter)
-            .swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                usdcAmount,
-                minBGW,
-                path,
-                address(this),
-                address(0),
-                block.timestamp + 5 minutes
-            );
-
-        uint256 bgwReceived = bgwToken.balanceOf(address(this)) - bgwBefore;
-
-        bgwToken.burn(bgwReceived);
-
-        emit BuybackExecuted(usdcAmount, bgwReceived);
+        emit BuybackExecuted(usdcAmount, bgwToMintAndBurn);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -684,8 +660,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit AutomationRevoked(old);
     }
 
-    /// @notice Whitelist a Camelot BGW/USDC pair address so buybacks can receive BGW (H-07).
-    ///         Must be called after LP is seeded and before the first executeBuyback.
+    /// @notice Whitelist a BGW/USDC pair address for secondary-market liquidity.
+    ///         Buybacks no longer depend on this pair.
     function bootstrapPair(address pair) external onlyOwner {
         if (pair == address(0)) revert ZeroAddress();
         whitelist[pair] = true;
@@ -992,11 +968,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _tryTransferFee(lpSeedingWallet,   s.lpSeed);
         _tryTransferFee(reserveFundWallet, s.reserve);
 
-        buybackAccumulator += s.buyback;
-
-        if (s.directBurn > 0) {
-            _burnViaSwap(s.directBurn);
-        }
+        buybackAccumulator += s.buyback + s.directBurn;
     }
 
     /// @dev Attempt to push USDC fee to `recipient`. On failure, escrow in
@@ -1011,44 +983,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             pendingFees[recipient]   += amount;
             totalPendingFees         += amount;
             lastFeeAccrual[recipient] = block.timestamp; // H-13: stale-fee clock
-        }
-    }
-
-    /// @dev Swap USDC → BGW on Camelot and burn (used for direct-burn fee split).
-    ///      minBGW is derived from vault NAV to resist sandwich attacks (C-03).
-    ///      On swap failure, emits DirectBurnDeferred and leaves USDC in vault
-    ///      rather than reverting and blocking the entire harvest (H-04/H-07).
-    function _burnViaSwap(uint256 usdcAmount) internal {
-        IERC20(USDC).forceApprove(camelotRouter, usdcAmount);
-
-        address[] memory path = new address[](2);
-        path[0] = USDC;
-        path[1] = address(bgwToken);
-
-        // NAV-based floor prevents the pool spot price being used as the sandwich target
-        uint256 expectedBGW = (usdcAmount * 1e18) / navPerBGW();
-        uint256 minBGW      = (expectedBGW * (FeeLib.BPS_DENOM - MAX_SLIPPAGE_BPS)) /
-            FeeLib.BPS_DENOM;
-
-        uint256 bgwBefore = bgwToken.balanceOf(address(this));
-
-        try ICamelotRouter(camelotRouter)
-            .swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                usdcAmount,
-                minBGW,
-                path,
-                address(this),
-                address(0),
-                block.timestamp + 5 minutes
-            )
-        {
-            uint256 received = bgwToken.balanceOf(address(this)) - bgwBefore;
-            if (received > 0) bgwToken.burn(received);
-        } catch (bytes memory reason) {
-            // C-05: route deferred USDC to buyback accumulator so it isn't stranded.
-            IERC20(USDC).forceApprove(camelotRouter, 0);
-            buybackAccumulator += usdcAmount;
-            emit DirectBurnDeferred(usdcAmount, reason); // H-08: include revert reason
         }
     }
 

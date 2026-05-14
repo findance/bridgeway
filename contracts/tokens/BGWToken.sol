@@ -34,6 +34,10 @@ contract BGWToken is ERC20, AccessControl, Pausable {
     /// @notice Optional BGW-GOV companion moved/burned alongside BGW transfers.
     address public governanceCompanion;
 
+    /// @dev Scoped guard for protocol-only mint-and-burn cycles that must not
+    ///      create or destroy paired BGW-GOV.
+    bool private suppressGovernanceSync;
+
     // ── Events ───────────────────────────────────────────────────────────────
     event Whitelisted(address indexed account, bool status);
     event Blacklisted(address indexed account, bool status);
@@ -63,6 +67,21 @@ contract BGWToken is ERC20, AccessControl, Pausable {
         _mint(to, amount);
     }
 
+    /// @notice Mint BGW to `account` and burn it immediately without BGW-GOV sync.
+    /// @dev Used by the vault when injecting the buyback reserve into sleeves.
+    ///      The temporary BGW never enters circulation and must not mint/burn GOV.
+    function protocolMintAndBurn(address account, uint256 amount)
+        external
+        onlyRole(MINTER_ROLE)
+        whenNotPaused
+    {
+        require(hasRole(BURNER_ROLE, msg.sender), "BGW: missing burner role");
+        _mint(account, amount);
+        suppressGovernanceSync = true;
+        _burn(account, amount);
+        suppressGovernanceSync = false;
+    }
+
     /// @notice Burn BGW from `from`. Only callable by BGWVault (BURNER_ROLE).
     ///         Used during redemptions.
     function adminBurn(address from, uint256 amount) external onlyRole(BURNER_ROLE) {
@@ -70,7 +89,6 @@ contract BGWToken is ERC20, AccessControl, Pausable {
     }
 
     /// @notice Public burn — anyone can burn their own BGW.
-    ///         Used by the buyback engine after swapping USDC → BGW.
     function burn(uint256 amount) external {
         _burn(msg.sender, amount);
     }
@@ -159,7 +177,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
         super._update(from, to, amount);
 
         address companion = governanceCompanion;
-        if (companion != address(0) && from != address(0)) {
+        if (companion != address(0) && from != address(0) && !suppressGovernanceSync) {
             IBGWGovTransferCompanion(companion).syncWithBGWTransfer(from, to, amount);
         }
     }

@@ -167,7 +167,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
     // Holder or vault calls this (on redemption)
     function burn(address from, uint256 amount) external onlyRole(MINTER_ROLE);
 
-    // Public burn (buyback engine calls this)
+    // Public burn for voluntary holder burns
     function burn(uint256 amount) external;
 
     // Admin whitelist management
@@ -366,7 +366,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @param netYieldUSD Net yield in USDC (6 dec) after slippage/gas
     function recordHarvestYield(uint256 netYieldUSD) external onlyAutomation;
 
-    /// @notice Trigger USDC→BGW buyback via Camelot, burn result
+    /// @notice Inject buyback reserve into sleeves, then mint and burn temporary BGW
     /// @param usdcAmount USDC to spend from buybackAccumulator
     function executeBuyback(uint256 usdcAmount) external onlyAutomation;
 

@@ -431,13 +431,7 @@ contract BGWVaultTest is Test {
         address automationAddr = _setupAutomation();
         uint256 hwmBefore = vault.highWaterMark();
 
-        // Pre-fund mock Camelot with Alice's BGW so directBurn can transfer
-        // existing BGW (safeTransfer) rather than minting, keeping supply accurate.
-        // directBurn = 5% of perfFee(100e6) = 5% of 15e6 = 0.75e6 USDC → 0.75e18 BGW.
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
-
-        // Record 100 USDC yield — triggers perf fee (Camelot mock handles directBurn)
+        // Record 100 USDC yield — triggers perf fee and queues the burn share.
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
@@ -574,8 +568,8 @@ contract BGWVaultTest is Test {
 
     // ── Buyback ───────────────────────────────────────────────────────────────
 
-    function test_BuybackBurnsBGW() public {
-        // Seed vault buyback accumulator by triggering a perf fee harvest
+    function test_BuybackInjectsReserveAndBurnsTemporaryBGW() public {
+        // Seed vault buyback accumulator by triggering a perf fee harvest.
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -584,12 +578,6 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
 
         address automationAddr = _setupAutomation();
-
-        // Pre-fund mock Camelot with Alice's BGW so both directBurn (0.75e18) and the
-        // subsequent executeBuyback (2.25e18) can safeTransfer existing BGW.
-        // This makes the burn genuinely deflationary (removes circulating supply).
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
 
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
@@ -598,19 +586,26 @@ contract BGWVaultTest is Test {
         assertGt(accumulator, 0);
 
         uint256 supplyBefore = bgwToken.totalSupply();
+        uint256 govSupplyBefore = govToken.totalSupply();
+        uint256 navBefore = vault.totalNAV();
+        uint256 navPerBgwBefore = vault.navPerBGW();
 
-        // Execute buyback — mock Camelot mints BGW to vault, vault burns it
+        // Execute buyback: no LP swap. The reserve is injected into sleeves, then
+        // temporary BGW is minted to the vault and burned without GOV minting.
         vm.prank(automationAddr);
         vault.executeBuyback(accumulator);
 
         assertEq(vault.buybackAccumulator(), 0);
-        assertLt(bgwToken.totalSupply(), supplyBefore);
+        assertEq(bgwToken.totalSupply(), supplyBefore);
+        assertEq(govToken.totalSupply(), govSupplyBefore);
+        assertEq(vault.totalNAV(), navBefore + accumulator);
+        assertGt(vault.navPerBGW(), navPerBgwBefore);
     }
 
-    // ── C-03: NAV-based slippage floor ───────────────────────────────────────
+    // ── Buyback is LP-independent ────────────────────────────────────────────
 
-    function test_BuybackRevertsWhenSwapManipulated() public {
-        // Build up buyback accumulator via a normal harvest
+    function test_BuybackIgnoresManipulatedLP() public {
+        // Build up buyback accumulator via a normal harvest.
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -618,9 +613,6 @@ contract BGWVaultTest is Test {
 
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
         address automationAddr = _setupAutomation();
-
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
 
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
@@ -628,25 +620,23 @@ contract BGWVaultTest is Test {
         uint256 accumulator = vault.buybackAccumulator();
         assertGt(accumulator, 0);
 
-        // Etch a "sandwiched" router that only returns 10% of fair value.
-        // NAV-based minBGW is ~99% of expected, so this should revert.
+        // Etch a "sandwiched" router. Reserve-injection buybacks do not touch it.
         MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
 
         vm.prank(automationAddr);
-        vm.expectRevert("MockCamelot: slippage");
         vault.executeBuyback(accumulator);
 
-        // Accumulator is intact after revert (no state change committed)
-        assertEq(vault.buybackAccumulator(), accumulator);
+        assertEq(vault.buybackAccumulator(), 0);
 
         // Restore normal router for other tests
         MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(normal).code);
     }
 
-    function test_DirectBurnDefersWhenSwapManipulated() public {
-        // Etch a sandwiched router before the harvest so directBurn defers
+    function test_DirectBurnFeeRoutesToAccumulatorWithoutLP() public {
+        // Etch a sandwiched router before the harvest. Direct-burn fee routing
+        // no longer swaps, so the router cannot affect harvest.
         MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
 
@@ -658,19 +648,13 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
         address automationAddr = _setupAutomation();
 
-        // Expect the DirectBurnDeferred event (H-08: now includes revert reason).
-        // Only check the indexed usdcAmount topic; reason bytes are implementation-internal.
-        uint256 expectedDirectBurn = (FeeLib.calcPerfFee(100e6) * 500) / 10_000; // 5%
-        vm.expectEmit(true, false, false, false, address(vault));
-        emit BGWVault.DirectBurnDeferred(expectedDirectBurn, "");
-
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
-        // C-05: deferred USDC must land in buybackAccumulator, not be stranded.
-        // buyback (15%) = 2.25e6; deferred directBurn (5%) = 0.75e6 → accumulator ≥ buyback share.
+        // buyback (15%) + directBurn (5%) are both retained for reserve injection.
         uint256 buybackShare = (FeeLib.calcPerfFee(100e6) * 1_500) / 10_000;
-        assertGt(vault.buybackAccumulator(), buybackShare, "deferred burn should increase accumulator");
+        uint256 directBurnShare = (FeeLib.calcPerfFee(100e6) * 500) / 10_000;
+        assertGe(vault.buybackAccumulator(), buybackShare + directBurnShare);
 
         // Restore normal router
         MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
@@ -708,12 +692,6 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
 
         address automationAddr = _setupAutomation();
-
-        // Pre-fund Camelot for directBurn in both harvests:
-        //   First harvest perf fee: 15% of 100e6 = 15e6, directBurn 5% = 0.75e6 → 0.75e18 BGW
-        //   Mgmt fee (second harvest): ~0.45e6 total, directBurn 5% ≈ 0.023e18 BGW
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 2e18);
 
         // First harvest — crystallises HWM above $1.00 via perf fee on 100e6 yield.
         vm.prank(automationAddr);
@@ -832,8 +810,6 @@ contract BGWVaultTest is Test {
 
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
         address automationAddr = _setupAutomation();
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 10e18); // covers directBurn in both harvests
 
         // Step 1: crystallise HWM at ~$1.10
         vm.prank(automationAddr);
@@ -1020,10 +996,10 @@ contract BGWVaultTest is Test {
         assertLt(MockUSDC(USDC_ADDR).balanceOf(alice) - aliceUsdcBefore, 1_100e6);
     }
 
-    // ── C-05: deferred direct-burn routes to buybackAccumulator ──────────────
+    // ── C-05: direct-burn share routes to buybackAccumulator ─────────────────
 
-    function test_DeferredDirectBurnAccumulatorIncreasesAboveBuybackShare() public {
-        // Etch a sandwiched router so _burnViaSwap always defers
+    function test_DirectBurnAccumulatorIncreasesAboveBuybackShare() public {
+        // Etch a sandwiched router; reserve-injection routing does not touch it.
         MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
 
@@ -1039,7 +1015,7 @@ contract BGWVaultTest is Test {
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
         // buyback share = 15% of perfFee(100e6) = 15% of 15e6 = 2.25e6
-        // directBurn deferred = 5% of 15e6 = 0.75e6 → also in accumulator
+        // directBurn share = 5% of 15e6 = 0.75e6 → also in accumulator
         uint256 buybackShare = (FeeLib.calcPerfFee(100e6) * 1_500) / 10_000;
         assertGt(vault.buybackAccumulator(), buybackShare);
 
@@ -1107,8 +1083,8 @@ contract BGWVaultTest is Test {
         // Step 3: second harvest — sleeve values give navPerBGW18 just 0.5% above HWM
         // (i.e. < 1% threshold). effectiveHwm = hwmAfterFirst ≈ 1.0880e18.
         // Target range: 1.0880e18 < navPerBGW18 < 1.0880e18 × 1.01 = 1.0989e18.
-        // With supply ≈ 999.25e18 and buybackAcc ≈ 2.22e6:
-        //   use sleeves (763e6, 272e6, 55e6) = 1090; totalNAV ≈ 1092.2e6 → 1.0930e18.
+        // With buyback reserve excluded from holder NAV:
+        //   use sleeves (763e6, 272e6, 55e6) = 1090; totalNAV ≈ 1090e6.
         //   1.088 < 1.0930 < 1.0989 ✓
         MockUSDC(USDC_ADDR).mint(address(vault), 10e6);
         vm.prank(auto_);

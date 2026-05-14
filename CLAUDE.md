@@ -109,7 +109,7 @@ scripts/
   - Monthly harvest (1st of month)
   - Daily/hourly buyback (when accumulator >= gas threshold)
 - `performUpkeep()` dispatches to `harvestAndCompound()` or `executeBuyback()`
-- Buyback: USDC → BGW on Camelot DEX → `BGWToken.burn()`
+- Buyback: reserve USDC is injected into sleeves, then temporary BGW is minted and burned without BGW-GOV minting
 
 ---
 
@@ -121,10 +121,10 @@ Performance fee = 15% of yield above high-water mark.
 |---------------------|----------|----------------------------------|
 | teamWallet          | 45%      | Operations                       |
 | holdbackWallet      | 20%      | Protocol reserve                 |
-| buybackAccumulator  | 15%      | USDC saved for BGW buyback+burn  |
+| buybackAccumulator  | 15%      | USDC saved for reserve injection |
 | lpSeedingWallet     | 10%      | DEX liquidity                    |
 | reserveFundWallet   | 5%       | Insurance buffer                 |
-| directBurnAmount    | 5%       | Immediate BGW burn               |
+| directBurnAmount    | 5%       | Added to reserve injection queue |
 
 **Wallet addresses** — set in constructor, changeable only by founder multisig.
 These are PLACEHOLDER values — replace before deployment:
@@ -133,8 +133,8 @@ address public teamWallet        = 0x0000000000000000000000000000000000000001;
 address public holdbackWallet    = 0x0000000000000000000000000000000000000002;
 address public lpSeedingWallet   = 0x0000000000000000000000000000000000000003;
 address public reserveFundWallet = 0x0000000000000000000000000000000000000004;
-// buybackAccumulator is held in-contract as USDC balance
-// directBurn calls BGWToken.burn() directly — no wallet needed
+// buybackAccumulator is held in-contract as USDC balance.
+// executeBuyback injects it into sleeves, then mints and burns temporary BGW.
 ```
 
 ---
@@ -229,7 +229,7 @@ forge script scripts/deploy/01_DeployTokens.s.sol \
 7. **High-water mark updates AFTER fee distribution, not before**
 8. **`compoundedAmount` is never included in rebalancing calculations for Sleeve A**
 9. **BGW-GOV distribution happens inside `deposit()` atomically with BGW minting**
-10. **The 5% exit fee to direct burn calls `BGWToken.burn()` directly — no wallet transfer**
+10. **The 5% direct-burn share is queued into the buyback accumulator for reserve injection**
 
 ---
 
