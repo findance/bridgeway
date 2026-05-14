@@ -278,9 +278,59 @@ contract AutomationTest is Test {
     }
 
     function test_ManualBuybackRevertsWhenAccumulatorEmpty() public {
-        // Accumulator is 0 → _buyback returns early, executeBuyback is a no-op
-        // (no revert, just does nothing)
+        // H-01: manualBuyback now enforces the threshold guard
         vm.prank(founder);
-        automation.manualBuyback(); // should not revert
+        vm.expectRevert("BA: accumulator too low");
+        automation.manualBuyback();
+    }
+
+    // ── H-01: manual trigger rate-limiting ───────────────────────────────────
+
+    function test_ManualHarvestRevertsIfTooSoon() public {
+        // First harvest — more than MIN_HARVEST_GAP has passed since construction (setUp warp = 48h+1)
+        vm.prank(founder);
+        automation.manualHarvest();
+
+        // Immediately try again — must revert because MIN_HARVEST_GAP (12h) has not elapsed
+        vm.prank(founder);
+        vm.expectRevert("BA: harvest too soon");
+        automation.manualHarvest();
+    }
+
+    function test_ManualHarvestSucceedsAfterGap() public {
+        vm.prank(founder);
+        automation.manualHarvest();
+
+        vm.warp(block.timestamp + FeeLib.MIN_HARVEST_GAP);
+
+        vm.prank(founder);
+        automation.manualHarvest(); // must succeed after the gap
+    }
+
+    function test_ManualBuybackRevertsIfIntervalNotElapsed() public {
+        // Fill the accumulator above BUYBACK_THRESHOLD using the first (unconstrained) harvest
+        vm.startPrank(alice);
+        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 10_000e6);
+        vault.deposit(10_000e6, 0);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        bgwToken.transfer(CAMELOT_ADDR, 200e18); // pre-fund Camelot for directBurn
+
+        MockUSDCAutomation(USDC_ADDR).mint(address(vault), 25_000e6);
+        vm.prank(address(automation));
+        vault.recordHarvest(
+            25_000e6,
+            7_000e6 + (25_000e6 * 70) / 100,
+            2_500e6 + (25_000e6 * 25) / 100,
+              500e6 + (25_000e6 *  5) / 100
+        );
+
+        assertGe(vault.buybackAccumulator(), BUYBACK_THRESHOLD);
+
+        // lastBuybackTime is set at construction (~48h ago) — interval (30d) has NOT elapsed
+        vm.prank(founder);
+        vm.expectRevert("BA: buyback interval not elapsed");
+        automation.manualBuyback();
     }
 }

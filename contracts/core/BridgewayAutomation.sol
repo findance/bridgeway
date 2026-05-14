@@ -143,11 +143,24 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     // Admin: manual triggers (owner can call outside Chainlink schedule)
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// @notice Owner-triggered harvest. Enforces the same MIN_HARVEST_GAP as
+    ///         the vault to prevent management-fee spam via repeated manual calls (H-01).
     function manualHarvest() external onlyOwner {
+        require(
+            block.timestamp >= lastHarvestTime + FeeLib.MIN_HARVEST_GAP,
+            "BA: harvest too soon"
+        );
         _harvest();
     }
 
+    /// @notice Owner-triggered buyback. Enforces the same threshold and interval
+    ///         checks as performUpkeep to prevent bypassing the 30-day cooldown (H-01).
     function manualBuyback() external onlyOwner {
+        require(vault.buybackAccumulator() >= BUYBACK_THRESHOLD, "BA: accumulator too low");
+        require(
+            block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL,
+            "BA: buyback interval not elapsed"
+        );
         _buyback();
     }
 

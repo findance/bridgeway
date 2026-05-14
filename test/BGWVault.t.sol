@@ -1158,4 +1158,69 @@ contract BGWVaultTest is Test {
         vm.expectRevert();
         vault.sweepStaleFees(team, alice);
     }
+
+    // ── H-02: de-whitelisted users can always redeem ─────────────────────────
+
+    function test_DeWhitelistedUserCanRedeem() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        // Remove alice from the whitelist (simulates exclusion after deposit)
+        vm.prank(founder);
+        vault.setWhitelisted(alice, false);
+
+        // Alice must still be able to burn her BGW and exit with USDC
+        uint256 bgwBalance = bgwToken.balanceOf(alice);
+        uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+
+        vm.prank(alice);
+        vault.redeem(bgwBalance, 0); // must not revert despite de-whitelist
+
+        assertEq(bgwToken.balanceOf(alice), 0);
+        assertGt(MockUSDC(USDC_ADDR).balanceOf(alice), usdcBefore);
+    }
+
+    // ── Medium: per-deposit cap ───────────────────────────────────────────────
+
+    function test_DepositCapPreventsExceedingLimit() public {
+        vm.prank(founder);
+        vault.setMaxDepositCap(500e6);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.DepositExceedsCap.selector, 1_000e6, 500e6));
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_DepositCapAllowsExactAmount() public {
+        vm.prank(founder);
+        vault.setMaxDepositCap(1_000e6);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0); // exact cap — must succeed
+        vm.stopPrank();
+
+        assertEq(vault.totalNAV(), 1_000e6);
+    }
+
+    function test_DepositCapOfZeroMeansNoCap() public {
+        assertEq(vault.maxDepositUsdc(), 0); // default = uncapped
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 10_000e6);
+        vault.deposit(10_000e6, 0); // large deposit should succeed
+        vm.stopPrank();
+
+        assertEq(vault.totalNAV(), 10_000e6);
+    }
+
+    function test_OnlyOwnerCanSetDepositCap() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        vault.setMaxDepositCap(100e6);
+    }
 }
