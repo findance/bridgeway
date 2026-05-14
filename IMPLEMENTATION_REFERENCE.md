@@ -351,8 +351,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Returns current NAV per BGW token in USDC (6 decimals)
     function navPerBGW() public view returns (uint256);
 
-    /// @notice Returns total vault NAV in USDC (6 decimals)
+    /// @notice Returns portfolio NAV attributable to BGW holders in USDC (6 decimals)
     function totalNAV() public view returns (uint256);
+
+    /// @notice Returns portfolio NAV plus the dedicated buyback reserve
+    function totalVaultAssets() public view returns (uint256);
 
     /// @notice Fetches ETH/USD price from Chainlink; reverts if stale (>1hr)
     function getETHPrice() public view returns (uint256 price8dec);

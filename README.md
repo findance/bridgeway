@@ -121,7 +121,7 @@ All findings from an independent security audit (v1.22) have been resolved:
 | H-02a | Escrowed `pendingFees` are excluded from holder NAV so redeemers cannot capture fee liabilities |
 | H-03 | Burns bypass pause; transfers and mints still check `whenNotPaused` |
 | H-04 | Single try/catch on Camelot swap; deferred burn on failure |
-| H-05 | `_reduceSleevesProRata` includes `buybackAccumulator` — NAV invariant preserved |
+| H-05 | `buybackAccumulator` is excluded from holder NAV and tracked as a separate reserve |
 | H-06 | Management fee gated: base 0.10%/yr always; full 0.50%/yr only above HWM |
 | H-07 | Buyback is non-reverting — vault state never blocked by DEX failure |
 | H-08 | `setWhitelistedBatch` capped at 200 entries |

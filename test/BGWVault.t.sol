@@ -958,11 +958,15 @@ contract BGWVaultTest is Test {
         // Simulate failure: overspend vault USDC so the push to teamWallet fails.
         // Easier approach: deploy a new vault variant isn't needed — we can just manually
         // call the internal path via the automation and check the invariant directly.
-        // Instead: verify the formula by checking totalNAV = sleeves + buyback.
+        // Instead: verify the formula by checking totalNAV = sleeves,
+        // while totalVaultAssets includes the buyback reserve separately.
         assertEq(
             vault.totalNAV(),
             vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-                + vault.buybackAccumulator()
+        );
+        assertEq(
+            vault.totalVaultAssets(),
+            vault.totalNAV() + vault.buybackAccumulator()
         );
         assertEq(navBefore, 1_000e6);
 
@@ -977,7 +981,10 @@ contract BGWVaultTest is Test {
         assertEq(
             vault.totalNAV(),
             vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-                + vault.buybackAccumulator()
+        );
+        assertEq(
+            vault.totalVaultAssets(),
+            vault.totalNAV() + vault.buybackAccumulator()
         );
     }
 
@@ -1001,7 +1008,6 @@ contract BGWVaultTest is Test {
         assertEq(
             vault.totalNAV(),
             vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-                + vault.buybackAccumulator()
         );
 
         uint256 aliceUsdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
@@ -1040,6 +1046,37 @@ contract BGWVaultTest is Test {
         // Restore
         MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(normal).code);
+    }
+
+    function test_BuybackAccumulatorExcludedFromHolderNAV() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
+        address auto_ = _setupAutomation();
+        vm.prank(auto_);
+        vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
+
+        uint256 accumulatorBefore = vault.buybackAccumulator();
+        assertGt(accumulatorBefore, 0);
+        assertEq(
+            vault.totalNAV(),
+            vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
+        );
+        assertEq(vault.totalVaultAssets(), vault.totalNAV() + accumulatorBefore);
+        assertLt(
+            vault.navPerBGW(),
+            (vault.totalVaultAssets() * 1e18) / bgwToken.totalSupply()
+        );
+
+        uint256 aliceRedeemAmount = 100e18;
+        vm.prank(alice);
+        vault.redeem(aliceRedeemAmount, 0);
+
+        assertEq(vault.buybackAccumulator(), accumulatorBefore);
     }
 
     // ── H-03/H-14: 1% minimum delta before HWM crystallises ──────────────────

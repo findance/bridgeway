@@ -361,11 +361,18 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // NAV & Pricing
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Total vault NAV attributable to BGW holders.
+    /// @notice Portfolio NAV attributable to BGW holders.
     ///         Pending fees are excluded because they are liabilities owed to fee
     ///         recipients, even when their USDC is still held by the vault.
+    ///         The buyback accumulator is also excluded because it is reserved
+    ///         for future BGW buyback-and-burn actions, not ordinary redeemable NAV.
     function totalNAV() public view returns (uint256) {
-        return sleeveAValue + sleeveBValue + sleeveCValue + buybackAccumulator;
+        return sleeveAValue + sleeveBValue + sleeveCValue;
+    }
+
+    /// @notice Portfolio NAV plus the dedicated buyback reserve.
+    function totalVaultAssets() public view returns (uint256) {
+        return totalNAV() + buybackAccumulator;
     }
 
     /// @notice NAV per BGW token in USDC (6 dec). Returns 1e6 ($1.00) if no BGW minted.
@@ -961,8 +968,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         sleeveCValue += toC;
     }
 
-    /// @dev Reduce all NAV components proportionally when value leaves the vault.
-    ///      Includes buybackAccumulator so totalNAV() tracks vault USDC correctly.
+    /// @dev Reduce portfolio sleeves proportionally when holder NAV leaves the vault.
+    ///      The buyback accumulator is a separate reserve and is not redeemable NAV.
     function _reduceSleevesProRata(uint256 grossUsdc) internal {
         uint256 nav = totalNAV();
         if (nav == 0) return;
@@ -970,7 +977,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         sleeveAValue       -= (sleeveAValue       * grossUsdc) / nav;
         sleeveBValue       -= (sleeveBValue       * grossUsdc) / nav;
         sleeveCValue       -= (sleeveCValue       * grossUsdc) / nav;
-        buybackAccumulator -= (buybackAccumulator * grossUsdc) / nav;
     }
 
     /// @dev Distribute performance fee across 6 recipients.
