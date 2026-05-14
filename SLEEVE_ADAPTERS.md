@@ -74,6 +74,14 @@ Possible adapter:
 
 ## Trusted Asset Confirmation
 
+At launch, trusted sleeve assets and sleeve adapters are managed by the founder multisig. Once the system is ready, the founder calls:
+
+```solidity
+activateSleeveGovernance()
+```
+
+After activation, direct founder changes are disabled. Sleeve asset and adapter changes must go through BGW-GOV voting.
+
 Before any adapter is used, governance should call:
 
 ```solidity
@@ -92,10 +100,19 @@ Recommended process:
 
 1. Define target assets for a sleeve in a governance proposal.
 2. Confirm oracle source, liquidity, smart-contract risk, and unwind path for each asset.
-3. Add approved assets through `setTrustedSleeveAssetBatch`.
-4. Deploy or update the sleeve adapter.
-5. Set the adapter with `setSleeveAdapter`.
-6. Run a small deposit, harvest, and redemption test before scaling allocation.
+3. Founder proposes the sleeve asset or adapter update.
+4. BGW-GOV holders vote for or against the proposal.
+5. If votes for exceed votes against after the voting period, anyone may execute it.
+6. If no proposal is created or approved, the existing sleeve policy continues unchanged.
+7. Run a small deposit, harvest, and redemption test before scaling allocation.
+
+Voting rules:
+
+- Founder proposes.
+- Community and founder BGW-GOV holders vote.
+- Voting weight uses ERC20Votes snapshot voting power.
+- A proposal passes when `forVotes > againstVotes`.
+- No approved proposal means no change.
 
 ## Mainnet Rule
 

@@ -109,6 +109,30 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @dev Number of sleeves that currently trust a token.
     mapping(address => uint256) public trustedAssetUseCount;
 
+    bool public sleeveGovernanceActive;
+    uint256 public sleeveProposalCount;
+    uint256 public constant SLEEVE_VOTING_PERIOD = 5 days;
+
+    uint8 public constant SLEEVE_ACTION_ASSET = 0;
+    uint8 public constant SLEEVE_ACTION_ADAPTER = 1;
+
+    struct SleeveProposal {
+        uint8 action;
+        uint8 sleeve;
+        address target;
+        bool trusted;
+        uint256 snapshotBlock;
+        uint256 voteStart;
+        uint256 voteEnd;
+        uint256 forVotes;
+        uint256 againstVotes;
+        bool executed;
+        bool canceled;
+    }
+
+    mapping(uint256 => SleeveProposal) public sleeveProposals;
+    mapping(uint256 => mapping(address => bool)) public sleeveProposalVoted;
+
     /// @notice High-water mark — NAV per BGW at last fee crystallisation (18 dec scale).
     uint256 public highWaterMark;
     uint256 public lastHWMUpdateTime;
@@ -256,6 +280,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
     event SleeveAdapterSet(uint8 indexed sleeve, address indexed adapter);
     event TrustedSleeveAssetUpdated(uint8 indexed sleeve, address indexed asset, bool trusted);
+    event SleeveGovernanceActivated();
+    event SleeveProposalCreated(
+        uint256 indexed proposalId,
+        uint8 indexed action,
+        uint8 indexed sleeve,
+        address target,
+        bool trusted,
+        uint256 snapshotBlock,
+        uint256 voteEnd
+    );
+    event SleeveProposalVoted(uint256 indexed proposalId, address indexed voter, bool support, uint256 weight);
+    event SleeveProposalExecuted(uint256 indexed proposalId);
+    event SleeveProposalCancelled(uint256 indexed proposalId);
     event ManagementFeeCharged(uint256 feeUsdc, uint256 elapsed);
     event ManagementFeeBpsUpdated(uint256 newBps);
     event ExitFeeBpsUpdated(uint256 newBps);
@@ -908,22 +945,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Set or clear the strategy adapter for one sleeve.
     ///         Use address(0) to return a sleeve to manual accounting.
     function setSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner {
-        _validateSleeve(sleeve);
-        if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
-        if (adapter != address(0)) {
-            require(
-                ISleeveAdapter(adapter).totalAssetsUSDC() == _manualSleeveValue(sleeve),
-                "BGWVault: adapter value mismatch"
-            );
-        }
-        sleeveAdapters[sleeve] = adapter;
-        _syncSleeveFromAdapter(sleeve);
-        emit SleeveAdapterSet(sleeve, adapter);
+        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
+        _setSleeveAdapter(sleeve, adapter);
     }
 
     /// @notice Mark an asset as approved for a sleeve strategy.
     ///         Trusted assets are automatically protected from recoverToken().
     function setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) external onlyOwner {
+        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
         _setTrustedSleeveAsset(sleeve, asset, trusted);
     }
 
@@ -933,10 +962,97 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         address[] calldata assets,
         bool trusted
     ) external onlyOwner {
+        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
         require(assets.length <= 50, "BGWVault: batch too large");
         for (uint256 i; i < assets.length; ++i) {
             _setTrustedSleeveAsset(sleeve, assets[i], trusted);
         }
+    }
+
+    /// @notice Permanently switch sleeve policy changes from founder-only to
+    ///         BGW-GOV proposal voting. Existing sleeve settings continue until
+    ///         a proposal is approved and executed.
+    function activateSleeveGovernance() external onlyOwner {
+        require(!sleeveGovernanceActive, "BGWVault: sleeve governance active");
+        sleeveGovernanceActive = true;
+        emit SleeveGovernanceActivated();
+    }
+
+    /// @notice Founder proposes adding/removing a trusted sleeve asset.
+    function proposeTrustedSleeveAsset(
+        uint8 sleeve,
+        address asset,
+        bool trusted
+    ) external onlyOwner returns (uint256 proposalId) {
+        require(sleeveGovernanceActive, "BGWVault: sleeve governance inactive");
+        _validateSleeve(sleeve);
+        if (asset == address(0)) revert ZeroAddress();
+        proposalId = _createSleeveProposal(SLEEVE_ACTION_ASSET, sleeve, asset, trusted);
+    }
+
+    /// @notice Founder proposes setting/clearing a sleeve adapter.
+    function proposeSleeveAdapter(uint8 sleeve, address adapter)
+        external
+        onlyOwner
+        returns (uint256 proposalId)
+    {
+        require(sleeveGovernanceActive, "BGWVault: sleeve governance inactive");
+        _validateSleeve(sleeve);
+        if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
+        proposalId = _createSleeveProposal(SLEEVE_ACTION_ADAPTER, sleeve, adapter, true);
+    }
+
+    /// @notice Vote with BGW-GOV snapshot weight. Majority of votes cast decides.
+    function voteSleeveProposal(uint256 proposalId, bool support) external {
+        SleeveProposal storage proposal = sleeveProposals[proposalId];
+        require(proposal.voteEnd != 0, "BGWVault: unknown proposal");
+        require(!proposal.canceled, "BGWVault: proposal canceled");
+        require(block.timestamp >= proposal.voteStart, "BGWVault: voting not started");
+        require(block.timestamp < proposal.voteEnd, "BGWVault: voting ended");
+        require(!sleeveProposalVoted[proposalId][msg.sender], "BGWVault: already voted");
+
+        uint256 weight = govToken.getPastVotes(msg.sender, proposal.snapshotBlock);
+        require(weight > 0, "BGWVault: no voting weight");
+        sleeveProposalVoted[proposalId][msg.sender] = true;
+
+        if (support) {
+            proposal.forVotes += weight;
+        } else {
+            proposal.againstVotes += weight;
+        }
+
+        emit SleeveProposalVoted(proposalId, msg.sender, support, weight);
+    }
+
+    /// @notice Execute an approved sleeve policy proposal.
+    function executeSleeveProposal(uint256 proposalId) external {
+        SleeveProposal storage proposal = sleeveProposals[proposalId];
+        require(proposal.voteEnd != 0, "BGWVault: unknown proposal");
+        require(!proposal.executed, "BGWVault: proposal executed");
+        require(!proposal.canceled, "BGWVault: proposal canceled");
+        require(block.timestamp >= proposal.voteEnd, "BGWVault: voting active");
+        require(proposal.forVotes > proposal.againstVotes, "BGWVault: proposal rejected");
+
+        proposal.executed = true;
+
+        if (proposal.action == SLEEVE_ACTION_ASSET) {
+            _setTrustedSleeveAsset(proposal.sleeve, proposal.target, proposal.trusted);
+        } else if (proposal.action == SLEEVE_ACTION_ADAPTER) {
+            _setSleeveAdapter(proposal.sleeve, proposal.target);
+        } else {
+            revert("BGWVault: invalid proposal action");
+        }
+
+        emit SleeveProposalExecuted(proposalId);
+    }
+
+    function cancelSleeveProposal(uint256 proposalId) external onlyOwner {
+        SleeveProposal storage proposal = sleeveProposals[proposalId];
+        require(proposal.voteEnd != 0, "BGWVault: unknown proposal");
+        require(!proposal.executed, "BGWVault: proposal executed");
+        require(!proposal.canceled, "BGWVault: proposal canceled");
+        proposal.canceled = true;
+        emit SleeveProposalCancelled(proposalId);
     }
 
     /// @notice Set a per-deposit USDC cap. Set to 0 to remove the cap entirely.
@@ -1075,6 +1191,20 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         }
     }
 
+    function _setSleeveAdapter(uint8 sleeve, address adapter) internal {
+        _validateSleeve(sleeve);
+        if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
+        if (adapter != address(0)) {
+            require(
+                ISleeveAdapter(adapter).totalAssetsUSDC() == _manualSleeveValue(sleeve),
+                "BGWVault: adapter value mismatch"
+            );
+        }
+        sleeveAdapters[sleeve] = adapter;
+        _syncSleeveFromAdapter(sleeve);
+        emit SleeveAdapterSet(sleeve, adapter);
+    }
+
     function _setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) internal {
         _validateSleeve(sleeve);
         if (asset == address(0)) revert ZeroAddress();
@@ -1096,6 +1226,40 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function _validateSleeve(uint8 sleeve) internal pure {
         require(sleeve <= SLEEVE_C, "BGWVault: invalid sleeve");
+    }
+
+    function _createSleeveProposal(
+        uint8 action,
+        uint8 sleeve,
+        address target,
+        bool trusted
+    ) internal returns (uint256 proposalId) {
+        proposalId = ++sleeveProposalCount;
+        uint256 snapshotBlock = block.number > 0 ? block.number - 1 : 0;
+        uint256 voteEnd = block.timestamp + SLEEVE_VOTING_PERIOD;
+        sleeveProposals[proposalId] = SleeveProposal({
+            action: action,
+            sleeve: sleeve,
+            target: target,
+            trusted: trusted,
+            snapshotBlock: snapshotBlock,
+            voteStart: block.timestamp,
+            voteEnd: voteEnd,
+            forVotes: 0,
+            againstVotes: 0,
+            executed: false,
+            canceled: false
+        });
+
+        emit SleeveProposalCreated(
+            proposalId,
+            action,
+            sleeve,
+            target,
+            trusted,
+            snapshotBlock,
+            voteEnd
+        );
     }
 
     /// @dev Distribute performance fee across 6 recipients.

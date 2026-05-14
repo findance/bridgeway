@@ -969,6 +969,82 @@ contract BGWVaultTest is Test {
         assertFalse(vault.protectedTokens(wbtc));
     }
 
+    function test_SleeveGovernanceApprovesTrustedAssetByMajority() public {
+        address wbtc = makeAddr("vote-wbtc");
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        govToken.delegate(alice);
+        vm.stopPrank();
+
+        vm.prank(founder);
+        govToken.delegate(founder);
+
+        vm.roll(block.number + 1);
+
+        vm.prank(founder);
+        vault.activateSleeveGovernance();
+
+        vm.prank(founder);
+        uint256 proposalId = vault.proposeTrustedSleeveAsset(sleeveA, wbtc, true);
+
+        assertFalse(vault.trustedSleeveAssets(sleeveA, wbtc));
+
+        vm.prank(alice);
+        vault.voteSleeveProposal(proposalId, true);
+
+        vm.warp(block.timestamp + vault.SLEEVE_VOTING_PERIOD());
+
+        vault.executeSleeveProposal(proposalId);
+
+        assertTrue(vault.trustedSleeveAssets(sleeveA, wbtc));
+        assertTrue(vault.protectedTokens(wbtc));
+    }
+
+    function test_SleeveGovernanceRejectsWithoutMajorityAndPolicyContinues() public {
+        address wbtc = makeAddr("rejected-wbtc");
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        govToken.delegate(alice);
+        vm.stopPrank();
+
+        vm.roll(block.number + 1);
+
+        vm.prank(founder);
+        vault.activateSleeveGovernance();
+
+        vm.prank(founder);
+        uint256 proposalId = vault.proposeTrustedSleeveAsset(sleeveA, wbtc, true);
+
+        vm.prank(alice);
+        vault.voteSleeveProposal(proposalId, false);
+
+        vm.warp(block.timestamp + vault.SLEEVE_VOTING_PERIOD());
+
+        vm.expectRevert("BGWVault: proposal rejected");
+        vault.executeSleeveProposal(proposalId);
+
+        assertFalse(vault.trustedSleeveAssets(sleeveA, wbtc));
+        assertFalse(vault.protectedTokens(wbtc));
+    }
+
+    function test_FounderCannotDirectlyChangeSleevesAfterGovernanceActivation() public {
+        address wbtc = makeAddr("post-governance-wbtc");
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        vm.prank(founder);
+        vault.activateSleeveGovernance();
+
+        vm.prank(founder);
+        vm.expectRevert("BGWVault: use sleeve governance");
+        vault.setTrustedSleeveAsset(sleeveA, wbtc, true);
+    }
+
     // ── C-03: totalPendingFees excluded from holder NAV ───────────────────────
 
     function test_PendingFeesExcludedFromTotalNAV() public {
