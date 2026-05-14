@@ -12,6 +12,7 @@ import "../tokens/BGWGovToken.sol";
 import "../interfaces/IChainlinkAggregator.sol";
 import "../interfaces/IAaveV3.sol";
 import "../interfaces/IMorphoBlue.sol";
+import "../interfaces/ISleeveAdapter.sol";
 import "../libraries/FeeLib.sol";
 
 /// @title  BGWVault
@@ -45,6 +46,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @dev Legacy slippage constant retained for router compatibility.
     uint256 public constant MAX_SLIPPAGE_BPS = 100;
+
+    uint8 public constant SLEEVE_A = 0;
+    uint8 public constant SLEEVE_B = 1;
+    uint8 public constant SLEEVE_C = 2;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Immutables — set once at construction, never changed (M-06)
@@ -93,6 +98,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     uint256 public sleeveAValue;
     uint256 public sleeveBValue;
     uint256 public sleeveCValue;
+
+    /// @notice Optional strategy adapters for sleeves A/B/C.
+    ///         If unset, the sleeve uses manual vault accounting.
+    address[3] public sleeveAdapters;
+
+    /// @notice Governance-approved assets for each sleeve.
+    mapping(uint8 => mapping(address => bool)) public trustedSleeveAssets;
+
+    /// @dev Number of sleeves that currently trust a token.
+    mapping(address => uint256) public trustedAssetUseCount;
 
     /// @notice High-water mark — NAV per BGW at last fee crystallisation (18 dec scale).
     uint256 public highWaterMark;
@@ -239,6 +254,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event PairBootstrapped(address indexed pair);                       // H-07
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
+    event SleeveAdapterSet(uint8 indexed sleeve, address indexed adapter);
+    event TrustedSleeveAssetUpdated(uint8 indexed sleeve, address indexed asset, bool trusted);
     event ManagementFeeCharged(uint256 feeUsdc, uint256 elapsed);
     event ManagementFeeBpsUpdated(uint256 newBps);
     event ExitFeeBpsUpdated(uint256 newBps);
@@ -360,7 +377,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         The buyback accumulator is also excluded because it is reserved
     ///         for future BGW buyback-and-burn actions, not ordinary redeemable NAV.
     function totalNAV() public view returns (uint256) {
-        return sleeveAValue + sleeveBValue + sleeveCValue;
+        return _sleeveValue(SLEEVE_A) + _sleeveValue(SLEEVE_B) + _sleeveValue(SLEEVE_C);
+    }
+
+    /// @notice Current USDC-denominated value for one sleeve.
+    function sleeveValue(uint8 sleeve) public view returns (uint256) {
+        return _sleeveValue(sleeve);
     }
 
     /// @notice Portfolio NAV plus the dedicated buyback reserve.
@@ -531,14 +553,18 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             require(netYieldUsdc <= maxYield, "BGWVault: yield rate too high");
         }
 
-        _checkSleeveMove(sleeveAValue, newSleeveA, sinceLastHarvest);
-        _checkSleeveMove(sleeveBValue, newSleeveB, sinceLastHarvest);
-        _checkSleeveMove(sleeveCValue, newSleeveC, sinceLastHarvest);
+        uint256 actualA = _reportedOrAdapterValue(SLEEVE_A, newSleeveA);
+        uint256 actualB = _reportedOrAdapterValue(SLEEVE_B, newSleeveB);
+        uint256 actualC = _reportedOrAdapterValue(SLEEVE_C, newSleeveC);
 
-        sleeveAValue = newSleeveA;
-        sleeveBValue = newSleeveB;
-        sleeveCValue = newSleeveC;
-        emit SleeveValuesUpdated(newSleeveA, newSleeveB, newSleeveC);
+        _checkSleeveMove(sleeveAValue, actualA, sinceLastHarvest);
+        _checkSleeveMove(sleeveBValue, actualB, sinceLastHarvest);
+        _checkSleeveMove(sleeveCValue, actualC, sinceLastHarvest);
+
+        sleeveAValue = actualA;
+        sleeveBValue = actualB;
+        sleeveCValue = actualC;
+        emit SleeveValuesUpdated(actualA, actualB, actualC);
 
         _chargeManagementFee();
 
@@ -605,13 +631,17 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         // Time-weighted anti-manipulation bounds (C-01).
         // No MIN_HARVEST_GAP here — rebalancing may legitimately follow a harvest.
         uint256 elapsed = block.timestamp - lastHarvestTime;
-        _checkSleeveMove(sleeveAValue, newSleeveA, elapsed);
-        _checkSleeveMove(sleeveBValue, newSleeveB, elapsed);
-        _checkSleeveMove(sleeveCValue, newSleeveC, elapsed);
-        sleeveAValue = newSleeveA;
-        sleeveBValue = newSleeveB;
-        sleeveCValue = newSleeveC;
-        emit SleeveValuesUpdated(newSleeveA, newSleeveB, newSleeveC);
+        uint256 actualA = _reportedOrAdapterValue(SLEEVE_A, newSleeveA);
+        uint256 actualB = _reportedOrAdapterValue(SLEEVE_B, newSleeveB);
+        uint256 actualC = _reportedOrAdapterValue(SLEEVE_C, newSleeveC);
+
+        _checkSleeveMove(sleeveAValue, actualA, elapsed);
+        _checkSleeveMove(sleeveBValue, actualB, elapsed);
+        _checkSleeveMove(sleeveCValue, actualC, elapsed);
+        sleeveAValue = actualA;
+        sleeveBValue = actualB;
+        sleeveCValue = actualC;
+        emit SleeveValuesUpdated(actualA, actualB, actualC);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -875,6 +905,40 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit AddressChangeCancelled(CHANGE_ROUTER);
     }
 
+    /// @notice Set or clear the strategy adapter for one sleeve.
+    ///         Use address(0) to return a sleeve to manual accounting.
+    function setSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner {
+        _validateSleeve(sleeve);
+        if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
+        if (adapter != address(0)) {
+            require(
+                ISleeveAdapter(adapter).totalAssetsUSDC() == _manualSleeveValue(sleeve),
+                "BGWVault: adapter value mismatch"
+            );
+        }
+        sleeveAdapters[sleeve] = adapter;
+        _syncSleeveFromAdapter(sleeve);
+        emit SleeveAdapterSet(sleeve, adapter);
+    }
+
+    /// @notice Mark an asset as approved for a sleeve strategy.
+    ///         Trusted assets are automatically protected from recoverToken().
+    function setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) external onlyOwner {
+        _setTrustedSleeveAsset(sleeve, asset, trusted);
+    }
+
+    /// @notice Batch version of setTrustedSleeveAsset.
+    function setTrustedSleeveAssetBatch(
+        uint8 sleeve,
+        address[] calldata assets,
+        bool trusted
+    ) external onlyOwner {
+        require(assets.length <= 50, "BGWVault: batch too large");
+        for (uint256 i; i < assets.length; ++i) {
+            _setTrustedSleeveAsset(sleeve, assets[i], trusted);
+        }
+    }
+
     /// @notice Set a per-deposit USDC cap. Set to 0 to remove the cap entirely.
     function setMaxDepositCap(uint256 cap) external onlyOwner {
         maxDepositUsdc = cap;
@@ -931,9 +995,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 toB = (usdcAmount * FeeLib.SLEEVE_B_BPS) / FeeLib.BPS_DENOM;
         uint256 toC = usdcAmount - toA - toB;
 
-        sleeveAValue += toA;
-        sleeveBValue += toB;
-        sleeveCValue += toC;
+        _deployToSleeve(SLEEVE_A, toA);
+        _deployToSleeve(SLEEVE_B, toB);
+        _deployToSleeve(SLEEVE_C, toC);
     }
 
     /// @dev Reduce portfolio sleeves proportionally when holder NAV leaves the vault.
@@ -942,9 +1006,96 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 nav = totalNAV();
         if (nav == 0) return;
 
-        sleeveAValue       -= (sleeveAValue       * grossUsdc) / nav;
-        sleeveBValue       -= (sleeveBValue       * grossUsdc) / nav;
-        sleeveCValue       -= (sleeveCValue       * grossUsdc) / nav;
+        _withdrawFromSleeve(SLEEVE_A, (_sleeveValue(SLEEVE_A) * grossUsdc) / nav);
+        _withdrawFromSleeve(SLEEVE_B, (_sleeveValue(SLEEVE_B) * grossUsdc) / nav);
+        _withdrawFromSleeve(SLEEVE_C, (_sleeveValue(SLEEVE_C) * grossUsdc) / nav);
+    }
+
+    function _deployToSleeve(uint8 sleeve, uint256 usdcAmount) internal {
+        if (usdcAmount == 0) return;
+        address adapter = sleeveAdapters[sleeve];
+        if (adapter == address(0)) {
+            _setSleeveValue(sleeve, _manualSleeveValue(sleeve) + usdcAmount);
+            return;
+        }
+
+        IERC20(USDC).safeTransfer(adapter, usdcAmount);
+        ISleeveAdapter(adapter).deploy(usdcAmount);
+        _syncSleeveFromAdapter(sleeve);
+    }
+
+    function _withdrawFromSleeve(uint8 sleeve, uint256 usdcAmount) internal {
+        if (usdcAmount == 0) return;
+        address adapter = sleeveAdapters[sleeve];
+        if (adapter == address(0)) {
+            uint256 current = _manualSleeveValue(sleeve);
+            _setSleeveValue(sleeve, usdcAmount >= current ? 0 : current - usdcAmount);
+            return;
+        }
+
+        ISleeveAdapter(adapter).withdraw(usdcAmount);
+        _syncSleeveFromAdapter(sleeve);
+    }
+
+    function _syncSleeveFromAdapter(uint8 sleeve) internal {
+        address adapter = sleeveAdapters[sleeve];
+        if (adapter != address(0)) {
+            _setSleeveValue(sleeve, ISleeveAdapter(adapter).totalAssetsUSDC());
+        }
+    }
+
+    function _reportedOrAdapterValue(uint8 sleeve, uint256 reportedValue) internal view returns (uint256) {
+        address adapter = sleeveAdapters[sleeve];
+        if (adapter == address(0)) return reportedValue;
+        return ISleeveAdapter(adapter).totalAssetsUSDC();
+    }
+
+    function _sleeveValue(uint8 sleeve) internal view returns (uint256) {
+        address adapter = sleeveAdapters[sleeve];
+        if (adapter != address(0)) return ISleeveAdapter(adapter).totalAssetsUSDC();
+        return _manualSleeveValue(sleeve);
+    }
+
+    function _manualSleeveValue(uint8 sleeve) internal view returns (uint256) {
+        if (sleeve == SLEEVE_A) return sleeveAValue;
+        if (sleeve == SLEEVE_B) return sleeveBValue;
+        if (sleeve == SLEEVE_C) return sleeveCValue;
+        revert("BGWVault: invalid sleeve");
+    }
+
+    function _setSleeveValue(uint8 sleeve, uint256 value) internal {
+        if (sleeve == SLEEVE_A) {
+            sleeveAValue = value;
+        } else if (sleeve == SLEEVE_B) {
+            sleeveBValue = value;
+        } else if (sleeve == SLEEVE_C) {
+            sleeveCValue = value;
+        } else {
+            revert("BGWVault: invalid sleeve");
+        }
+    }
+
+    function _setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) internal {
+        _validateSleeve(sleeve);
+        if (asset == address(0)) revert ZeroAddress();
+        bool current = trustedSleeveAssets[sleeve][asset];
+        if (current == trusted) return;
+
+        trustedSleeveAssets[sleeve][asset] = trusted;
+        if (trusted) {
+            trustedAssetUseCount[asset] += 1;
+            protectedTokens[asset] = true;
+        } else {
+            uint256 count = trustedAssetUseCount[asset];
+            if (count > 0) trustedAssetUseCount[asset] = count - 1;
+        }
+
+        emit TrustedSleeveAssetUpdated(sleeve, asset, trusted);
+        emit ProtectedTokenUpdated(asset, protectedTokens[asset]);
+    }
+
+    function _validateSleeve(uint8 sleeve) internal pure {
+        require(sleeve <= SLEEVE_C, "BGWVault: invalid sleeve");
     }
 
     /// @dev Distribute performance fee across 6 recipients.

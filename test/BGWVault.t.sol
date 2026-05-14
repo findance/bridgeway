@@ -6,6 +6,7 @@ import "../contracts/tokens/BGWToken.sol";
 import "../contracts/tokens/BGWGovToken.sol";
 import "../contracts/core/BGWVault.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
+import "../contracts/mocks/MockSleeveAdapter.sol";
 import "../contracts/libraries/FeeLib.sol";
 
 /// @notice Minimal mock USDC (6 decimals) etched at the Arbitrum USDC address.
@@ -910,6 +911,62 @@ contract BGWVaultTest is Test {
         assertTrue(vault.protectedTokens(0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8)); // aWETH
         assertTrue(vault.protectedTokens(0x078f358208685046a11C85e8ad32895DED33A249)); // aWBTC
         assertTrue(vault.protectedTokens(0x5979D7b546E38E414F7E9822514be443A4800529)); // wstETH
+    }
+
+    // ── Sleeve adapters and trusted assets ───────────────────────────────────
+
+    function test_SleeveAdaptersReceiveDepositsAndFundRedemptions() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterC = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        vm.startPrank(founder);
+        vault.setSleeveAdapter(vault.SLEEVE_A(), address(adapterA));
+        vault.setSleeveAdapter(vault.SLEEVE_B(), address(adapterB));
+        vault.setSleeveAdapter(vault.SLEEVE_C(), address(adapterC));
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(adapterA.totalAssetsUSDC(), 700e6);
+        assertEq(adapterB.totalAssetsUSDC(), 250e6);
+        assertEq(adapterC.totalAssetsUSDC(), 50e6);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 700e6);
+        assertEq(vault.totalNAV(), 1_000e6);
+
+        uint256 aliceBgw = bgwToken.balanceOf(alice);
+        vm.prank(alice);
+        vault.redeem(aliceBgw / 2, 0);
+
+        assertLt(adapterA.totalAssetsUSDC(), 700e6);
+        assertLt(adapterB.totalAssetsUSDC(), 250e6);
+        assertLt(adapterC.totalAssetsUSDC(), 50e6);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(adapterA)), adapterA.totalAssetsUSDC());
+    }
+
+    function test_TrustedSleeveAssetsAreProtectedFromRecovery() public {
+        address wbtc = makeAddr("trusted-wbtc");
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        vm.prank(founder);
+        vault.setTrustedSleeveAsset(sleeveA, wbtc, true);
+
+        assertTrue(vault.trustedSleeveAssets(sleeveA, wbtc));
+        assertTrue(vault.protectedTokens(wbtc));
+
+        vm.prank(founder);
+        vault.setTrustedSleeveAsset(sleeveA, wbtc, false);
+
+        assertFalse(vault.trustedSleeveAssets(sleeveA, wbtc));
+        assertTrue(vault.protectedTokens(wbtc));
+
+        vm.prank(founder);
+        vault.setProtectedToken(wbtc, false);
+
+        assertFalse(vault.protectedTokens(wbtc));
     }
 
     // ── C-03: totalPendingFees excluded from holder NAV ───────────────────────
