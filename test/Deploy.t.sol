@@ -32,7 +32,6 @@ contract DeployTest is Test {
     address founder  = makeAddr("founder");
     address team     = makeAddr("team");
     address holdback = makeAddr("holdback");
-    address lp       = makeAddr("lp");
     address reserve  = makeAddr("reserve");
     address ethFeed  = makeAddr("ethFeed");
 
@@ -75,7 +74,6 @@ contract DeployTest is Test {
             address(govToken),
             team,
             holdback,
-            lp,
             reserve,
             founder,
             USDC_ADDR,
@@ -115,7 +113,6 @@ contract DeployTest is Test {
         assertEq(vault.camelotRouter(), CAMELOT_ADDR);
         assertEq(vault.teamWallet(),        team);
         assertEq(vault.holdbackWallet(),    holdback);
-        assertEq(vault.lpSeedingWallet(),   lp);
         assertEq(vault.reserveFundWallet(), reserve);
     }
 

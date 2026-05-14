@@ -120,19 +120,16 @@ Performance fee = 15% of yield above high-water mark.
 | Recipient           | % of Fee | Purpose                          |
 |---------------------|----------|----------------------------------|
 | teamWallet          | 45%      | Operations                       |
-| holdbackWallet      | 20%      | Protocol reserve                 |
+| holdbackWallet      | 30%      | Protocol operating reserve       |
 | buybackAccumulator  | 15%      | USDC saved for reserve injection |
-| lpSeedingWallet     | 10%      | DEX liquidity                    |
-| reserveFundWallet   | 5%       | Insurance buffer                 |
-| directBurnAmount    | 5%       | Added to reserve injection queue |
+| reserveFundWallet   | 10%      | Insurance buffer                 |
 
 **Wallet addresses** — set in constructor, changeable only by founder multisig.
 These are PLACEHOLDER values — replace before deployment:
 ```solidity
 address public teamWallet        = 0x0000000000000000000000000000000000000001;
 address public holdbackWallet    = 0x0000000000000000000000000000000000000002;
-address public lpSeedingWallet   = 0x0000000000000000000000000000000000000003;
-address public reserveFundWallet = 0x0000000000000000000000000000000000000004;
+address public reserveFundWallet = 0x0000000000000000000000000000000000000003;
 // buybackAccumulator is held in-contract as USDC balance.
 // executeBuyback injects it into sleeves, then mints and burns temporary BGW.
 ```
@@ -229,7 +226,7 @@ forge script scripts/deploy/01_DeployTokens.s.sol \
 7. **High-water mark updates AFTER fee distribution, not before**
 8. **`compoundedAmount` is never included in rebalancing calculations for Sleeve A**
 9. **BGW-GOV distribution happens inside `deposit()` atomically with BGW minting**
-10. **The 5% direct-burn share is queued into the buyback accumulator for reserve injection**
+10. **No direct-burn or LP fee bucket remains; those shares moved to reserve and holdback**
 
 ---
 

@@ -17,7 +17,6 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///           GOV_TOKEN          (from script 01 output)
 ///           TEAM_WALLET
 ///           HOLDBACK_WALLET
-///           LP_SEEDING_WALLET
 ///           RESERVE_WALLET
 ///           USDC_ADDRESS
 ///           CAMELOT_ROUTER
@@ -37,7 +36,6 @@ contract DeployVault is Script {
             vm.envAddress("GOV_TOKEN"),
             vm.envAddress("TEAM_WALLET"),
             vm.envAddress("HOLDBACK_WALLET"),
-            vm.envAddress("LP_SEEDING_WALLET"),
             vm.envAddress("RESERVE_WALLET"),
             founder,
             vm.envAddress("USDC_ADDRESS"),

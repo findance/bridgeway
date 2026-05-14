@@ -62,7 +62,7 @@ contract AutomationTest is Test {
 
         vault = new BGWVault(
             address(bgwToken), address(govToken),
-            team, holdback, lp, reserve, founder,
+            team, holdback, reserve, founder,
             USDC_ADDR, CAMELOT_ADDR, address(1)
         );
 
@@ -139,11 +139,7 @@ contract AutomationTest is Test {
         vault.deposit(1_000_000e6, 0);
         vm.stopPrank();
 
-        // Step 2: pre-fund Camelot for directBurn (187.5 BGW needed at 1e12 rate).
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 1_000e18);
-
-        // Step 3: after 30 days, 40,000e6 yield is within the 50% APR cap.
+        // Step 2: after 30 days, 40,000e6 yield is within the 50% APR cap.
         // perfFee 15% = 6,000e6 → buyback gross 900e6.
         vm.warp(block.timestamp + BUYBACK_INTERVAL);
         MockUSDCAutomation(USDC_ADDR).mint(address(vault), 40_000e6);
@@ -177,10 +173,6 @@ contract AutomationTest is Test {
         MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000_000e6);
         vault.deposit(1_000_000e6, 0);
         vm.stopPrank();
-
-        // Step 2: pre-fund Camelot for directBurn.
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 1_000e18);
 
         // Step 3: bounded harvest after 27 days fills the accumulator while
         // keeping lastBuybackTime below the 30-day interval.
@@ -305,9 +297,6 @@ contract AutomationTest is Test {
         MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000_000e6);
         vault.deposit(1_000_000e6, 0);
         vm.stopPrank();
-
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 1_000e18); // pre-fund Camelot for directBurn
 
         vm.warp(block.timestamp + 27 days);
         MockUSDCAutomation(USDC_ADDR).mint(address(vault), 35_000e6);

@@ -89,7 +89,6 @@ contract BGWVaultTest is Test {
             address(govToken),
             team,
             holdback,
-            lp,
             reserve,
             founder,
             USDC_ADDR,   // _usdc    (M-06: constructor-injected, not bytecode-hardcoded)
@@ -388,7 +387,7 @@ contract BGWVaultTest is Test {
     function test_FeeSplitSumsToTotal() public pure {
         uint256 total = 100e6;
         FeeLib.FeeSplit memory s = FeeLib.splitPerfFee(total);
-        uint256 sum = s.team + s.holdback + s.buyback + s.lpSeed + s.reserve + s.directBurn;
+        uint256 sum = s.team + s.holdback + s.buyback + s.reserve;
         assertEq(sum, total);
     }
 
@@ -431,7 +430,7 @@ contract BGWVaultTest is Test {
         address automationAddr = _setupAutomation();
         uint256 hwmBefore = vault.highWaterMark();
 
-        // Record 100 USDC yield — triggers perf fee and queues the burn share.
+        // Record 100 USDC yield — triggers perf fee and queues buyback reserve.
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
@@ -515,11 +514,10 @@ contract BGWVaultTest is Test {
     function test_FeeWalletsTimelockAppliableAfterDelay() public {
         address newTeam     = makeAddr("newTeam");
         address newHoldback = makeAddr("newHoldback");
-        address newLp       = makeAddr("newLp");
         address newReserve  = makeAddr("newReserve");
 
         vm.prank(founder);
-        vault.proposeFeeWallets(newTeam, newHoldback, newLp, newReserve);
+        vault.proposeFeeWallets(newTeam, newHoldback, newReserve);
 
         vm.warp(block.timestamp + 48 hours);
 
@@ -528,7 +526,6 @@ contract BGWVaultTest is Test {
 
         assertEq(vault.teamWallet(),        newTeam);
         assertEq(vault.holdbackWallet(),    newHoldback);
-        assertEq(vault.lpSeedingWallet(),   newLp);
         assertEq(vault.reserveFundWallet(), newReserve);
     }
 
@@ -634,9 +631,9 @@ contract BGWVaultTest is Test {
         vm.etch(CAMELOT_ADDR, address(normal).code);
     }
 
-    function test_DirectBurnFeeRoutesToAccumulatorWithoutLP() public {
-        // Etch a sandwiched router before the harvest. Direct-burn fee routing
-        // no longer swaps, so the router cannot affect harvest.
+    function test_BuybackFeeRoutesToAccumulatorWithoutLP() public {
+        // Etch a sandwiched router before the harvest. Buyback fee routing
+        // does not swap, so the router cannot affect harvest.
         MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
 
@@ -651,10 +648,9 @@ contract BGWVaultTest is Test {
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
-        // buyback (15%) + directBurn (5%) are both retained for reserve injection.
+        // Buyback share is retained for reserve injection.
         uint256 buybackShare = (FeeLib.calcPerfFee(100e6) * 1_500) / 10_000;
-        uint256 directBurnShare = (FeeLib.calcPerfFee(100e6) * 500) / 10_000;
-        assertGe(vault.buybackAccumulator(), buybackShare + directBurnShare);
+        assertGe(vault.buybackAccumulator(), buybackShare);
 
         // Restore normal router
         MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
@@ -996,9 +992,9 @@ contract BGWVaultTest is Test {
         assertLt(MockUSDC(USDC_ADDR).balanceOf(alice) - aliceUsdcBefore, 1_100e6);
     }
 
-    // ── C-05: direct-burn share routes to buybackAccumulator ─────────────────
+    // ── C-05: buyback share routes to buybackAccumulator ─────────────────────
 
-    function test_DirectBurnAccumulatorIncreasesAboveBuybackShare() public {
+    function test_BuybackShareRoutesToAccumulator() public {
         // Etch a sandwiched router; reserve-injection routing does not touch it.
         MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
@@ -1015,9 +1011,8 @@ contract BGWVaultTest is Test {
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
         // buyback share = 15% of perfFee(100e6) = 15% of 15e6 = 2.25e6
-        // directBurn share = 5% of 15e6 = 0.75e6 → also in accumulator
         uint256 buybackShare = (FeeLib.calcPerfFee(100e6) * 1_500) / 10_000;
-        assertGt(vault.buybackAccumulator(), buybackShare);
+        assertGe(vault.buybackAccumulator(), buybackShare);
 
         // Restore
         MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
@@ -1077,8 +1072,6 @@ contract BGWVaultTest is Test {
         // Step 2: warp 180 days so the rate-bound maxYield is large enough for the tiny yield.
         // maxYield = NAV × 50%/yr × 180d ≈ 1087e6 × 0.247 ≈ 268e6 >> 1e6 yield below.
         vm.warp(block.timestamp + 180 days);
-        vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 1e18); // pre-fund directBurn for second harvest
 
         // Step 3: second harvest — sleeve values give navPerBGW18 just 0.5% above HWM
         // (i.e. < 1% threshold). effectiveHwm = hwmAfterFirst ≈ 1.0880e18.

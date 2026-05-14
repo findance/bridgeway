@@ -69,7 +69,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     address public teamWallet;
     address public holdbackWallet;
-    address public lpSeedingWallet;
     address public reserveFundWallet;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -199,7 +198,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     struct PendingWalletsChange {
         address team;
         address holdback;
-        address lp;
         address reserve;
         uint256 executeAfter; // 0 = no pending change
     }
@@ -256,13 +254,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event LossMarkProposed(uint256 amount, uint256 executeAfter);
     event LossMarkExecuted(uint256 amount);
     event LossMarkCancelled();
-    event FeeWalletsUpdated(address team, address holdback, address lp, address reserve);
+    event FeeWalletsUpdated(address team, address holdback, address reserve);
     event ProtectedTokenUpdated(address indexed token, bool protected);
     // Timelock events (M-03)
     event FeeChangeProposed(bytes32 indexed changeType, uint256 newValue, uint256 executeAfter);
     event FeeChangeExecuted(bytes32 indexed changeType, uint256 newValue);
     event FeeChangeCancelled(bytes32 indexed changeType);
-    event FeeWalletsProposed(address team, address holdback, address lp, address reserve, uint256 executeAfter);
+    event FeeWalletsProposed(address team, address holdback, address reserve, uint256 executeAfter);
     event FeeWalletsCancelled();
     event AddressChangeProposed(bytes32 indexed changeType, address newValue, uint256 executeAfter);
     event AddressChangeExecuted(bytes32 indexed changeType, address newValue);
@@ -307,7 +305,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         address _govToken,
         address _teamWallet,
         address _holdbackWallet,
-        address _lpSeedingWallet,
         address _reserveFundWallet,
         address _admin,
         address _usdc,
@@ -318,7 +315,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (_govToken          == address(0)) revert ZeroAddress();
         if (_teamWallet        == address(0)) revert ZeroAddress();
         if (_holdbackWallet    == address(0)) revert ZeroAddress();
-        if (_lpSeedingWallet   == address(0)) revert ZeroAddress();
         if (_reserveFundWallet == address(0)) revert ZeroAddress();
         if (_usdc              == address(0)) revert ZeroAddress();
         if (_camelotRouter     == address(0)) revert ZeroAddress();
@@ -328,7 +324,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         govToken          = BGWGovToken(_govToken);
         teamWallet        = _teamWallet;
         holdbackWallet    = _holdbackWallet;
-        lpSeedingWallet   = _lpSeedingWallet;
         reserveFundWallet = _reserveFundWallet;
         USDC              = _usdc;
         camelotRouter     = _camelotRouter;
@@ -829,16 +824,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function proposeFeeWallets(
         address _team,
         address _holdback,
-        address _lp,
         address _reserve
     ) external onlyOwner {
         if (_team     == address(0)) revert ZeroAddress();
         if (_holdback == address(0)) revert ZeroAddress();
-        if (_lp       == address(0)) revert ZeroAddress();
         if (_reserve  == address(0)) revert ZeroAddress();
         uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingWalletsChange = PendingWalletsChange(_team, _holdback, _lp, _reserve, eta);
-        emit FeeWalletsProposed(_team, _holdback, _lp, _reserve, eta);
+        pendingWalletsChange = PendingWalletsChange(_team, _holdback, _reserve, eta);
+        emit FeeWalletsProposed(_team, _holdback, _reserve, eta);
     }
 
     function executeFeeWallets() external onlyOwner {
@@ -848,9 +841,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         delete pendingWalletsChange;
         teamWallet        = p.team;
         holdbackWallet    = p.holdback;
-        lpSeedingWallet   = p.lp;
         reserveFundWallet = p.reserve;
-        emit FeeWalletsUpdated(p.team, p.holdback, p.lp, p.reserve);
+        emit FeeWalletsUpdated(p.team, p.holdback, p.reserve);
     }
 
     function cancelFeeWallets() external onlyOwner {
@@ -965,10 +957,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         _tryTransferFee(teamWallet,        s.team);
         _tryTransferFee(holdbackWallet,    s.holdback);
-        _tryTransferFee(lpSeedingWallet,   s.lpSeed);
         _tryTransferFee(reserveFundWallet, s.reserve);
 
-        buybackAccumulator += s.buyback + s.directBurn;
+        buybackAccumulator += s.buyback;
     }
 
     /// @dev Attempt to push USDC fee to `recipient`. On failure, escrow in

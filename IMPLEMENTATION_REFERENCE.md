@@ -288,7 +288,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // ── Fee Wallets ──────────────────────────────────────────────────────────
     address public teamWallet;
     address public holdbackWallet;
-    address public lpSeedingWallet;
     address public reserveFundWallet;
     uint256 public buybackAccumulator;  // USDC pending buyback
 
@@ -330,7 +329,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         address _govToken,
         address _teamWallet,
         address _holdbackWallet,
-        address _lpSeedingWallet,
         address _reserveFundWallet,
         address _admin
     ) Ownable(_admin);
@@ -439,19 +437,15 @@ library FeeLib {
 
     // 15% perf fee split
     uint256 constant TEAM_BPS           = 4500;  // 45%
-    uint256 constant HOLDBACK_BPS       = 2000;  // 20%
+    uint256 constant HOLDBACK_BPS       = 3000;  // 30%
     uint256 constant BUYBACK_BPS        = 1500;  // 15%
-    uint256 constant LP_SEED_BPS        = 1000;  // 10%
-    uint256 constant RESERVE_BPS        = 500;   // 5%
-    uint256 constant DIRECT_BURN_BPS    = 500;   // 5%
+    uint256 constant RESERVE_BPS        = 1000;  // 10%
 
     struct FeeSplit {
         uint256 team;
         uint256 holdback;
         uint256 buyback;
-        uint256 lpSeed;
         uint256 reserve;
-        uint256 directBurn;
     }
 
     function splitPerfFee(uint256 totalFee) internal pure returns (FeeSplit memory);

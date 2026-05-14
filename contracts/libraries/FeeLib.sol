@@ -27,11 +27,9 @@ library FeeLib {
 
     // ── Performance-fee distribution (must sum to BPS_DENOM) ─────────────────
     uint256 internal constant TEAM_BPS         = 4_500;   // 45 %
-    uint256 internal constant HOLDBACK_BPS     = 2_000;   // 20 %
+    uint256 internal constant HOLDBACK_BPS     = 3_000;   // 30 %
     uint256 internal constant BUYBACK_BPS      = 1_500;   // 15 %
-    uint256 internal constant LP_SEED_BPS      = 1_000;   // 10 %
-    uint256 internal constant RESERVE_BPS      = 500;     //  5 %
-    uint256 internal constant DIRECT_BURN_BPS  = 500;     //  5 %
+    uint256 internal constant RESERVE_BPS      = 1_000;   // 10 %
 
     // ── Sleeve targets (must sum to BPS_DENOM) ───────────────────────────────
     uint256 internal constant SLEEVE_A_BPS     = 7_000;   // 70 %
@@ -73,9 +71,7 @@ library FeeLib {
         uint256 team;
         uint256 holdback;
         uint256 buyback;
-        uint256 lpSeed;
         uint256 reserve;
-        uint256 directBurn;
     }
 
     // ── Functions ────────────────────────────────────────────────────────────
@@ -87,21 +83,16 @@ library FeeLib {
         fee = (yieldUSD * PERF_FEE_BPS) / BPS_DENOM;
     }
 
-    /// @notice Split a total performance fee into its 6 components.
+    /// @notice Split a total performance fee into its 4 components.
     ///         All values in the same denomination as `totalFee`.
     function splitPerfFee(uint256 totalFee) internal pure returns (FeeSplit memory s) {
         s.team       = (totalFee * TEAM_BPS)        / BPS_DENOM;
         s.holdback   = (totalFee * HOLDBACK_BPS)    / BPS_DENOM;
         s.buyback    = (totalFee * BUYBACK_BPS)     / BPS_DENOM;
-        s.lpSeed     = (totalFee * LP_SEED_BPS)     / BPS_DENOM;
-        s.reserve    = (totalFee * RESERVE_BPS)     / BPS_DENOM;
-        // Direct burn gets the remainder to avoid dust from rounding
-        s.directBurn = totalFee
+        s.reserve    = totalFee
             - s.team
             - s.holdback
-            - s.buyback
-            - s.lpSeed
-            - s.reserve;
+            - s.buyback;
     }
 
     /// @notice Calculate exit fee on gross redemption amount.

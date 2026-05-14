@@ -47,8 +47,7 @@ contract MockCamelotRouter {
         require(amountOut >= amountOutMin, "MockCamelot: slippage");
 
         // Transfer existing BGW from this contract's balance (pre-funded in test setUp).
-        // Using transfer instead of mint keeps the total supply accurate: the burned BGW
-        // in executeBuyback/directBurn was already in circulation, not freshly minted.
+        // Using transfer instead of mint keeps swap simulations supply-neutral.
         IERC20(path[path.length - 1]).safeTransfer(to, amountOut);
     }
 

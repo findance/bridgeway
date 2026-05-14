@@ -69,11 +69,9 @@ test/
 | Recipient          | Share |
 |--------------------|-------|
 | Team wallet        | 45 %  |
-| Holdback wallet    | 20 %  |
+| Holdback wallet    | 30 %  |
 | Buyback accumulator| 15 %  |
-| LP seeding wallet  | 10 %  |
-| Reserve fund       |  5 %  |
-| Direct BGW burn    |  5 %  |
+| Reserve fund       | 10 %  |
 
 ### Management fee — accrued each harvest
 

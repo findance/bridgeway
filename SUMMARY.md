@@ -40,11 +40,9 @@ Underlying basket  (top 20 crypto + 5 stables + SPYon + QQQon)
 | Wallet | Share | Type | Purpose |
 |--------|-------|------|---------|
 | Team | 45% | USDC | Salaries, dev, legal |
-| Holdback | 20% | USDC | Ops, gas, oracles |
+| Holdback | 30% | USDC | Ops, gas, oracles |
 | Buyback | 15% | USDC | Reserve injection + temporary BGW mint/burn |
-| LP Seeding | 10% | USDC | DEX liquidity |
-| Reserve | 5% | USDC | User protection |
-| Burn | 5% | USDC | Added to reserve-injection queue |
+| Reserve | 10% | USDC | User protection |
 
 ## Buyback engine
 
