@@ -6,7 +6,7 @@ This folder will hold the Solidity sources. The authoritative spec is `../bridge
 
 The v10 `BridgewayAutomationWrapper.sol` from the earlier iteration was built against an older design:
 
-- Top 20 cryptos (now top 15)
+- Top 10 non-stable cryptos, market-cap weighted with 30% max / 3% min per asset
 - Annual management fee + entry fee (now removed — performance fee only)
 - Single token, no separate BGWToken (now requires immutable BGWToken with MINTER_ROLE)
 - No sleeve allocation (now 70/25/5 with strategy adapters)

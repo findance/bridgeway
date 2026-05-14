@@ -4,9 +4,9 @@
 
 An on-chain index fund token that gives holders a single ERC-20 (BGW) representing a basket of:
 
-- **Crypto layer** — top 20 cryptocurrencies by market cap (wrapped versions on Arbitrum)
-- **Stable layer** — top 5 stablecoins (USDC, USDT, DAI, FRAX, USDS) lent for yield via Aave
-- **Equity layer** — Ondo Finance's SPYon (S&P 500) and QQQon (Nasdaq-100)
+- **Crypto layer** — top 10 non-stable cryptocurrencies by market cap, market-cap weighted with 30% max / 3% min per asset
+- **Stable layer** — top 5 trusted stablecoin exposures deployed for conservative yield
+- **Alpha layer** — capped higher-yield strategies limited to 5% of NAV
 
 NAV is accumulating — staking and lending rewards land in the vault and raise the per-token value rather than being distributed.
 
@@ -15,25 +15,25 @@ NAV is accumulating — staking and lending rewards land in the vault and raise 
 ```
 User deposits USDC
         ↓
-Bridgeway Automation Wrapper  (~700 lines, custom — UUPS upgradeable)
-   - 6-way fee split
-   - Monthly reserve-injection buyback check
+BGWVault  (standalone, non-Enzyme)
+   - 70/25/5 sleeve allocation with adapters
+   - 4-way fee split
+   - Reserve-injection buyback
+        ↓
+BridgewayAutomation
+   - Harvest check
    - Auto buyback execution with threshold and cooldown
-   - 0.1% ops cut self-funds Chainlink Automation
         ↓
-Enzyme Finance Vault on Arbitrum  (battle-tested, audited)
-   - Asset custody, NAV, rebalancing, staking adapters
-        ↓
-Underlying basket  (top 20 crypto + 5 stables + SPYon + QQQon)
+Underlying basket  (top 10 non-stable crypto + top 5 trusted stables + capped alpha strategies)
 ```
 
 ## Final fee model
 
 | Fee | Rate |
 |-----|------|
-| Annual management | 0.50% (streamed per block) |
-| Entry / exit | 0.10% each |
-| Performance | 10% of staking yield only |
+| Annual management | 0.50% above HWM, 0.10% base below HWM |
+| Exit | 0.10% normal, 0.75% stress mode |
+| Performance | 15% of yield above HWM |
 
 ## Fee split (every fee taken)
 
@@ -47,19 +47,17 @@ Underlying basket  (top 20 crypto + 5 stables + SPYon + QQQon)
 ## Buyback engine
 
 - Automation executes reserve injection when the buyback accumulator clears threshold and cooldown
-- Divided into a daily amount, then an hourly amount
-- Each hour, contract checks if hourly amount > estimated gas; executes hourly if yes, daily if not, skips if even daily is below gas
 - Buyback execution does not trade against BGW/USDC liquidity
-- Anyone can trigger via Chainlink Automation, Gelato, or directly
+- Automation triggers the execution path
 
 ## Stack
 
 - **Chain**: Arbitrum (mainnet target; Arbitrum Sepolia for testnet)
-- **Vault**: Enzyme Finance
+- **Vault**: Standalone BGWVault
 - **DEX**: Camelot
 - **Oracle**: Chainlink price feeds
 - **Automation**: Chainlink Automation
-- **Contract**: UUPS upgradeable (OpenZeppelin)
+- **Contract**: Solidity / Foundry / OpenZeppelin
 
 ## Status
 

@@ -140,14 +140,14 @@ address public reserveFundWallet = 0x0000000000000000000000000000000000000003;
 
 | Sleeve | Target % | Assets | Yield Protocol |
 |--------|----------|--------|----------------|
-| A — Growth | 70% | Top 15 cryptos (BTC, ETH, SOL, BNB, XRP, DOGE, TON, ADA, TRX, AVAX, SHIB, SUI, LINK, BCH, OP) | Lido (stETH), Rocket Pool (rETH), Aave V3 |
-| B — Stability | 25% | USDC, USDT, DAI, FRAX | Aave V3, Morpho Blue |
-| C — Alpha | 5% | Pendle PT-stETH (1.5%), GMX GLP (1.5%), Morpho Blue (1.0%), Restaking (0.5%), USDe/sUSDe (0.5–1.0%) | Protocol-native |
+| A — Growth | 70% | Top 10 non-stable cryptos by market cap, market-cap weighted with 30% max / 3% min per asset | Staking/LSTs, Aave V3, approved venues |
+| B — Stability | 25% | Top 5 trusted stablecoins / stablecoin exposures | Aave V3, Morpho Blue, approved lending venues |
+| C — Alpha | 5% | Capped higher-yield strategies | Pendle, GMX/GLP-style, Morpho isolated markets, approved restaking |
 
 **Rebalancing triggers:**
 - Sleeve-level drift > 5% from target → rebalance
 - Sleeve C drift > 2% → rebalance (tighter)
-- Sleeve A: only `purchasedAmount` rebalances — `compoundedAmount` never sold
+- Sleeve A scheduled rebalance is quarterly; emergency rebalance only for material risk events.
 
 ---
 
@@ -224,7 +224,7 @@ forge script scripts/deploy/01_DeployTokens.s.sol \
 5. **ReentrancyGuard on all state-changing vault functions**
 6. **All fee math uses basis points (bps)** — 10000 = 100%, 15 bps = 0.15%
 7. **High-water mark updates AFTER fee distribution, not before**
-8. **`compoundedAmount` is never included in rebalancing calculations for Sleeve A**
+8. **Sleeve A is top-10 non-stable crypto, market-cap weighted, capped at 30% and floored at 3% per asset**
 9. **BGW-GOV distribution happens inside `deposit()` atomically with BGW minting**
 10. **No direct-burn or LP fee bucket remains; those shares moved to reserve and holdback**
 

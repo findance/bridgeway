@@ -19,9 +19,9 @@ import "../libraries/FeeLib.sol";
 /// @notice Bridgeway Protocol — standalone vault (no Enzyme).
 ///
 ///         Holds all assets across three sleeves:
-///           A  70 %  Growth     — top-15 cryptos deployed via Aave/LSTs
-///           B  25 %  Stability  — fiat stablecoins deployed via Aave/Morpho
-///           C   5 %  Alpha      — Pendle PT, GMX GLP, Morpho Blue, restaking
+///           A  70 %  Growth     — top-10 non-stable cryptos, market-cap weighted
+///           B  25 %  Stability  — top-5 trusted stablecoin exposures
+///           C   5 %  Alpha      — capped higher-yield strategies
 ///
 ///         BGW share price  = totalNAV / BGW.totalSupply()
 ///         BGW-GOV issued   = (bgwMinted / newTotalBGW) × communityPool

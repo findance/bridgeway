@@ -5,6 +5,8 @@ Bridgeway sleeves are now adapter-ready. A sleeve can run in one of two modes:
 - Manual accounting: no adapter configured; automation reports sleeve values.
 - Adapter accounting: adapter configured; deposits and redemptions route through the adapter, and NAV is read from `totalAssetsUSDC()`.
 
+The canonical asset-selection and weighting rules live in `SLEEVE_POLICY.md`.
+
 ## Adapter Interface
 
 Every production adapter must implement `ISleeveAdapter`:
@@ -20,18 +22,19 @@ The vault transfers USDC to the adapter before calling `deploy()`. During redemp
 
 ## Sleeve A: Growth
 
-Purpose: long-term crypto growth exposure.
+Purpose: top-10 non-stable crypto exposure, market-cap weighted with caps.
 
-Suggested trusted assets:
+Policy:
 
-- WETH
-- WBTC
-- wstETH
-- Aave aWETH / aWBTC / awstETH
+- Top 10 crypto assets by market cap, excluding stablecoins.
+- Market-cap weighted inside Sleeve A.
+- Maximum 30% of Sleeve A per asset.
+- Minimum 3% of Sleeve A per asset.
+- Quarterly rebalance.
 
 Possible adapter:
 
-- swap USDC into target blue-chip assets
+- swap USDC into approved top-10 assets according to policy weights
 - deposit into Aave or equivalent lending markets
 - value assets through Chainlink or a vetted oracle path
 - harvest any rewards into USDC
@@ -40,13 +43,12 @@ Possible adapter:
 
 Purpose: lower-volatility stablecoin yield.
 
-Suggested trusted assets:
+Policy:
 
-- USDC
-- USDT
-- DAI, only if governance accepts the risk
-- Aave aUSDC / aUSDT
-- Morpho USDC vault shares
+- Top 5 trusted stablecoins or stablecoin exposures.
+- Issuers must be trusted and liquid.
+- Yield is optimized within approved risk and venue caps.
+- Weakly backed or algorithmic stables require explicit governance approval.
 
 Possible adapter:
 
@@ -58,7 +60,7 @@ Possible adapter:
 
 Purpose: capped, higher-risk yield opportunities.
 
-Suggested trusted assets:
+Policy:
 
 - Pendle PT tokens approved by governance
 - GMX / GLP-style positions if liquid and oracle-supported
