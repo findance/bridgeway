@@ -57,11 +57,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Chainlink ETH/USD price feed. Passed at deploy for testnet flexibility.
     address public immutable ETH_USD_FEED;
 
-    // ── BGW-GOV distribution rate ─────────────────────────────────────────────
-    // Fixed-rate formula: each depositor gets bgwMinted × (30M / 100M) BGW-GOV.
-    uint256 private constant GOV_COMMUNITY_ALLOC = 30_000_000e18;
-    uint256 private constant GOV_TOTAL_SUPPLY    = 100_000_000e18;
-
     // ─────────────────────────────────────────────────────────────────────────
     // State — tokens
     // ─────────────────────────────────────────────────────────────────────────
@@ -427,17 +422,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         if (bgwToMint < minBgwOut) revert SlippageTooHigh(bgwToMint, minBgwOut);
 
-        uint256 govAmount = _calcGovDistribution(bgwToMint);
-
         // Effects before interactions (CEI)
         _deployToSleeves(usdcAmount);
 
         bgwToken.mint(msg.sender, bgwToMint);
-        if (govAmount > 0) {
-            govToken.distributeToDepositor(msg.sender, govAmount);
-        }
+        (uint256 depositorGov, ) = govToken.mintForDeposit(msg.sender, bgwToMint);
 
-        emit Deposited(msg.sender, usdcAmount, bgwToMint, govAmount);
+        emit Deposited(msg.sender, usdcAmount, bgwToMint, depositorGov);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1125,12 +1116,4 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         }
     }
 
-    /// @dev Calculate BGW-GOV to distribute to a new depositor.
-    function _calcGovDistribution(uint256 bgwMinted) internal view returns (uint256) {
-        uint256 communityPool = govToken.balanceOf(address(this));
-        if (communityPool == 0 || bgwMinted == 0) return 0;
-
-        uint256 govAmount = (bgwMinted * GOV_COMMUNITY_ALLOC) / GOV_TOTAL_SUPPLY;
-        return govAmount > communityPool ? communityPool : govAmount;
-    }
 }

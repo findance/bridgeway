@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../contracts/tokens/BGWToken.sol";
 import "../contracts/tokens/BGWGovToken.sol";
-import "../contracts/tokens/FounderVesting.sol";
 import "../contracts/core/BGWVault.sol";
 import "../contracts/core/BridgewayAutomation.sol";
 import "../contracts/libraries/FeeLib.sol";
@@ -39,7 +38,6 @@ contract DeployTest is Test {
 
     BGWToken          bgwToken;
     BGWGovToken       govToken;
-    FounderVesting    vesting;
     BGWVault          vault;
     BridgewayAutomation automation;
 
@@ -51,20 +49,20 @@ contract DeployTest is Test {
     // ── Script 01: DeployTokens ───────────────────────────────────────────────
 
     function _deployTokens() internal {
-        address predictedVesting =
-            computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-        govToken = new BGWGovToken(predictedVesting, founder);
-        vesting  = new FounderVesting(address(govToken), founder);
-        require(address(vesting) == predictedVesting, "nonce drift");
         bgwToken = new BGWToken(founder);
+        govToken = new BGWGovToken(founder, address(bgwToken), founder);
+
+        vm.prank(founder);
+        bgwToken.setGovernanceCompanion(address(govToken));
     }
 
     function test_Script01_TokensDeployCorrectly() public {
         _deployTokens();
 
-        assertEq(govToken.totalSupply(), 100_000_000e18);
-        assertEq(govToken.balanceOf(address(vesting)), 70_000_000e18);
-        assertEq(govToken.balanceOf(address(govToken)), 30_000_000e18);
+        assertEq(govToken.totalSupply(), 0);
+        assertEq(govToken.founderTreasury(), founder);
+        assertEq(govToken.bgwToken(), address(bgwToken));
+        assertEq(bgwToken.governanceCompanion(), address(govToken));
         assertTrue(bgwToken.hasRole(bgwToken.DEFAULT_ADMIN_ROLE(), founder));
     }
 
@@ -89,7 +87,7 @@ contract DeployTest is Test {
         bgwToken.grantRole(bgwToken.MINTER_ROLE(),          address(vault));
         bgwToken.grantRole(bgwToken.BURNER_ROLE(),          address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
-        bgwToken.setWhitelisted(address(vault), true);
+        vault.setWhitelisted(address(vault), true);
         govToken.initVault(address(vault));
         vault.setWhitelisted(founder, true);
         vm.stopPrank();
@@ -104,7 +102,8 @@ contract DeployTest is Test {
         assertTrue(bgwToken.whitelist(address(vault)));
         assertTrue(govToken.vaultInitialized());
         assertEq(govToken.vault(), address(vault));
-        assertEq(govToken.balanceOf(address(vault)), 30_000_000e18);
+        assertTrue(govToken.hasRole(govToken.MINTER_ROLE(), address(vault)));
+        assertEq(govToken.balanceOf(address(vault)), 0);
         assertTrue(vault.whitelist(founder));
     }
 

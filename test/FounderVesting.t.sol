@@ -2,11 +2,18 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "../contracts/tokens/BGWGovToken.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../contracts/tokens/FounderVesting.sol";
 
+contract MockVestingToken is ERC20 {
+    constructor() ERC20("Mock Vesting Token", "MVT") {}
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
 contract FounderVestingTest is Test {
-    BGWGovToken    govToken;
+    MockVestingToken govToken;
     FounderVesting vesting;
 
     address founder    = makeAddr("founder");
@@ -17,14 +24,10 @@ contract FounderVestingTest is Test {
     uint256 constant TOTAL  = 70_000_000e18;
 
     function setUp() public {
-        // govToken deploys at nonce N, vesting at nonce N+1.
-        address predictedVesting =
-            computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-
-        govToken = new BGWGovToken(predictedVesting, founder);
+        govToken = new MockVestingToken();
         vesting  = new FounderVesting(address(govToken), founder);
+        govToken.mint(address(vesting), TOTAL);
 
-        require(address(vesting) == predictedVesting, "nonce drift");
         assertEq(govToken.balanceOf(address(vesting)), TOTAL);
     }
 

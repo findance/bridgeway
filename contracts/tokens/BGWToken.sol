@@ -5,6 +5,10 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
+interface IBGWGovTransferCompanion {
+    function syncWithBGWTransfer(address from, address to, uint256 bgwAmount) external;
+}
+
 /// @title  BGWToken
 /// @notice Bridgeway Index vault share token (BGW).
 ///         Price = totalVaultNAV / totalSupply (pure NAV share model).
@@ -27,13 +31,18 @@ contract BGWToken is ERC20, AccessControl, Pausable {
     /// @notice Addresses permanently blocked from all token operations.
     mapping(address => bool) public blacklisted;
 
+    /// @notice Optional BGW-GOV companion moved/burned alongside BGW transfers.
+    address public governanceCompanion;
+
     // ── Events ───────────────────────────────────────────────────────────────
     event Whitelisted(address indexed account, bool status);
     event Blacklisted(address indexed account, bool status);
+    event GovernanceCompanionSet(address indexed companion);
 
     // ── Errors ───────────────────────────────────────────────────────────────
     error NotWhitelisted(address account);
     error AccountBlacklisted(address account);
+    error GovernanceCompanionAlreadySet();
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param admin  Address that receives DEFAULT_ADMIN_ROLE (founder multisig).
@@ -105,6 +114,16 @@ contract BGWToken is ERC20, AccessControl, Pausable {
     function pause()   external onlyRole(PAUSER_ROLE) { _pause(); }
     function unpause() external onlyRole(PAUSER_ROLE) { _unpause(); }
 
+    // ── BGW-GOV Companion ───────────────────────────────────────────────────
+
+    /// @notice Set the BGW-GOV companion once after both tokens are deployed.
+    function setGovernanceCompanion(address companion) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (governanceCompanion != address(0)) revert GovernanceCompanionAlreadySet();
+        require(companion != address(0), "BGW: zero companion");
+        governanceCompanion = companion;
+        emit GovernanceCompanionSet(companion);
+    }
+
     // ── Transfer Hook ────────────────────────────────────────────────────────
 
     /// @dev Enforces whitelist and blacklist on every transfer, mint, and burn.
@@ -138,5 +157,10 @@ contract BGWToken is ERC20, AccessControl, Pausable {
         // a user being removed from whitelist can still burn their own tokens.
 
         super._update(from, to, amount);
+
+        address companion = governanceCompanion;
+        if (companion != address(0) && from != address(0)) {
+            IBGWGovTransferCompanion(companion).syncWithBGWTransfer(from, to, amount);
+        }
     }
 }

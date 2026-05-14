@@ -23,10 +23,11 @@ Whitelisted depositor
     │  Buyback & burn   ◄── BridgewayAutomation (Chainlink)    │
     └───────────────────────────────────────────────────────────┘
 
-BGWToken      — ERC-20 vault share (18 dec), whitelist-transfer-only
-BGWGovToken   — Fixed 100 M governance token; 70 M vested to founder,
-                30 M distributed to depositors at fixed rate
-FounderVesting — 1-year cliff, linear vesting months 13–48
+BGWToken      — ERC-20 vault share (18 dec), whitelist-transfer-only;
+                moves/burns paired depositor BGW-GOV on transfer/burn
+BGWGovToken   — Inflationary governance token minted with BGW deposits:
+                30% to depositor, 70% to founder treasury. Depositor GOV
+                cannot transfer independently of BGW.
 ```
 
 ---
@@ -41,7 +42,7 @@ contracts/
 ├── tokens/
 │   ├── BGWToken.sol              ← ERC-20 share token (whitelist + blacklist + pause)
 │   ├── BGWGovToken.sol           ← governance token (whitelist-transfer, ERC20Votes)
-│   └── FounderVesting.sol        ← cliff/linear vesting for founder's 70 M BGW-GOV
+│   └── FounderVesting.sol        ← legacy vesting helper; not used by current GOV mint design
 ├── interfaces/
 │   ├── IAaveV3.sol
 │   ├── ICamelotRouter.sol
@@ -126,8 +127,8 @@ All findings from an independent security audit (v1.22) have been resolved:
 | H-08 | `setWhitelistedBatch` capped at 200 entries |
 | H-09 | Redeem uses `adminBurn` (MINTER_ROLE) not allowance-based `burnFrom` |
 | H-10 | `lastHarvestTime` initialised to `block.timestamp` at deploy |
-| H-11 | BGW-GOV transfers restricted to vault-whitelisted addresses |
-| H-12 | `FounderVesting.claim()` blocked during Ownable2Step pending transfer |
+| H-11 | Depositor BGW-GOV moves/burns with corresponding BGW; standalone GOV transfers are restricted to founder treasury sales |
+| H-12 | BGW-GOV mints 30% to depositors and 70% to founder treasury on every BGW mint |
 | M-01 | `ReentrancyGuard` on `executeBuyback` |
 | M-03 | 48-hour timelock on all fee-level and wallet-address setters |
 | M-04 | Management fee accrual capped at 90 days elapsed |
@@ -184,7 +185,7 @@ forge script scripts/deploy/03_SetupAutomation.s.sol \
 ## Governance
 
 - Founder multisig: 3-of-5 Gnosis Safe
-- BGW-GOV voting: founder retains ≥ 50.5 % floor
+- BGW-GOV voting: founder treasury receives 70% of every deposit-linked GOV mint
 - Critical decisions (upgrades, fee changes, whitelist policy): founder veto
 
 ---

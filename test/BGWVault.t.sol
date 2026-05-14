@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../contracts/tokens/BGWToken.sol";
 import "../contracts/tokens/BGWGovToken.sol";
-import "../contracts/tokens/FounderVesting.sol";
 import "../contracts/core/BGWVault.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
 import "../contracts/libraries/FeeLib.sol";
@@ -54,7 +53,6 @@ contract MockAutomationStub {}
 contract BGWVaultTest is Test {
     BGWToken       bgwToken;
     BGWGovToken    govToken;
-    FounderVesting vesting;
     BGWVault       vault;
 
     address founder  = makeAddr("founder");
@@ -75,16 +73,8 @@ contract BGWVaultTest is Test {
         vm.etch(USDC_ADDR, address(mockUsdc).code);
 
         // ── Deploy tokens ──────────────────────────────────────────────────────
-        // BGWGovToken mints 70M to FounderVesting in its constructor.
-        // Predict vesting address (govToken deploys at nonce N, vesting at N+1).
-        address predictedVesting =
-            computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-
-        govToken = new BGWGovToken(predictedVesting, founder);        // nonce N
-        vesting  = new FounderVesting(address(govToken), founder);    // nonce N+1
-        require(address(vesting) == predictedVesting, "nonce drift");
-
         bgwToken = new BGWToken(founder);
+        govToken = new BGWGovToken(founder, address(bgwToken), founder);
 
         // ── Mock Camelot router ────────────────────────────────────────────────
         // Etch MockCamelotRouter bytecode (with bgwToken + rate baked in as
@@ -110,16 +100,17 @@ contract BGWVaultTest is Test {
         // ── Wire roles ─────────────────────────────────────────────────────────
         vm.startPrank(founder);
 
+        bgwToken.setGovernanceCompanion(address(govToken));
         bgwToken.grantRole(bgwToken.MINTER_ROLE(),           address(vault));
         bgwToken.grantRole(bgwToken.BURNER_ROLE(),           address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(),  address(vault));
-        // Vault must be whitelisted on BGWToken to receive BGW during buybacks.
-        bgwToken.setWhitelisted(address(vault), true);
-        // Camelot mock mints BGW during swap simulation — grant it MINTER_ROLE.
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(), CAMELOT_ADDR);
+        // Vault must be whitelisted to receive BGW and its paired BGW-GOV during buybacks.
+        vault.setWhitelisted(address(vault), true);
+        // Camelot mock holds real BGW liquidity during swap simulation.
         bgwToken.setWhitelisted(CAMELOT_ADDR, true);
+        vault.setWhitelisted(CAMELOT_ADDR, true);
 
-        // Transfer 30M BGW-GOV community pool to vault + grant DISTRIBUTOR_ROLE.
+        // Grant the vault BGW-GOV minting authority.
         govToken.initVault(address(vault));
 
         // Whitelist users on vault (also updates BGWToken whitelist via WHITELIST_ADMIN_ROLE).
@@ -207,15 +198,15 @@ contract BGWVaultTest is Test {
 
     // ── BGW-GOV distribution ──────────────────────────────────────────────────
 
-    function test_GovDistributedAtFixedRate() public {
+    function test_GovMintedAtThirtySeventySplit() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        // Rate: bgwMinted × (30M / 100M) = 1000e18 × 0.3 = 300e18 BGW-GOV
-        uint256 expected = (1_000e18 * 30_000_000e18) / 100_000_000e18;
-        assertEq(govToken.balanceOf(alice), expected);
+        assertEq(govToken.balanceOf(alice), 300e18);
+        assertEq(govToken.balanceOf(founder), 700e18);
+        assertEq(govToken.totalSupply(), 1_000e18);
     }
 
     function test_GovRateIsEqualForAllDepositors() public {
@@ -237,35 +228,73 @@ contract BGWVaultTest is Test {
         assertEq(govToken.balanceOf(bob), aliceGov);
     }
 
-    function test_GovPoolDecreasesAfterDistribution() public {
-        uint256 poolBefore = govToken.balanceOf(address(vault));
-
+    function test_GovSupplyInflatesWithBgwMinted() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        uint256 poolAfter = govToken.balanceOf(address(vault));
-        assertLt(poolAfter, poolBefore);
-        assertEq(poolBefore - poolAfter, govToken.balanceOf(alice));
+        assertEq(govToken.balanceOf(address(vault)), 0);
+        assertEq(govToken.totalSupply(), bgwToken.balanceOf(alice));
+        assertEq(govToken.balanceOf(founder), 700e18);
+    }
+
+    function test_StrangerCannotMintGovForDeposit() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        govToken.mintForDeposit(alice, 1_000e18);
+    }
+
+    function test_GovMinterCannotMintToNonWhitelistedDepositor() public {
+        address outsider = makeAddr("outsider");
+
+        vm.startPrank(founder);
+        govToken.grantRole(govToken.MINTER_ROLE(), founder);
+        vm.expectRevert("GOV: depositor not whitelisted");
+        govToken.mintForDeposit(outsider, 1_000e18);
+        vm.stopPrank();
+    }
+
+    function test_FounderGovSaleStillRequiresWhitelistedRecipient() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        address outsider = makeAddr("outsider");
+
+        vm.prank(founder);
+        vm.expectRevert("GOV: recipient not whitelisted");
+        govToken.transfer(outsider, 1e18);
     }
 
     // ── BGW-GOV transfer restrictions (H-11) ─────────────────────────────────
 
-    function test_GovTransferBetweenWhitelistedUsers() public {
+    function test_BgwTransferMovesCorrespondingGov() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        uint256 aliceGov = govToken.balanceOf(alice);
-        assertGt(aliceGov, 0);
+        uint256 aliceGovBefore = govToken.balanceOf(alice);
 
         vm.prank(alice);
-        govToken.transfer(bob, aliceGov);
+        bgwToken.transfer(bob, 50e18);
 
-        assertEq(govToken.balanceOf(bob),  aliceGov);
-        assertEq(govToken.balanceOf(alice), 0);
+        assertEq(bgwToken.balanceOf(bob), 50e18);
+        assertEq(govToken.balanceOf(bob), 15e18);
+        assertEq(govToken.balanceOf(alice), aliceGovBefore - 15e18);
+    }
+
+    function test_GovCannotTransferWithoutCorrespondingBgw() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        vm.expectRevert("GOV: transfers follow BGW");
+        govToken.transfer(bob, 1e18);
     }
 
     function test_GovTransferToNonWhitelistedReverts() public {
@@ -278,7 +307,7 @@ contract BGWVaultTest is Test {
         uint256 aliceGov = govToken.balanceOf(alice); // capture before prank (vm.prank is one-shot)
 
         vm.prank(alice);
-        vm.expectRevert("GOV: recipient not whitelisted");
+        vm.expectRevert("GOV: transfers follow BGW");
         govToken.transfer(outsider, aliceGov);
     }
 

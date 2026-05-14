@@ -18,8 +18,9 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 ///         Founder can transfer the entire vesting stake to a designated
 ///         successor (irreversible, requires the new address to accept).
 ///
-///         The governance token's DISTRIBUTOR_ROLE remains on BGWVault;
-///         this contract only holds and releases the founder's allocation.
+///         Legacy helper retained for standalone vesting schedules. The current
+///         BGW-GOV design mints founder governance allocations directly to the
+///         founder treasury on every BGW deposit.
 contract FounderVesting is Ownable2Step {
     using SafeERC20 for IERC20;
 

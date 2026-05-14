@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../contracts/tokens/BGWToken.sol";
 import "../contracts/tokens/BGWGovToken.sol";
-import "../contracts/tokens/FounderVesting.sol";
 import "../contracts/core/BGWVault.sol";
 import "../contracts/core/BridgewayAutomation.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
@@ -31,7 +30,6 @@ contract MockUSDCAutomation {
 contract AutomationTest is Test {
     BGWToken          bgwToken;
     BGWGovToken       govToken;
-    FounderVesting    vesting;
     BGWVault          vault;
     BridgewayAutomation automation;
 
@@ -55,14 +53,8 @@ contract AutomationTest is Test {
         MockUSDCAutomation mockUsdc = new MockUSDCAutomation();
         vm.etch(USDC_ADDR, address(mockUsdc).code);
 
-        // Deploy tokens (nonce prediction for vesting)
-        address predictedVesting =
-            computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
-        govToken = new BGWGovToken(predictedVesting, founder);
-        vesting  = new FounderVesting(address(govToken), founder);
-        require(address(vesting) == predictedVesting, "nonce drift");
-
         bgwToken = new BGWToken(founder);
+        govToken = new BGWGovToken(founder, address(bgwToken), founder);
 
         // Mock Camelot
         MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
@@ -76,13 +68,14 @@ contract AutomationTest is Test {
 
         // Wire roles
         vm.startPrank(founder);
+        bgwToken.setGovernanceCompanion(address(govToken));
         bgwToken.grantRole(bgwToken.MINTER_ROLE(),          address(vault));
         bgwToken.grantRole(bgwToken.BURNER_ROLE(),          address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
-        bgwToken.setWhitelisted(address(vault), true);
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(), CAMELOT_ADDR);
+        vault.setWhitelisted(address(vault), true);
         bgwToken.setWhitelisted(CAMELOT_ADDR, true);
         govToken.initVault(address(vault));
+        vault.setWhitelisted(CAMELOT_ADDR, true);
         vault.setWhitelisted(founder, true);
         vault.setWhitelisted(alice,   true);
         vm.stopPrank();

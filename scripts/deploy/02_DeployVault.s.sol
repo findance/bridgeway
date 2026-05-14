@@ -67,11 +67,11 @@ contract DeployVault is Script {
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         console.log("Granted WHITELIST_ADMIN_ROLE to vault on BGWToken");
 
-        bgwToken.setWhitelisted(address(vault), true);
-        console.log("Whitelisted vault on BGWToken for buyback receipt");
+        vault.setWhitelisted(address(vault), true);
+        console.log("Whitelisted vault for paired BGW/BGW-GOV buyback receipt");
 
         govToken.initVault(address(vault));
-        console.log("Initialized vault in BGWGovToken (30M GOV transferred)");
+        console.log("Initialized vault in BGWGovToken (vault can mint deposit GOV)");
 
         vault.setWhitelisted(founderAddr, true);
         console.log("Whitelisted founder:", founderAddr);
