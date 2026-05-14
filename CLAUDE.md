@@ -141,13 +141,16 @@ address public reserveFundWallet = 0x0000000000000000000000000000000000000003;
 | Sleeve | Target % | Assets | Yield Protocol |
 |--------|----------|--------|----------------|
 | A — Growth | 70% | Top 10 non-stable cryptos by market cap, market-cap weighted with 30% max / 3% min per asset | Staking/LSTs, Aave V3, approved venues |
-| B — Stability | 25% | Top 5 trusted stablecoins / stablecoin exposures | Aave V3, Morpho Blue, approved lending venues |
-| C — Alpha | 5% | Capped higher-yield strategies | Pendle, GMX/GLP-style, Morpho isolated markets, approved restaking |
+| B — Stability | 25% | Trusted yield-capable stablecoins / stablecoin exposures | Aave V3, Morpho Blue, approved lending venues |
+| C — Alpha | 5% | Capped higher-yield strategies, excluding RWA/equity-index exposure | Pendle, GMX/GLP-style, Morpho isolated markets, approved restaking |
+
+Sleeve C realised yield is converted to USDC and moved into Sleeve B for staking/lending compounding. Sleeve C adapters must not compound realised yield back into Sleeve C.
 
 **Rebalancing triggers:**
-- Sleeve-level drift > 5% from target → rebalance
-- Sleeve C drift > 2% → rebalance (tighter)
-- Sleeve A scheduled rebalance is quarterly; emergency rebalance only for material risk events.
+- Automatic rebalance runs monthly on the 15th.
+- Sleeve A and Sleeve B rebalance around 70% / 25%.
+- Sleeve C is one-way during automatic rebalancing: value may flow from C to B or A, but A/B do not flow back into C.
+- A/B may remain above target if needed to avoid topping up Sleeve C.
 
 ---
 

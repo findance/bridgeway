@@ -22,12 +22,14 @@ interface AutomationCompatibleInterface {
 /// @notice Chainlink Automation-compatible upkeep contract.
 ///
 ///         Triggers:
-///           1. Monthly harvest  — every 30 days, claim all protocol rewards,
-///              swap to USDC, call vault.recordHarvest().
+///           1. Monthly harvest/rebalance — intended to run on the 15th of
+///              each month via Chainlink Automation scheduling. Claim all
+///              protocol rewards, swap to USDC, call vault.recordHarvest().
 ///           2. Buyback check    — any call, if accumulator >= threshold,
 ///              call vault.executeBuyback().
-///           3. Rebalance check  — after harvest, if sleeve drift > threshold,
-///              call vault.updateSleeveValues() with corrected values.
+///           3. Rebalance policy — A/B rebalance toward 70/25. Sleeve C is a
+///              one-way sleeve during automatic rebalancing: value may leave C,
+///              but automatic rebalancing must not fund C from A or B.
 ///
 /// @dev    This contract is intentionally thin — it reads Aave/Morpho balances
 ///         and instructs the vault. It does NOT hold user funds.
@@ -42,6 +44,8 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     /// @notice USDC token address — set at deploy for testnet / mainnet flexibility (M-06).
     address public immutable USDC;
 
+    /// @notice Minimum spacing for the monthly 15th harvest/rebalance job.
+    ///         Exact calendar scheduling is handled off-chain by Automation.
     uint256 public constant HARVEST_INTERVAL  = 30 days;
     uint256 public constant BUYBACK_THRESHOLD = 500e6;      // 500 USDC minimum (M-07)
     uint256 public constant BUYBACK_INTERVAL  = 30 days;    // min gap between buybacks (M-07)
@@ -186,10 +190,11 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     ///   1. Read current Aave/Morpho/Lido balances from vault positions.
     ///   2. Claim any pending rewards (this must be wired up per protocol).
     ///   3. Swap reward tokens → USDC via Camelot.
-    ///   4. Compute sleeve values post-harvest.
-    ///   5. Call vault.recordHarvest() with net yield + new sleeve values.
+    ///   4. Route realised Sleeve C yield into Sleeve B for stablecoin compounding.
+    ///   5. Compute sleeve values post-harvest.
+    ///   6. Call vault.recordHarvest() with net yield + new sleeve values.
     ///
-    ///   NOTE: For MVP testnet phase, step 1-3 are stubs.
+    ///   NOTE: For MVP testnet phase, step 1-4 are stubs.
     ///         The vault tracks sleeve values via the amounts we report back.
     function _harvest() internal {
         lastHarvestTime = block.timestamp;
@@ -218,18 +223,21 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
         uint256 usdcAfter   = IERC20(USDC).balanceOf(address(vault));
         uint256 netYieldUsdc = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0;
 
-        // ── Step 5: Report to vault ──────────────────────────────────────────
-        // Sleeve values: use existing + any accrued yield proportionally
+        // ── Step 6: Report to vault ──────────────────────────────────────────
+        // Sleeve values: use existing + realised yield. Policy requires
+        // realised Sleeve C yield to be converted to USDC and compounded in
+        // Sleeve B, not compounded back into Sleeve C.
         uint256 nav = vault.totalNAV();
         uint256 newA = vault.sleeveAValue();
         uint256 newB = vault.sleeveBValue();
         uint256 newC = vault.sleeveCValue();
 
-        // Distribute net yield to sleeves proportionally
+        // MVP placeholder: all USDC rewards observed at the vault are treated
+        // as stable compounding capital and credited to Sleeve B. Production
+        // adapters should report source-specific values so non-C yield can be
+        // handled by its approved adapter policy while C yield always flows to B.
         if (netYieldUsdc > 0 && nav > 0) {
-            newA += (netYieldUsdc * FeeLib.SLEEVE_A_BPS) / FeeLib.BPS_DENOM;
-            newB += (netYieldUsdc * FeeLib.SLEEVE_B_BPS) / FeeLib.BPS_DENOM;
-            newC += (netYieldUsdc * FeeLib.SLEEVE_C_BPS) / FeeLib.BPS_DENOM;
+            newB += netYieldUsdc;
         }
 
         vault.recordHarvest(netYieldUsdc, newA, newB, newC);

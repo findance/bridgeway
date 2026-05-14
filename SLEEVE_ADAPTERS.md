@@ -30,7 +30,7 @@ Policy:
 - Market-cap weighted inside Sleeve A.
 - Maximum 30% of Sleeve A per asset.
 - Minimum 3% of Sleeve A per asset.
-- Quarterly rebalance.
+- Monthly rebalance on the 15th, using the approved policy weights.
 
 Possible adapter:
 
@@ -45,10 +45,12 @@ Purpose: lower-volatility stablecoin yield.
 
 Policy:
 
-- Top 5 trusted stablecoins or stablecoin exposures.
-- Issuers must be trusted and liquid.
+- Trusted stablecoins or stablecoin exposures with approved yield venues.
+- Issuers must be trusted, liquid, and redemption-reliable.
 - Yield is optimized within approved risk and venue caps.
+- Non-yielding stablecoins are excluded unless temporarily needed as a liquidity buffer.
 - Weakly backed or algorithmic stables require explicit governance approval.
+- A single issuer may be capped up to 50% of Sleeve B if governance/founder approval accepts the concentration.
 
 Possible adapter:
 
@@ -66,6 +68,7 @@ Policy:
 - GMX / GLP-style positions if liquid and oracle-supported
 - selected restaking or structured-yield positions
 - Morpho Blue isolated markets with strict caps
+- no RWA, tokenized equity, S&P 500, Nasdaq 100, ETF, or equity-index exposure
 
 Possible adapter:
 
@@ -73,6 +76,9 @@ Possible adapter:
 - expose conservative USDC valuation
 - require unwind support before large redemptions
 - avoid assets without reliable pricing and exit liquidity
+- harvest realized yield into USDC and return or route it for Sleeve B compounding
+- never auto-compound realized Sleeve C yield back into Sleeve C positions
+- support one-way monthly rebalance flows out of Sleeve C only; automatic rebalancing must not push Sleeve A or Sleeve B value into Sleeve C
 
 ## Trusted Asset Confirmation
 

@@ -44,5 +44,5 @@ Open VSCode in this folder and start with:
 - **Genesis bootstrap rule** (§4): first deposit mints BGW 1:1 with USDC value (NAV per BGW starts at $1.00). All later deposits use the pro-rata formula. Handle the `totalSupply == 0` case in deposit logic.
 - **`recordStakingYield`**: for testnet, owner-trusted is acceptable. Spec §8.1 requires on-chain derivation before mainnet — design the interface so the verification path can be added later without breaking ABI compatibility.
 - **UUPS upgrade**: spec §8.1 requires a 48h timelock on `upgradeTo()` for mainnet. For testnet a single owner is fine, but write the contract so the owner address can be swapped to a `TimelockController` later without storage layout changes.
-- **Sleeve C drift trigger**: >2% absolute (tighter than the global >8% rule). Track per-sleeve drift, not just global allocation.
+- **Monthly rebalance**: run automatically on the 15th. Sleeve A/B rebalance around 70% / 25%; Sleeve C is one-way during automatic rebalancing and must not be topped up from A/B.
 - **In-kind redemption**: Sleeve C tokens must be transferable to redeemer. Symbiotic/Karak unbonding periods may complicate this — document the behavior in the redeem function.

@@ -10,6 +10,17 @@ This document is the source of truth for the intended asset policy inside the 70
 | Sleeve B — Stability | 25% |
 | Sleeve C — Alpha | 5% |
 
+## Rebalance Rule
+
+Rebalancing is automatic once per month, targeted for the 15th day of each month.
+
+- Monthly rebalance is calendar-based, not drift-triggered.
+- Sleeve A and Sleeve B rebalance against the 70% / 25% targets.
+- Sleeve A and Sleeve B may temporarily sit above their targets to avoid funding Sleeve C.
+- Sleeve C is one-way: value may flow from Sleeve C into Sleeve B or Sleeve A, but fresh value must not flow from Sleeve A or Sleeve B back into Sleeve C during automatic rebalancing.
+- Sleeve C should only shrink or remain unchanged during automatic monthly rebalancing.
+- Sleeve C can receive new capital only through a separate explicit founder/governance-approved strategy allocation, not through the monthly rebalance path.
+
 ## Sleeve A — Growth
 
 Sleeve A holds the top 10 crypto assets by market capitalization, excluding stablecoins.
@@ -31,7 +42,7 @@ Weighting rules:
 
 Rebalancing:
 
-- Scheduled rebalance: quarterly.
+- Scheduled rebalance: monthly on the 15th, together with the global sleeve rebalance.
 - Emergency rebalance allowed only for depeg-like wrapped asset failure, oracle failure, protocol exploit, sanctions/compliance event, or loss of viable liquidity.
 - Existing policy continues unchanged if no new proposal is approved.
 
@@ -43,7 +54,7 @@ Yield:
 
 ## Sleeve B — Stability
 
-Sleeve B holds the top 5 trusted stablecoins or stablecoin exposures from trusted issuers, optimized for safe yield.
+Sleeve B holds trusted stablecoins or stablecoin exposures from trusted issuers, optimized for safe yield. Non-yielding stablecoins are excluded unless temporarily needed as a liquidity buffer.
 
 Sleeve B priority order:
 
@@ -53,7 +64,8 @@ Sleeve B priority order:
 
 Selection rules:
 
-- Include only stablecoins with trusted issuers, transparent backing, deep liquidity, and reliable redemption/market structure.
+- Include only stablecoins with trusted issuers, transparent backing, deep liquidity, reliable redemption/market structure, and an approved yield venue.
+- Do not include a stablecoin only to fill a target count; use fewer assets if fewer assets qualify.
 - Reject algorithmic stablecoins by default.
 - Exclude unbacked or weakly backed stablecoins unless explicitly approved by governance.
 - Consider issuer concentration and chain-specific liquidity before approval.
@@ -96,7 +108,7 @@ Weighting rules:
 - Yield-optimized within risk limits rather than pure market-cap weighted.
 - No single issuer should dominate the sleeve unless governance explicitly approves.
 - Venue caps should be set per adapter before deployment.
-- Suggested max per issuer: 40% of Sleeve B.
+- Suggested max per issuer: 50% of Sleeve B.
 - Suggested minimum per approved stablecoin exposure: 5% of Sleeve B.
 - Keep a liquid USDC reserve when adapter liquidity or redemption timing requires it.
 
@@ -105,6 +117,7 @@ Yield:
 - Aave, Morpho, or other approved lending venues.
 - Adapter should prefer withdrawal reliability and conservative valuation over headline APY.
 - Compounding should happen inside the Sleeve B adapter by harvesting rewards, converting them into approved stable exposure, redeploying into approved venues, and reporting updated `totalAssetsUSDC()`.
+- Realized Sleeve C yield must be converted to USDC, transferred into Sleeve B, and compounded through the approved Sleeve B adapter.
 
 Review cadence:
 
@@ -122,6 +135,17 @@ Allowed strategy types:
 - Morpho isolated markets.
 - Restaking or LRT positions only after explicit governance approval.
 
+Excluded strategy types:
+
+- RWA, tokenized equities, S&P 500, Nasdaq 100, ETF, or equity-index exposure.
+- Any tokenized security, security-based swap, or off-chain fund exposure unless the protocol is redesigned as a compliant permissioned product.
+
+Yield handling:
+
+- Sleeve C principal remains capped inside Sleeve C.
+- Sleeve C yield must be harvested, converted to USDC, moved into Sleeve B, and compounded through approved stablecoin yield venues.
+- Sleeve C adapters must not auto-compound realized yield back into Sleeve C positions.
+
 Risk rules:
 
 - Every strategy must have a hard cap.
@@ -131,7 +155,9 @@ Risk rules:
 
 Rebalancing:
 
-- Sleeve C drift should be monitored more tightly than Sleeves A/B.
+- Sleeve C is not topped up by automatic monthly rebalancing.
+- If Sleeve C is above the intended cap, excess value may be harvested or unwound into Sleeve B or Sleeve A.
+- If Sleeve C is below 5%, the shortfall remains in Sleeve A/B unless a separate founder/governance-approved proposal allocates capital to Sleeve C.
 - Emergency exit can be proposed if a strategy’s oracle, liquidity, or protocol risk changes materially.
 
 ## Governance Rule

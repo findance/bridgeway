@@ -5,7 +5,7 @@
 An on-chain index fund token that gives holders a single ERC-20 (BGW) representing a basket of:
 
 - **Crypto layer** — top 10 non-stable cryptocurrencies by market cap, market-cap weighted with 30% max / 3% min per asset
-- **Stable layer** — top 5 trusted stablecoin exposures deployed for conservative yield
+- **Stable layer** — trusted yield-capable stablecoin exposures deployed for conservative yield
 - **Alpha layer** — capped higher-yield strategies limited to 5% of NAV
 
 NAV is accumulating — staking and lending rewards land in the vault and raise the per-token value rather than being distributed.
@@ -75,17 +75,15 @@ The previous chat is well-structured and the contract iteration shows real progr
 
 ## 1. Regulatory exposure is the single biggest unaddressed risk
 
-This product is a security in most jurisdictions. A token that pools funds, holds a managed basket of assets, charges a management fee, takes a performance cut, and promises NAV-growing exposure to the S&P 500 and Nasdaq is — by US, Canadian, EU, and UK securities tests — almost certainly a security. The Howey test in the US and the "investment contract" framing elsewhere capture exactly this fact pattern.
+This product may still create securities or fund-regulation risk in many jurisdictions because it pools funds, holds a managed basket of assets, charges a management fee, and takes a performance cut. The current policy excludes RWA, tokenized equity, S&P 500, Nasdaq 100, ETF, and equity-index exposure to avoid adding a direct tokenized-securities layer.
 
 The previous chat mentioned "structure as a DAO" and "avoid promising returns" as mitigations. That's not enough. SEC, OSC (Canada), ESMA, and FCA have all gone after on-chain index/fund products in the last two years. Pendle, Index Coop, and several others have had to geofence US users or restructure.
 
 If you intend to ship this publicly, you need an actual securities lawyer in your target jurisdictions before you write more code. Budget $5–20k for the conversation, not "if needed."
 
-## 2. Ondo SPYon / QQQon are not freely composable
+## 2. RWA and equity-index exposure are excluded
 
-The chat treated these as plug-and-play exposure to S&P 500 / Nasdaq. They aren't. Ondo's tokenized securities require KYC and are restricted to non-US jurisdictions and qualified investors. Putting them inside a permissionless ERC-20 vault that anyone can buy potentially circumvents Ondo's compliance perimeter — Ondo's terms likely prohibit this, and it pulls Bridgeway into US securities law territory immediately.
-
-Realistic options: drop the equity layer entirely, OR run a permissioned (KYC'd) vault for the equity tier, OR use a fully synthetic exposure (Synthetix-style) and accept the basis risk.
+RWA, tokenized equity, S&P 500, Nasdaq 100, ETF, and equity-index exposure are not part of the sleeve policy. Adding them later should require a separate compliant product design rather than a normal sleeve proposal.
 
 ## 3. "Zero expenditure" was the original goal — that's no longer true
 

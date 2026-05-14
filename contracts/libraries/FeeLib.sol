@@ -37,8 +37,8 @@ library FeeLib {
     uint256 internal constant SLEEVE_C_BPS     = 500;     //  5 %
 
     // ── Drift triggers ───────────────────────────────────────────────────────
-    uint256 internal constant DRIFT_AB_BPS     = 800;     //  8 %  → rebalance A+B
-    uint256 internal constant DRIFT_C_BPS      = 200;     //  2 %  → rebalance C
+    uint256 internal constant DRIFT_AB_BPS     = 800;     // legacy drift helper; scheduled rebalance is monthly
+    uint256 internal constant DRIFT_C_BPS      = 200;     // legacy drift helper; monthly rebalance never tops up C
 
     // ── Redemption thresholds ────────────────────────────────────────────────
     uint256 internal constant LARGE_REDEEM_USD = 10_000e6; // $10,000 in USDC (6 dec)
@@ -133,7 +133,7 @@ library FeeLib {
         return (diff * BPS_DENOM) / total;
     }
 
-    /// @notice True when Sleeve A or B has drifted beyond 8 %.
+    /// @notice Legacy helper: true when Sleeve A or B has drifted beyond 8 %.
     function needsRebalanceAB(
         uint256 sleeveAVal,
         uint256 sleeveBVal,
@@ -145,7 +145,7 @@ library FeeLib {
             || driftBps(sleeveBVal, targetB, total) > DRIFT_AB_BPS;
     }
 
-    /// @notice True when Sleeve C has drifted beyond 2 %.
+    /// @notice Legacy helper: true when Sleeve C has drifted beyond 2 %.
     function needsRebalanceC(uint256 sleeveCVal, uint256 total)
         internal
         pure
