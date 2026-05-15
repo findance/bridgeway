@@ -45,11 +45,22 @@ change `BGWVault` mint/redeem behavior yet.
 
 ## Pinned Roadmap
 
-### Phase 1: Registry + Chain Configs
+### Phase 1: Registry + Chain Configs - Complete
 
 - Add `BridgewayRegistry`.
 - Make adapters chain-aware.
 - Prepare Arbitrum, Base, and other chain configs.
+
+Phase 1 completion notes:
+
+- `SleeveABasketAdapter` can now resolve token, oracle, decimals, and trust
+  status from `BridgewayRegistry`.
+- Arbitrum seed config includes USDC, WETH, WBTC, and LINK.
+- Base seed config includes USDC, WETH, and cbBTC.
+- Base LINK is intentionally not seeded until a canonical token, oracle, and
+  route are approved.
+- `04_DeployAndConfigureRegistry.s.sol` deploys and seeds a chain-local
+  registry based on `block.chainid`.
 
 ### Phase 2: Hub-and-Spoke Accounting
 

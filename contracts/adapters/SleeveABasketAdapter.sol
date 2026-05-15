@@ -8,6 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../interfaces/ICamelotRouter.sol";
+import "../interfaces/IBridgewayRegistry.sol";
 import "../interfaces/IChainlinkAggregator.sol";
 import "../interfaces/ISleeveAdapter.sol";
 
@@ -45,9 +46,18 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         address[] sellPath;
     }
 
+    struct RegistryAssetInput {
+        bytes32 assetId;
+        uint16 weightBps;
+        uint32 maxStale;
+        address[] buyPath;
+        address[] sellPath;
+    }
+
     address public immutable vault;
     IERC20 public immutable usdc;
     ICamelotRouter public immutable router;
+    IBridgewayRegistry public registry;
 
     AssetConfig[] private _assets;
     mapping(uint256 => address[]) private _buyPaths;
@@ -55,6 +65,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     uint256 public maxSlippageBps = 100; // 1%
 
     event AssetsConfigured(uint256 count);
+    event RegistrySet(address indexed registry);
     event MaxSlippageSet(uint256 maxSlippageBps);
     event Deployed(uint256 usdcAmount);
     event Withdrawn(uint256 requestedUsdc, uint256 returnedUsdc);
@@ -72,6 +83,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     error InvalidSlippage();
     error InvalidSwapPath();
     error AdapterNotEmpty();
+    error AssetNotTrusted(bytes32 assetId);
     error StalePrice(address feed);
     error InvalidPrice(address feed);
 
@@ -109,6 +121,13 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         if (newMaxSlippageBps > 1_000) revert InvalidSlippage();
         maxSlippageBps = newMaxSlippageBps;
         emit MaxSlippageSet(newMaxSlippageBps);
+    }
+
+    function setRegistry(address newRegistry) external onlyOwner {
+        if (_adapterHasValue()) revert AdapterNotEmpty();
+        if (newRegistry == address(0)) revert ZeroAddress();
+        registry = IBridgewayRegistry(newRegistry);
+        emit RegistrySet(newRegistry);
     }
 
     function setAssets(AssetInput[] calldata newAssets) external onlyOwner {
@@ -157,6 +176,82 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
             );
             _copyPath(_buyPaths[i], input.buyPath);
             _copyPath(_sellPaths[i], input.sellPath);
+        }
+
+        emit AssetsConfigured(count);
+    }
+
+    function setAssetsFromRegistry(RegistryAssetInput[] calldata newAssets) external onlyOwner {
+        if (address(registry) == address(0)) revert ZeroAddress();
+        if (_adapterHasValue()) revert AdapterNotEmpty();
+
+        uint256 count = newAssets.length;
+        if (count == 0 || count > MAX_ASSETS) revert InvalidAssetCount();
+
+        AssetInput[] memory resolvedAssets = new AssetInput[](count);
+        for (uint256 i; i < count; ++i) {
+            RegistryAssetInput calldata input = newAssets[i];
+            IBridgewayRegistry.AssetConfig memory config = registry.getAsset(input.assetId);
+            if (!config.trusted) revert AssetNotTrusted(input.assetId);
+
+            resolvedAssets[i] = AssetInput({
+                token: config.token,
+                priceFeed: config.priceFeed,
+                weightBps: input.weightBps,
+                tokenDecimals: config.tokenDecimals,
+                maxStale: input.maxStale,
+                buyPath: input.buyPath,
+                sellPath: input.sellPath
+            });
+        }
+
+        _setAssets(resolvedAssets);
+    }
+
+    function _setAssets(AssetInput[] memory newAssets) internal {
+        uint256 count = newAssets.length;
+        if (count == 0 || count > MAX_ASSETS) revert InvalidAssetCount();
+
+        uint256 weightTotal;
+        for (uint256 i; i < count; ++i) {
+            AssetInput memory asset = newAssets[i];
+            if (asset.token == address(0) || asset.priceFeed == address(0)) revert ZeroAddress();
+            if (asset.weightBps < MIN_WEIGHT_BPS || asset.weightBps > MAX_WEIGHT_BPS) revert InvalidWeight();
+            if (asset.maxStale == 0) revert StalePrice(asset.priceFeed);
+            _validatePathsMemory(asset.token, asset.buyPath, asset.sellPath);
+
+            for (uint256 j = i + 1; j < count; ++j) {
+                if (asset.token == newAssets[j].token) revert DuplicateAsset();
+            }
+
+            weightTotal += asset.weightBps;
+            _validatePrice(asset.priceFeed, asset.maxStale);
+        }
+
+        if (weightTotal != BPS_DENOM) revert InvalidWeightTotal();
+
+        for (uint256 i; i < _assets.length; ++i) {
+            delete _buyPaths[i];
+            delete _sellPaths[i];
+        }
+        delete _assets;
+        for (uint256 i; i < count; ++i) {
+            AssetInput memory input = newAssets[i];
+            uint8 tokenDecimals = input.tokenDecimals;
+            if (tokenDecimals == 0) {
+                tokenDecimals = IERC20Metadata(input.token).decimals();
+            }
+            _assets.push(
+                AssetConfig({
+                    token: input.token,
+                    priceFeed: input.priceFeed,
+                    weightBps: input.weightBps,
+                    tokenDecimals: tokenDecimals,
+                    maxStale: input.maxStale
+                })
+            );
+            _copyPathMemory(_buyPaths[i], input.buyPath);
+            _copyPathMemory(_sellPaths[i], input.sellPath);
         }
 
         emit AssetsConfigured(count);
@@ -347,7 +442,30 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         }
     }
 
+    function _validatePathsMemory(address token, address[] memory buyPath, address[] memory sellPath) internal view {
+        if (
+            buyPath.length < 2 || sellPath.length < 2 || buyPath[0] != address(usdc)
+                || buyPath[buyPath.length - 1] != token || sellPath[0] != token
+                || sellPath[sellPath.length - 1] != address(usdc)
+        ) {
+            revert InvalidSwapPath();
+        }
+
+        for (uint256 i; i < buyPath.length; ++i) {
+            if (buyPath[i] == address(0)) revert ZeroAddress();
+        }
+        for (uint256 i; i < sellPath.length; ++i) {
+            if (sellPath[i] == address(0)) revert ZeroAddress();
+        }
+    }
+
     function _copyPath(address[] storage destination, address[] calldata source) internal {
+        for (uint256 i; i < source.length; ++i) {
+            destination.push(source[i]);
+        }
+    }
+
+    function _copyPathMemory(address[] storage destination, address[] memory source) internal {
         for (uint256 i; i < source.length; ++i) {
             destination.push(source[i]);
         }

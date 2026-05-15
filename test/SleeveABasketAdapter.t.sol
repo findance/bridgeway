@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 
 import "../contracts/adapters/SleeveABasketAdapter.sol";
+import "../contracts/core/BridgewayRegistry.sol";
 import "../contracts/mocks/MockERC20.sol";
 import "../contracts/mocks/MockPriceFeed.sol";
 import "../contracts/mocks/MockSwapRouter.sol";
@@ -13,6 +14,7 @@ contract SleeveABasketAdapterTest is Test {
     MockUSDC usdc;
     MockSwapRouter router;
     SleeveABasketAdapter adapter;
+    BridgewayRegistry registry;
 
     MockERC20 asset1;
     MockERC20 asset2;
@@ -24,6 +26,11 @@ contract SleeveABasketAdapterTest is Test {
     MockPriceFeed feed3;
     MockPriceFeed feed4;
 
+    bytes32 constant ASSET_1 = keccak256("ASSET_1");
+    bytes32 constant ASSET_2 = keccak256("ASSET_2");
+    bytes32 constant ASSET_3 = keccak256("ASSET_3");
+    bytes32 constant ASSET_4 = keccak256("ASSET_4");
+
     address vault = address(this);
     address owner = address(this);
     address stranger = makeAddr("stranger");
@@ -31,6 +38,7 @@ contract SleeveABasketAdapterTest is Test {
     function setUp() public {
         usdc = new MockUSDC();
         router = new MockSwapRouter();
+        registry = new BridgewayRegistry(owner);
 
         asset1 = new MockERC20("Asset 1", "A1", 18);
         asset2 = new MockERC20("Asset 2", "A2", 18);
@@ -172,6 +180,29 @@ contract SleeveABasketAdapterTest is Test {
         adapter.setAssets(assets);
     }
 
+    function test_SetAssetsFromRegistryResolvesChainLocalTokenAndFeedConfig() public {
+        SleeveABasketAdapter registryAdapter = new SleeveABasketAdapter(address(this), owner, address(usdc), address(router));
+        _seedRegistry(true);
+
+        registryAdapter.setRegistry(address(registry));
+        registryAdapter.setAssetsFromRegistry(_defaultRegistryAssets());
+
+        SleeveABasketAdapter.AssetConfig memory configured = registryAdapter.assetAt(0);
+        assertEq(configured.token, address(asset1));
+        assertEq(configured.priceFeed, address(feed1));
+        assertEq(configured.tokenDecimals, 18);
+        assertEq(configured.weightBps, 3_000);
+    }
+
+    function test_SetAssetsFromRegistryRejectsUntrustedAsset() public {
+        SleeveABasketAdapter registryAdapter = new SleeveABasketAdapter(address(this), owner, address(usdc), address(router));
+        _seedRegistry(false);
+
+        registryAdapter.setRegistry(address(registry));
+        vm.expectRevert(abi.encodeWithSelector(SleeveABasketAdapter.AssetNotTrusted.selector, ASSET_1));
+        registryAdapter.setAssetsFromRegistry(_defaultRegistryAssets());
+    }
+
     function test_SetAssetsRequiresEmptyAdapter() public {
         usdc.mint(address(adapter), 1_000e6);
         adapter.deploy(1_000e6);
@@ -226,5 +257,46 @@ contract SleeveABasketAdapterTest is Test {
     function _setRates(MockERC20 asset, uint256 buyRate, uint256 sellDenominator) internal {
         router.setRate(address(usdc), address(asset), buyRate, 1);
         router.setRate(address(asset), address(usdc), 1, sellDenominator);
+    }
+
+    function _defaultRegistryAssets()
+        internal
+        view
+        returns (SleeveABasketAdapter.RegistryAssetInput[] memory assets)
+    {
+        assets = new SleeveABasketAdapter.RegistryAssetInput[](4);
+        assets[0] = _registryAssetInput(ASSET_1, address(asset1), 3_000);
+        assets[1] = _registryAssetInput(ASSET_2, address(asset2), 3_000);
+        assets[2] = _registryAssetInput(ASSET_3, address(asset3), 2_500);
+        assets[3] = _registryAssetInput(ASSET_4, address(asset4), 1_500);
+    }
+
+    function _registryAssetInput(bytes32 assetId, address token, uint16 weightBps)
+        internal
+        view
+        returns (SleeveABasketAdapter.RegistryAssetInput memory input)
+    {
+        address[] memory buyPath = new address[](2);
+        buyPath[0] = address(usdc);
+        buyPath[1] = token;
+
+        address[] memory sellPath = new address[](2);
+        sellPath[0] = token;
+        sellPath[1] = address(usdc);
+
+        input = SleeveABasketAdapter.RegistryAssetInput({
+            assetId: assetId,
+            weightBps: weightBps,
+            maxStale: 1 hours,
+            buyPath: buyPath,
+            sellPath: sellPath
+        });
+    }
+
+    function _seedRegistry(bool trustFirstAsset) internal {
+        registry.setAsset(ASSET_1, address(asset1), address(feed1), 18, 8, trustFirstAsset);
+        registry.setAsset(ASSET_2, address(asset2), address(feed2), 18, 8, true);
+        registry.setAsset(ASSET_3, address(asset3), address(feed3), 18, 8, true);
+        registry.setAsset(ASSET_4, address(asset4), address(feed4), 18, 8, true);
     }
 }
