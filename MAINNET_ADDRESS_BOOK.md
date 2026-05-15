@@ -89,3 +89,7 @@ These inputs are intentionally not hardcoded as confirmed deployment values yet.
 5. For feeds, verify `decimals()` and that `latestRoundData()` returns a positive, non-stale answer.
 6. Save the source URL and explorer URL next to each approved address.
 7. Have a second operator repeat the verification before deployment.
+8. Fill each chain's `verification` and `validation` blocks in the JSON config.
+9. Fill every mainnet `multisig` field with the approved Safe or operations wallet.
+10. Flip `status` only after approval: `approved-for-mainnet` or `approved-for-testnet`.
+11. Run `npm run validate:addresses`; deployment scripts must use the same broadcast guard.

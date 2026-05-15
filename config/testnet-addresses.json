@@ -1,58 +1,156 @@
 {
-  "status": "confirmed-testnet-ccip-only",
+  "schemaVersion": "1.0",
+  "environment": "testnet",
+  "status": "draft-testnet-confirmed-ccip",
+  "requiredStatusForBroadcast": "approved-for-testnet",
+  "ccipInterfaceVersion": "chainlink-contracts-1.5.0",
   "warning": "Testnet values are for rehearsals only. Never use these in a mainnet deployment.",
+  "fileIntegrity": {
+    "gitCommit": null,
+    "sha256": null
+  },
   "chains": {
     "421614": {
+      "chainId": 421614,
       "name": "Arbitrum Sepolia",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "3478487238524512106",
         "router": "0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-arbitrum-1"
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-arbitrum-1",
+        "explorer": "https://sepolia.arbiscan.io/address/0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
       },
       "assets": {}
     },
     "84532": {
+      "chainId": 84532,
       "name": "Base Sepolia",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "10344971235874465080",
         "router": "0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-base-1"
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-base-1",
+        "explorer": "https://sepolia.basescan.org/address/0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
       },
       "assets": {}
     },
     "43113": {
+      "chainId": 43113,
       "name": "Avalanche Fuji",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "14767482510784806043",
         "router": "0xF694E193200268f9a4868e4Aa017A0118C9a8177",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/avalanche-fuji-testnet"
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/avalanche-fuji-testnet",
+        "explorer": "https://testnet.snowtrace.io/address/0xF694E193200268f9a4868e4Aa017A0118C9a8177",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
       },
       "assets": {}
     },
     "97": {
+      "chainId": 97,
       "name": "BNB Chain Testnet",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "13264668187771770619",
         "router": "0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/bsc-testnet"
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/bsc-testnet",
+        "explorer": "https://testnet.bscscan.com/address/0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
       },
       "assets": {}
     },
     "11155111": {
+      "chainId": 11155111,
       "name": "Ethereum Sepolia",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "16015286601757825753",
         "router": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia"
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia",
+        "explorer": "https://sepolia.etherscan.io/address/0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
       },
       "assets": {}
     },
     "560048": {
+      "chainId": 560048,
       "name": "Ethereum Hoodi",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "10380998176179737091",
         "router": "0xc93Dac3422660A41500a24C94BF14616995e3CA6",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-hoodi"
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-hoodi",
+        "explorer": "https://hoodi.etherscan.io/address/0xc93Dac3422660A41500a24C94BF14616995e3CA6",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
       },
       "assets": {},
       "note": "Optional Ethereum testnet. Use Sepolia as default unless Bridgeway specifically needs Hoodi staking/validator-style rehearsal."
@@ -63,6 +161,7 @@
     "testnet price feed addresses",
     "testnet LINK fee token",
     "testnet spoke source sender bytes",
-    "testnet operator addresses"
+    "testnet operator addresses",
+    "fileIntegrity.gitCommit and fileIntegrity.sha256 after approval"
   ]
 }

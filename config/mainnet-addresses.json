@@ -1,13 +1,50 @@
 {
-  "status": "confirmed-registry-seeds-and-ccip-inputs",
-  "warning": "Do not deploy until every manualConfirmationRequired item is filled and probed on-chain.",
+  "schemaVersion": "1.0",
+  "environment": "mainnet",
+  "status": "draft-mainnet-confirmed-inputs",
+  "requiredStatusForBroadcast": "approved-for-mainnet",
+  "ccipInterfaceVersion": "chainlink-contracts-1.5.0",
+  "warning": "Do not deploy until status is approved-for-mainnet, every manualConfirmationRequired item is filled, and all on-chain probes pass.",
+  "fileIntegrity": {
+    "gitCommit": null,
+    "sha256": null
+  },
   "chains": {
     "42161": {
+      "chainId": 42161,
       "name": "Arbitrum One",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "4949039107694359620",
         "router": "0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1"
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1",
+        "explorer": "https://arbiscan.io/address/0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
+      },
+      "multisig": {
+        "registry_owner": null,
+        "vault_owner": null,
+        "hub_nav_owner": null,
+        "ccip_receiver_owner": null,
+        "automation": null,
+        "emergency": null,
+        "treasury": {
+          "team": null,
+          "holdback": null,
+          "reserve": null,
+          "founder": null
+        }
       },
       "assets": {
         "USDC": {
@@ -37,11 +74,40 @@
       }
     },
     "8453": {
+      "chainId": 8453,
       "name": "Base",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "15971525489660198786",
         "router": "0x881e3A65B4d4a04dD529061dd0071cf975F58bCD",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-base-1"
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-base-1",
+        "explorer": "https://basescan.org/address/0x881e3A65B4d4a04dD529061dd0071cf975F58bCD",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
+      },
+      "multisig": {
+        "registry_owner": null,
+        "vault_owner": null,
+        "hub_nav_owner": null,
+        "ccip_receiver_owner": null,
+        "automation": null,
+        "emergency": null,
+        "treasury": {
+          "team": null,
+          "holdback": null,
+          "reserve": null,
+          "founder": null
+        }
       },
       "assets": {
         "USDC": {
@@ -71,29 +137,116 @@
       }
     },
     "43114": {
+      "chainId": 43114,
       "name": "Avalanche C-Chain",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "6433500567565415381",
         "router": "0xF4c7E640EdA248ef95972845a62bdC74237805dB",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/avalanche-mainnet"
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/avalanche-mainnet",
+        "explorer": "https://snowtrace.io/address/0xF4c7E640EdA248ef95972845a62bdC74237805dB",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
+      },
+      "multisig": {
+        "registry_owner": null,
+        "vault_owner": null,
+        "hub_nav_owner": null,
+        "ccip_receiver_owner": null,
+        "automation": null,
+        "emergency": null,
+        "treasury": {
+          "team": null,
+          "holdback": null,
+          "reserve": null,
+          "founder": null
+        }
       },
       "assets": {}
     },
     "56": {
+      "chainId": 56,
       "name": "BNB Chain",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "11344663589394136015",
         "router": "0x34B03Cb9086d7D758AC55af71584F81A598759FE",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/bsc-mainnet"
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/bsc-mainnet",
+        "explorer": "https://bscscan.com/address/0x34B03Cb9086d7D758AC55af71584F81A598759FE",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
+      },
+      "multisig": {
+        "registry_owner": null,
+        "vault_owner": null,
+        "hub_nav_owner": null,
+        "ccip_receiver_owner": null,
+        "automation": null,
+        "emergency": null,
+        "treasury": {
+          "team": null,
+          "holdback": null,
+          "reserve": null,
+          "founder": null
+        }
       },
       "assets": {}
     },
     "1": {
+      "chainId": 1,
       "name": "Ethereum",
       "ccip": {
+        "version": "chainlink-contracts-1.5.0",
         "selector": "5009297550715157269",
         "router": "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/mainnet"
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/mainnet",
+        "explorer": "https://etherscan.io/address/0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
+      },
+      "multisig": {
+        "registry_owner": null,
+        "vault_owner": null,
+        "hub_nav_owner": null,
+        "ccip_receiver_owner": null,
+        "automation": null,
+        "emergency": null,
+        "treasury": {
+          "team": null,
+          "holdback": null,
+          "reserve": null,
+          "founder": null
+        }
       },
       "assets": {}
     }
@@ -104,6 +257,7 @@
     "multisig owner/operator/treasury addresses",
     "native staking wrapper addresses",
     "BNB Chain USDC policy",
-    "cbBTC policy outside Base/Ethereum"
+    "cbBTC policy outside Base/Ethereum",
+    "fileIntegrity.gitCommit and fileIntegrity.sha256 after approval"
   ]
 }
