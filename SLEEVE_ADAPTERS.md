@@ -71,6 +71,14 @@ Possible adapter:
 - prefer audited, liquid, withdrawal-friendly markets
 - value positions as USDC unless the stable asset depegs beyond configured oracle bounds
 
+Implemented base adapter:
+
+- `SleeveBStableYieldAdapter` deploys USDC 70% to Aave V3 USDC and 30% to an approved Morpho-style ERC4626 USDC vault.
+- The Morpho vault must report USDC as its ERC4626 `asset()`.
+- NAV is the adapter's idle USDC, aUSDC balance, and Morpho shares converted back to USDC assets.
+- Withdrawals use idle USDC first, then Aave liquidity, then Morpho. The owner can call `rebalance()` after withdrawals or yield movement to restore the 70/30 policy.
+- Sleeve B yield remains inside the sleeve for compounding; `harvest()` only returns idle USDC accidentally left in the adapter.
+
 ## Sleeve C: Alpha
 
 Purpose: capped, higher-risk yield opportunities.
@@ -92,6 +100,15 @@ Possible adapter:
 - harvest realized yield into USDC and return or route it for Sleeve B compounding
 - never auto-compound realized Sleeve C yield back into Sleeve C positions
 - support one-way monthly rebalance flows out of Sleeve C only; automatic rebalancing must not push Sleeve A or Sleeve B value into Sleeve C
+
+Implemented base adapter:
+
+- `SleeveCAlphaYieldAdapter` accepts up to six approved ERC4626 strategies whose underlying asset is USDC.
+- Each strategy is capped at 50% of Sleeve C, so no single alpha venue can dominate the sleeve.
+- Weights must sum to 100%, and strategy configuration can be changed only when the adapter is empty.
+- The adapter tracks accounting principal separately from NAV.
+- `harvest()` realises only growth above accounting principal, returns that yield as USDC to the vault, and leaves principal in Sleeve C.
+- This adapter is meant for USDC-denominated wrappers around approved higher-yield venues. Direct non-USDC positions still need a separate audited adapter with oracle and swap-risk controls.
 
 ## Trusted Asset Confirmation
 

@@ -13,7 +13,7 @@ NAV is accumulating — staking and lending rewards land in the vault and raise 
 ## Architecture
 
 ```
-User deposits USDC
+User routes any supported asset into Arbitrum USDC
         ↓
 BGWVault  (standalone, non-Enzyme)
    - 70/25/5 sleeve allocation with adapters
@@ -58,6 +58,7 @@ Underlying basket  (top 10 non-stable crypto + top 5 trusted stables + capped al
 - **Oracle**: Chainlink price feeds
 - **Automation**: Chainlink Automation
 - **Contract**: Solidity / Foundry / OpenZeppelin
+- **Ingress**: LI.FI or Socket frontend routing, CCTP where available, Across/deBridge fallback, then Arbitrum USDC vault deposit
 
 ## Status
 

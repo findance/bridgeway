@@ -10,6 +10,16 @@ This document is the source of truth for the intended asset policy inside the 70
 | Sleeve B — Stability | 25% |
 | Sleeve C — Alpha | 5% |
 
+## Ingress Rule
+
+External users may enter Bridgeway from any supported chain or asset through frontend routing, but the vault deposit asset remains Arbitrum USDC. Routing should convert or bridge the user's source asset into Arbitrum USDC before calling `deposit()`.
+
+- Preferred routing stack: LI.FI or Socket for route discovery.
+- Preferred USDC rail: Circle CCTP where available.
+- Fallback bridge rails: Across or deBridge where suitable.
+- Once Arbitrum USDC is deposited, BGWVault allocates across Sleeve A, Sleeve B, and Sleeve C according to the approved sleeve policies.
+- The routing layer must not bypass sleeve asset approvals, oracle checks, or adapter controls.
+
 ## Rebalance Rule
 
 Rebalancing is automatic once per month, targeted for the 15th day of each month.
