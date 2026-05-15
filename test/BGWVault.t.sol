@@ -8,14 +8,15 @@ import "../contracts/core/BGWVault.sol";
 import "../contracts/core/BridgewayHubNAV.sol";
 import "../contracts/core/BridgewaySpokeReporter.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
+import "../contracts/mocks/MockPriceFeed.sol";
 import "../contracts/mocks/MockSleeveAdapter.sol";
 import "../contracts/libraries/FeeLib.sol";
 
 /// @notice Minimal mock USDC (6 decimals) etched at the Arbitrum USDC address.
 contract MockUSDC {
-    string  public name     = "USD Coin";
-    string  public symbol   = "USDC";
-    uint8   public decimals = 6;
+    string public name = "USD Coin";
+    string public symbol = "USDC";
+    uint8 public decimals = 6;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     mapping(address => bool) public failTransferTo;
@@ -23,7 +24,7 @@ contract MockUSDC {
 
     function mint(address to, uint256 amount) external {
         balanceOf[to] += amount;
-        totalSupply   += amount;
+        totalSupply += amount;
     }
 
     function approve(address spender, uint256 amount) external returns (bool) {
@@ -34,14 +35,14 @@ contract MockUSDC {
     function transfer(address to, uint256 amount) external returns (bool) {
         if (failTransferTo[to]) return false;
         balanceOf[msg.sender] -= amount;
-        balanceOf[to]         += amount;
+        balanceOf[to] += amount;
         return true;
     }
 
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
         allowance[from][msg.sender] -= amount;
-        balanceOf[from]             -= amount;
-        balanceOf[to]               += amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
         return true;
     }
 
@@ -54,21 +55,22 @@ contract MockUSDC {
 contract MockAutomationStub {}
 
 contract BGWVaultTest is Test {
-    BGWToken       bgwToken;
-    BGWGovToken    govToken;
-    BGWVault       vault;
+    BGWToken bgwToken;
+    BGWGovToken govToken;
+    BGWVault vault;
+    MockPriceFeed usdcUsdFeed;
 
-    address founder  = makeAddr("founder");
-    address alice    = makeAddr("alice");
-    address bob      = makeAddr("bob");
+    address founder = makeAddr("founder");
+    address alice = makeAddr("alice");
+    address bob = makeAddr("bob");
 
-    address team     = makeAddr("team");
+    address team = makeAddr("team");
     address holdback = makeAddr("holdback");
-    address lp       = makeAddr("lp");
-    address reserve  = makeAddr("reserve");
+    address lp = makeAddr("lp");
+    address reserve = makeAddr("reserve");
 
-    address constant USDC_ADDR     = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
-    address constant CAMELOT_ADDR  = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
+    address constant USDC_ADDR = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant CAMELOT_ADDR = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
     uint64 constant BASE_CHAIN_ID = 8453;
 
     function setUp() public {
@@ -86,6 +88,7 @@ contract BGWVaultTest is Test {
         // resolves to the mock without changing the test address constants.
         MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
+        usdcUsdFeed = new MockPriceFeed(1e8, 8);
 
         // ── Deploy vault ───────────────────────────────────────────────────────
         vault = new BGWVault(
@@ -95,18 +98,19 @@ contract BGWVaultTest is Test {
             holdback,
             reserve,
             founder,
-            USDC_ADDR,   // _usdc    (M-06: constructor-injected, not bytecode-hardcoded)
+            USDC_ADDR, // _usdc    (M-06: constructor-injected, not bytecode-hardcoded)
             CAMELOT_ADDR, // _camelotRouter
-            address(1)   // _ethUsdFeed (not exercised in unit tests; any non-zero address)
+            address(1), // _ethUsdFeed (not exercised in unit tests; any non-zero address)
+            address(usdcUsdFeed)
         );
 
         // ── Wire roles ─────────────────────────────────────────────────────────
         vm.startPrank(founder);
 
         bgwToken.setGovernanceCompanion(address(govToken));
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(),           address(vault));
-        bgwToken.grantRole(bgwToken.BURNER_ROLE(),           address(vault)); // H-11
-        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(),  address(vault));
+        bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
+        bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault)); // H-11
+        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         // Vault must be whitelisted to receive temporary BGW during reserve injection.
         vault.setWhitelisted(address(vault), true);
         // Camelot mock holds real BGW liquidity during swap simulation.
@@ -118,14 +122,14 @@ contract BGWVaultTest is Test {
 
         // Whitelist users on vault (also updates BGWToken whitelist via WHITELIST_ADMIN_ROLE).
         vault.setWhitelisted(founder, true);
-        vault.setWhitelisted(alice,   true);
-        vault.setWhitelisted(bob,     true);
+        vault.setWhitelisted(alice, true);
+        vault.setWhitelisted(bob, true);
 
         vm.stopPrank();
 
         // ── Seed USDC balances ─────────────────────────────────────────────────
-        MockUSDC(USDC_ADDR).mint(alice,   10_000e6);
-        MockUSDC(USDC_ADDR).mint(bob,     10_000e6);
+        MockUSDC(USDC_ADDR).mint(alice, 10_000e6);
+        MockUSDC(USDC_ADDR).mint(bob, 10_000e6);
         MockUSDC(USDC_ADDR).mint(founder, 10_000e6);
     }
 
@@ -211,7 +215,7 @@ contract BGWVaultTest is Test {
 
         // At $1.00 NAV: 1000 USDC → 1000 BGW
         assertEq(bgwToken.balanceOf(alice), 1_000e18);
-        assertEq(vault.totalNAV(),          1_000e6);
+        assertEq(vault.totalNAV(), 1_000e6);
     }
 
     function test_SecondDepositUsesUpdatedNAV() public {
@@ -377,7 +381,7 @@ contract BGWVaultTest is Test {
 
         assertEq(vault.sleeveAValue(), 700e6);
         assertEq(vault.sleeveBValue(), 250e6);
-        assertEq(vault.sleeveCValue(),  50e6);
+        assertEq(vault.sleeveCValue(), 50e6);
     }
 
     // ── Hub-and-spoke accounting ─────────────────────────────────────────────
@@ -539,6 +543,49 @@ contract BGWVaultTest is Test {
         assertApproxEqAbs(received, 1_000e6 - expectedFee, 1);
     }
 
+    function test_RedeemCapsUSDCAboveOneDollar() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+
+        usdcUsdFeed.setPrice(102_000_000); // $1.02 should not inflate redemption value
+
+        uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vm.stopPrank();
+
+        uint256 expectedFee = (1_000e6 * 10) / 10_000;
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore, 1_000e6 - expectedFee);
+    }
+
+    function test_RedeemMarksDownUSDCBelowOneDollar() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+
+        usdcUsdFeed.setPrice(98_000_000); // $0.98 depeg haircut
+
+        uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vm.stopPrank();
+
+        uint256 grossAfterDepeg = 980e6;
+        uint256 expectedFee = (grossAfterDepeg * 10) / 10_000;
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore, grossAfterDepeg - expectedFee);
+    }
+
+    function test_RedeemRevertsOnStaleUSDCFeed() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+
+        usdcUsdFeed.setStale();
+        uint256 aliceBGW = bgwToken.balanceOf(alice);
+        vm.expectRevert();
+        vault.redeem(aliceBGW, 0);
+        vm.stopPrank();
+    }
+
     function test_RedeemBurnsBGW() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -605,7 +652,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        uint256 hwmBefore      = vault.highWaterMark();
+        uint256 hwmBefore = vault.highWaterMark();
         address automationAddr = _setupAutomation();
 
         vm.prank(automationAddr);
@@ -662,9 +709,7 @@ contract BGWVaultTest is Test {
         vault.proposeExitFeeBps(20);
 
         vm.prank(founder);
-        vm.expectRevert(
-            abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours)
-        );
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours));
         vault.executeExitFeeBps();
     }
 
@@ -708,9 +753,9 @@ contract BGWVaultTest is Test {
     }
 
     function test_FeeWalletsTimelockAppliableAfterDelay() public {
-        address newTeam     = makeAddr("newTeam");
+        address newTeam = makeAddr("newTeam");
         address newHoldback = makeAddr("newHoldback");
-        address newReserve  = makeAddr("newReserve");
+        address newReserve = makeAddr("newReserve");
 
         vm.prank(founder);
         vault.proposeFeeWallets(newTeam, newHoldback, newReserve);
@@ -720,8 +765,8 @@ contract BGWVaultTest is Test {
         vm.prank(founder);
         vault.executeFeeWallets();
 
-        assertEq(vault.teamWallet(),        newTeam);
-        assertEq(vault.holdbackWallet(),    newHoldback);
+        assertEq(vault.teamWallet(), newTeam);
+        assertEq(vault.holdbackWallet(), newHoldback);
         assertEq(vault.reserveFundWallet(), newReserve);
     }
 
@@ -733,9 +778,7 @@ contract BGWVaultTest is Test {
 
         // Before delay: execute reverts
         vm.prank(founder);
-        vm.expectRevert(
-            abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours)
-        );
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours));
         vault.executeRouterUpdate();
 
         vm.warp(block.timestamp + 48 hours);
@@ -1030,7 +1073,7 @@ contract BGWVaultTest is Test {
         vault.updateSleeveValues(730e6, 260e6, 52e6);
 
         assertLt(vault.navPerBGW18(), originalHwm); // still below original HWM
-        assertGt(vault.navPerBGW18(), effHwm);      // above decayed HWM → fee should fire
+        assertGt(vault.navPerBGW18(), effHwm); // above decayed HWM → fee should fire
 
         // Step 5: recordHarvest — perf fee should fire due to decayed HWM
         MockUSDC(USDC_ADDR).mint(address(vault), 50e6);
@@ -1043,8 +1086,8 @@ contract BGWVaultTest is Test {
         assertGt(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
         // HWM crystallised: fee reduces NAV slightly below decayed HWM (expected),
         // but HWM is between the $1.00 floor and the original crystallised HWM
-        assertGt(vault.highWaterMark(), 1e18);         // above $1.00 floor
-        assertLt(vault.highWaterMark(), originalHwm);  // below original HWM
+        assertGt(vault.highWaterMark(), 1e18); // above $1.00 floor
+        assertLt(vault.highWaterMark(), originalHwm); // below original HWM
     }
 
     // ── Protected tokens (C-02) ───────────────────────────────────────────────
@@ -1260,14 +1303,8 @@ contract BGWVaultTest is Test {
         // call the internal path via the automation and check the invariant directly.
         // Instead: verify the formula by checking totalNAV = sleeves,
         // while totalVaultAssets includes the buyback reserve separately.
-        assertEq(
-            vault.totalNAV(),
-            vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-        );
-        assertEq(
-            vault.totalVaultAssets(),
-            vault.totalNAV() + vault.buybackAccumulator()
-        );
+        assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
+        assertEq(vault.totalVaultAssets(), vault.totalNAV() + vault.buybackAccumulator());
         assertEq(navBefore, 1_000e6);
 
         // After a normal harvest the formula must still hold (fees leave vault, no escrow).
@@ -1278,14 +1315,8 @@ contract BGWVaultTest is Test {
         vm.prank(auto_);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
-        assertEq(
-            vault.totalNAV(),
-            vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-        );
-        assertEq(
-            vault.totalVaultAssets(),
-            vault.totalNAV() + vault.buybackAccumulator()
-        );
+        assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
+        assertEq(vault.totalVaultAssets(), vault.totalNAV() + vault.buybackAccumulator());
     }
 
     function test_RedeemCannotCapturePendingFeeLiabilities() public {
@@ -1305,10 +1336,7 @@ contract BGWVaultTest is Test {
 
         uint256 pendingTeamFee = vault.pendingFees(team);
         assertGt(pendingTeamFee, 0);
-        assertEq(
-            vault.totalNAV(),
-            vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-        );
+        assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
 
         uint256 aliceUsdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
         uint256 aliceBgw = bgwToken.balanceOf(alice);
@@ -1361,15 +1389,9 @@ contract BGWVaultTest is Test {
 
         uint256 accumulatorBefore = vault.buybackAccumulator();
         assertGt(accumulatorBefore, 0);
-        assertEq(
-            vault.totalNAV(),
-            vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue()
-        );
+        assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
         assertEq(vault.totalVaultAssets(), vault.totalNAV() + accumulatorBefore);
-        assertLt(
-            vault.navPerBGW(),
-            (vault.totalVaultAssets() * 1e18) / bgwToken.totalSupply()
-        );
+        assertLt(vault.navPerBGW(), (vault.totalVaultAssets() * 1e18) / bgwToken.totalSupply());
 
         uint256 aliceRedeemAmount = 100e18;
         vm.prank(alice);
@@ -1394,7 +1416,7 @@ contract BGWVaultTest is Test {
 
         vm.prank(auto_);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
-        uint256 hwmAfterFirst = vault.highWaterMark();  // ≈ 1.088e18
+        uint256 hwmAfterFirst = vault.highWaterMark(); // ≈ 1.088e18
         uint256 hwmTimeAfterFirst = vault.lastHWMUpdateTime();
 
         // Step 2: warp 180 days so the rate-bound maxYield is large enough for the tiny yield.

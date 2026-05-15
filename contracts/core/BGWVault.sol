@@ -36,7 +36,7 @@ import "../libraries/FeeLib.sol";
 ///         BGW and BGW-GOV tokens use 18-decimal precision.
 contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     using SafeERC20 for IERC20;
-    using FeeLib     for uint256;
+    using FeeLib for uint256;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Constants
@@ -44,6 +44,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @dev Chainlink price staleness threshold.
     uint256 public constant ORACLE_STALE_THRESHOLD = 1 hours;
+
+    /// @dev Chainlink USD feeds are normalized to 8 decimals for pricing guards.
+    uint256 public constant USD_PRICE_SCALE = 1e8;
 
     /// @dev Legacy slippage constant retained for router compatibility.
     uint256 public constant MAX_SLIPPAGE_BPS = 100;
@@ -62,11 +65,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Chainlink ETH/USD price feed. Passed at deploy for testnet flexibility.
     address public immutable ETH_USD_FEED;
 
+    /// @notice Chainlink USDC/USD price feed used to cap redemption settlement value.
+    address public immutable USDC_USD_FEED;
+
     // ─────────────────────────────────────────────────────────────────────────
     // State — tokens
     // ─────────────────────────────────────────────────────────────────────────
 
-    BGWToken    public immutable bgwToken;
+    BGWToken public immutable bgwToken;
     BGWGovToken public immutable govToken;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -89,7 +95,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // State — automation
     // ─────────────────────────────────────────────────────────────────────────
 
-    address public automation;              // BridgewayAutomation contract
+    address public automation; // BridgewayAutomation contract
 
     // ─────────────────────────────────────────────────────────────────────────
     // State — portfolio accounting
@@ -155,9 +161,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // State — exit fee
     // ─────────────────────────────────────────────────────────────────────────
 
-    uint256 public exitFeeBps       = FeeLib.EXIT_FEE_BPS;
+    uint256 public exitFeeBps = FeeLib.EXIT_FEE_BPS;
     uint256 public stressExitFeeBps = FeeLib.STRESS_EXIT_BPS;
-    bool    public stressModeActive;
+    bool public stressModeActive;
 
     // ─────────────────────────────────────────────────────────────────────────
     // State — principal tracking (C-01)
@@ -249,9 +255,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Gives depositors time to exit before a higher fee takes effect.
     uint256 public constant FEE_CHANGE_DELAY = 48 hours;
 
-    bytes32 public constant CHANGE_EXIT_FEE   = keccak256("EXIT_FEE");
+    bytes32 public constant CHANGE_EXIT_FEE = keccak256("EXIT_FEE");
     bytes32 public constant CHANGE_STRESS_FEE = keccak256("STRESS_EXIT_FEE");
-    bytes32 public constant CHANGE_MGMT_FEE   = keccak256("MANAGEMENT_FEE");
+    bytes32 public constant CHANGE_MGMT_FEE = keccak256("MANAGEMENT_FEE");
 
     struct PendingFeeChange {
         uint256 value;
@@ -282,19 +288,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // ─────────────────────────────────────────────────────────────────────────
 
     event MaxDepositCapUpdated(uint256 newCap);
-    event Deposited(
-        address indexed user,
-        uint256 usdcAmount,
-        uint256 bgwMinted,
-        uint256 govDistributed
-    );
-    event Redeemed(
-        address indexed user,
-        uint256 bgwBurned,
-        uint256 usdcPaid,
-        uint256 exitFeeUsdc,
-        uint256 perfFeeUsdc
-    );
+    event Deposited(address indexed user, uint256 usdcAmount, uint256 bgwMinted, uint256 govDistributed);
+    event Redeemed(address indexed user, uint256 bgwBurned, uint256 usdcPaid, uint256 exitFeeUsdc, uint256 perfFeeUsdc);
     event RedemptionQueued(
         uint256 indexed redemptionId,
         address indexed user,
@@ -305,24 +300,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 perfFeeUsdc
     );
     event QueuedRedemptionClaimed(
-        uint256 indexed redemptionId,
-        address indexed user,
-        uint256 netUsdc,
-        uint256 exitFeeUsdc,
-        uint256 perfFeeUsdc
+        uint256 indexed redemptionId, address indexed user, uint256 netUsdc, uint256 exitFeeUsdc, uint256 perfFeeUsdc
     );
     event QueuedRedemptionLiquidityAcknowledged(
-        uint256 indexed redemptionId,
-        uint256 amount,
-        uint256 remainingNAVLiability
+        uint256 indexed redemptionId, uint256 amount, uint256 remainingNAVLiability
     );
-    event HarvestRecorded(
-        uint256 netYieldUsdc,
-        uint256 perfFeeUsdc,
-        uint256 newHighWaterMark
-    );
+    event HarvestRecorded(uint256 netYieldUsdc, uint256 perfFeeUsdc, uint256 newHighWaterMark);
     event BuybackExecuted(uint256 usdcInjected, uint256 bgwMintedAndBurned);
-    event PairBootstrapped(address indexed pair);                       // H-07
+    event PairBootstrapped(address indexed pair); // H-07
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
     event SleeveAdapterSet(uint8 indexed sleeve, address indexed adapter);
@@ -416,29 +401,32 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         address _admin,
         address _usdc,
         address _camelotRouter,
-        address _ethUsdFeed
+        address _ethUsdFeed,
+        address _usdcUsdFeed
     ) Ownable(_admin) {
-        if (_bgwToken          == address(0)) revert ZeroAddress();
-        if (_govToken          == address(0)) revert ZeroAddress();
-        if (_teamWallet        == address(0)) revert ZeroAddress();
-        if (_holdbackWallet    == address(0)) revert ZeroAddress();
+        if (_bgwToken == address(0)) revert ZeroAddress();
+        if (_govToken == address(0)) revert ZeroAddress();
+        if (_teamWallet == address(0)) revert ZeroAddress();
+        if (_holdbackWallet == address(0)) revert ZeroAddress();
         if (_reserveFundWallet == address(0)) revert ZeroAddress();
-        if (_usdc              == address(0)) revert ZeroAddress();
-        if (_camelotRouter     == address(0)) revert ZeroAddress();
-        if (_ethUsdFeed        == address(0)) revert ZeroAddress();
+        if (_usdc == address(0)) revert ZeroAddress();
+        if (_camelotRouter == address(0)) revert ZeroAddress();
+        if (_ethUsdFeed == address(0)) revert ZeroAddress();
+        if (_usdcUsdFeed == address(0)) revert ZeroAddress();
 
-        bgwToken          = BGWToken(_bgwToken);
-        govToken          = BGWGovToken(_govToken);
-        teamWallet        = _teamWallet;
-        holdbackWallet    = _holdbackWallet;
+        bgwToken = BGWToken(_bgwToken);
+        govToken = BGWGovToken(_govToken);
+        teamWallet = _teamWallet;
+        holdbackWallet = _holdbackWallet;
         reserveFundWallet = _reserveFundWallet;
-        USDC              = _usdc;
-        camelotRouter     = _camelotRouter;
-        ETH_USD_FEED      = _ethUsdFeed;
+        USDC = _usdc;
+        camelotRouter = _camelotRouter;
+        ETH_USD_FEED = _ethUsdFeed;
+        USDC_USD_FEED = _usdcUsdFeed;
 
-        highWaterMark     = 1e18;
+        highWaterMark = 1e18;
         lastHWMUpdateTime = block.timestamp;
-        lastHarvestTime   = block.timestamp;
+        lastHarvestTime = block.timestamp;
 
         // ── Seed protectedTokens with Aave V3 Arbitrum One aTokens + LST wrappers ──
         // These are the yield-bearing tokens the vault holds on behalf of depositors.
@@ -513,13 +501,20 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice Fetch ETH/USD price from Chainlink (8 dec). Reverts if stale (>1 hour).
     function getETHPrice() public view returns (uint256 price) {
-        (uint80 roundId, int256 answer, , uint256 updatedAt, uint80 answeredInRound) =
+        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
             IChainlinkAggregator(ETH_USD_FEED).latestRoundData();
-        if (block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD)
+        if (block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
             revert StaleOracle(updatedAt);
+        }
         require(answeredInRound >= roundId, "BGWVault: stale round");
         require(answer > 0, "BGWVault: negative oracle price");
         price = uint256(answer);
+    }
+
+    /// @notice USDC/USD redemption value, capped at $1.00 and allowed to mark down below peg.
+    function getUSDCPriceForRedemption() public view returns (uint256 price) {
+        price = _usdPrice8(USDC_USD_FEED);
+        if (price > USD_PRICE_SCALE) return USD_PRICE_SCALE;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -530,20 +525,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Mints BGW at current NAV. Distributes proportional BGW-GOV.
     /// @param  usdcAmount  Amount of USDC (6 dec) to deposit.
     /// @param  minBgwOut   Minimum BGW to receive (slippage guard, 18 dec). Pass 0 to skip.
-    function deposit(uint256 usdcAmount, uint256 minBgwOut)
-        external
-        nonReentrant
-        whenNotPaused
-        onlyWhitelisted
-    {
+    function deposit(uint256 usdcAmount, uint256 minBgwOut) external nonReentrant whenNotPaused onlyWhitelisted {
         if (usdcAmount == 0) revert ZeroAmount();
-        if (maxDepositUsdc > 0 && usdcAmount > maxDepositUsdc)
+        if (maxDepositUsdc > 0 && usdcAmount > maxDepositUsdc) {
             revert DepositExceedsCap(usdcAmount, maxDepositUsdc);
+        }
 
         IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
         cumulativePrincipal += usdcAmount;
 
-        uint256 nav6      = navPerBGW();
+        uint256 nav6 = navPerBGW();
         uint256 bgwToMint = (usdcAmount * 1e18) / nav6;
 
         if (bgwToMint < minBgwOut) revert SlippageTooHigh(bgwToMint, minBgwOut);
@@ -552,7 +543,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _deployToSleeves(usdcAmount);
 
         bgwToken.mint(msg.sender, bgwToMint);
-        (uint256 depositorGov, ) = govToken.mintForDeposit(msg.sender, bgwToMint);
+        (uint256 depositorGov,) = govToken.mintForDeposit(msg.sender, bgwToMint);
 
         emit Deposited(msg.sender, usdcAmount, bgwToMint, depositorGov);
     }
@@ -565,19 +556,15 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         No whitelist check — holders must always be able to exit (H-02).
     /// @param  bgwAmount  BGW to burn (18 dec).
     /// @param  minUSDC    Minimum USDC to accept (slippage guard, 6 dec).
-    function redeem(uint256 bgwAmount, uint256 minUSDC)
-        external
-        nonReentrant
-        whenNotPaused
-    {
+    function redeem(uint256 bgwAmount, uint256 minUSDC) external nonReentrant whenNotPaused {
         if (bgwAmount == 0) revert ZeroAmount();
 
         uint256 userBalance = bgwToken.balanceOf(msg.sender);
         if (userBalance < bgwAmount) revert InsufficientBGW(userBalance, bgwAmount);
 
-        uint256 grossUsdc = (bgwAmount * navPerBGW()) / 1e18;
+        uint256 grossUsdc = _redemptionUSDCAmount((bgwAmount * navPerBGW()) / 1e18);
 
-        uint256 feeBps      = stressModeActive ? stressExitFeeBps : exitFeeBps;
+        uint256 feeBps = stressModeActive ? stressExitFeeBps : exitFeeBps;
         uint256 exitFeeUsdc = FeeLib.calcExitFee(grossUsdc, feeBps);
 
         uint256 perfFeeUsdc;
@@ -585,8 +572,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 effectiveHwm = _decayedHWM();
         if (currentNav18 > effectiveHwm) {
             uint256 yieldPerBGW18 = currentNav18 - effectiveHwm;
-            uint256 yieldUsdc     = (bgwAmount * yieldPerBGW18) / 1e30;
-            perfFeeUsdc           = FeeLib.calcPerfFee(yieldUsdc);
+            uint256 yieldUsdc = (bgwAmount * yieldPerBGW18) / 1e30;
+            perfFeeUsdc = FeeLib.calcPerfFee(yieldUsdc);
         }
 
         uint256 netUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
@@ -602,14 +589,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         if (grossUsdc > totalLocalNAV()) {
             _queueRedemption(
-                msg.sender,
-                bgwAmount,
-                grossUsdc,
-                netUsdc,
-                exitFeeUsdc,
-                perfFeeUsdc,
-                currentNav18ForHwm,
-                effectiveHwm
+                msg.sender, bgwAmount, grossUsdc, netUsdc, exitFeeUsdc, perfFeeUsdc, currentNav18ForHwm, effectiveHwm
             );
             return;
         }
@@ -620,7 +600,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             _distributePerfFee(perfFeeUsdc);
             // H-03/H-14: same 1% minimum delta required for HWM crystallisation.
             if (currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
-                highWaterMark     = navPerBGW18();
+                highWaterMark = navPerBGW18();
                 lastHWMUpdateTime = block.timestamp;
             }
         }
@@ -662,11 +642,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         IERC20(USDC).safeTransfer(msg.sender, redemption.netUsdc);
 
         emit QueuedRedemptionClaimed(
-            redemptionId,
-            msg.sender,
-            redemption.netUsdc,
-            redemption.exitFeeUsdc,
-            redemption.perfFeeUsdc
+            redemptionId, msg.sender, redemption.netUsdc, redemption.exitFeeUsdc, redemption.perfFeeUsdc
         );
     }
 
@@ -697,12 +673,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @param  newSleeveA    Updated Sleeve A value post-harvest (6 dec).
     /// @param  newSleeveB    Updated Sleeve B value post-harvest (6 dec).
     /// @param  newSleeveC    Updated Sleeve C value post-harvest (6 dec).
-    function recordHarvest(
-        uint256 netYieldUsdc,
-        uint256 newSleeveA,
-        uint256 newSleeveB,
-        uint256 newSleeveC
-    ) external nonReentrant whenNotPaused onlyAutomation {
+    function recordHarvest(uint256 netYieldUsdc, uint256 newSleeveA, uint256 newSleeveB, uint256 newSleeveC)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyAutomation
+    {
         // Yield must not exceed actual USDC received — fundamental sanity check (C-01).
         uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
         uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
@@ -717,8 +693,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         uint256 nav = totalNAV();
         if (nav > 0 && netYieldUsdc > 0) {
-            uint256 maxYield = (nav * FeeLib.MAX_YIELD_APR_BPS * sinceLastHarvest) /
-                (FeeLib.BPS_DENOM * 365 days);
+            uint256 maxYield = (nav * FeeLib.MAX_YIELD_APR_BPS * sinceLastHarvest) / (FeeLib.BPS_DENOM * 365 days);
             require(netYieldUsdc <= maxYield, "BGWVault: yield rate too high");
         }
 
@@ -751,7 +726,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             // H-03/H-14: only crystallise when NAV is at least 1% above effective HWM,
             // preventing choppy markets from resetting the 1-year decay clock on every tick.
             if (currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
-                highWaterMark     = navPerBGW18();
+                highWaterMark = navPerBGW18();
                 lastHWMUpdateTime = block.timestamp;
             }
         }
@@ -767,12 +742,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         into portfolio sleeves, then minting and immediately burning the
     ///         corresponding BGW. No BGW-GOV is minted for this protocol-only
     ///         cycle, and no LP liquidity is touched.
-    function executeBuyback(uint256 usdcAmount)
-        external
-        nonReentrant
-        whenNotPaused
-        onlyAutomation
-    {
+    function executeBuyback(uint256 usdcAmount) external nonReentrant whenNotPaused onlyAutomation {
         if (usdcAmount == 0 || usdcAmount > buybackAccumulator) return;
         uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
         uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
@@ -792,11 +762,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Automation reports updated sleeve values after rebalancing.
-    function updateSleeveValues(
-        uint256 newSleeveA,
-        uint256 newSleeveB,
-        uint256 newSleeveC
-    ) external nonReentrant whenNotPaused onlyAutomation {
+    function updateSleeveValues(uint256 newSleeveA, uint256 newSleeveB, uint256 newSleeveC)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyAutomation
+    {
         // Time-weighted anti-manipulation bounds (C-01).
         // No MIN_HARVEST_GAP here — rebalancing may legitimately follow a harvest.
         uint256 elapsed = block.timestamp - lastHarvestTime;
@@ -823,7 +794,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (_automation == address(0)) revert ZeroAddress();
         require(_automation.code.length > 0, "BGWVault: not a contract");
         uint256 eta = block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY;
-        pendingAutomation     = _automation;
+        pendingAutomation = _automation;
         automationProposalEta = eta;
         emit AutomationProposed(_automation, eta);
     }
@@ -832,16 +803,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         address candidate = pendingAutomation;
         require(candidate != address(0), "BGWVault: no pending automation");
         require(block.timestamp >= automationProposalEta, "BGWVault: timelock not elapsed");
-        pendingAutomation     = address(0);
+        pendingAutomation = address(0);
         automationProposalEta = 0;
-        automation            = candidate;
+        automation = candidate;
         emit AutomationSet(candidate);
     }
 
     function cancelAutomation() external onlyOwner {
         address candidate = pendingAutomation;
         require(candidate != address(0), "BGWVault: no pending automation");
-        pendingAutomation     = address(0);
+        pendingAutomation = address(0);
         automationProposalEta = 0;
         emit AutomationCancelled(candidate);
     }
@@ -877,8 +848,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function executeRealisedLoss() external onlyOwner {
         PendingLossMark memory p = pendingLossMark;
-        require(p.executeAfter > 0,                   "BGWVault: no pending loss");
-        require(block.timestamp >= p.executeAfter,    "BGWVault: timelock not elapsed");
+        require(p.executeAfter > 0, "BGWVault: no pending loss");
+        require(block.timestamp >= p.executeAfter, "BGWVault: timelock not elapsed");
         delete pendingLossMark;
         authorisedLosses += p.amount;
         emit LossMarkExecuted(p.amount);
@@ -906,8 +877,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 amount = pendingFees[staleWallet];
         require(amount > 0, "BGWVault: no pending fees");
         require(
-            lastFeeAccrual[staleWallet] > 0 &&
-            block.timestamp >= lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY,
+            lastFeeAccrual[staleWallet] > 0 && block.timestamp >= lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY,
             "BGWVault: fees not stale"
         );
         pendingFees[staleWallet] = 0;
@@ -925,10 +895,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Batch whitelist update (max 200 accounts per call).
-    function setWhitelistedBatch(address[] calldata accounts, bool status)
-        external
-        onlyOwner
-    {
+    function setWhitelistedBatch(address[] calldata accounts, bool status) external onlyOwner {
         require(accounts.length <= 200, "BGWVault: batch too large");
         for (uint256 i; i < accounts.length; ++i) {
             whitelist[accounts[i]] = status;
@@ -954,8 +921,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function executeExitFeeBps() external onlyOwner {
         PendingFeeChange memory p = pendingFeeChanges[CHANGE_EXIT_FEE];
-        if (p.executeAfter == 0)                    revert NoPendingChange(CHANGE_EXIT_FEE);
-        if (block.timestamp < p.executeAfter)        revert TimelockNotElapsed(p.executeAfter);
+        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_EXIT_FEE);
+        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
         delete pendingFeeChanges[CHANGE_EXIT_FEE];
         exitFeeBps = p.value;
         emit FeeChangeExecuted(CHANGE_EXIT_FEE, p.value);
@@ -977,7 +944,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function executeStressExitFeeBps() external onlyOwner {
         PendingFeeChange memory p = pendingFeeChanges[CHANGE_STRESS_FEE];
-        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_STRESS_FEE);
+        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_STRESS_FEE);
         if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
         delete pendingFeeChanges[CHANGE_STRESS_FEE];
         stressExitFeeBps = p.value;
@@ -1006,7 +973,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function executeManagementFeeBps() external onlyOwner {
         PendingFeeChange memory p = pendingFeeChanges[CHANGE_MGMT_FEE];
-        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_MGMT_FEE);
+        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_MGMT_FEE);
         if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
         delete pendingFeeChanges[CHANGE_MGMT_FEE];
         managementFeeBps = p.value;
@@ -1020,14 +987,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit FeeChangeCancelled(CHANGE_MGMT_FEE);
     }
 
-    function proposeFeeWallets(
-        address _team,
-        address _holdback,
-        address _reserve
-    ) external onlyOwner {
-        if (_team     == address(0)) revert ZeroAddress();
+    function proposeFeeWallets(address _team, address _holdback, address _reserve) external onlyOwner {
+        if (_team == address(0)) revert ZeroAddress();
         if (_holdback == address(0)) revert ZeroAddress();
-        if (_reserve  == address(0)) revert ZeroAddress();
+        if (_reserve == address(0)) revert ZeroAddress();
         uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
         pendingWalletsChange = PendingWalletsChange(_team, _holdback, _reserve, eta);
         emit FeeWalletsProposed(_team, _holdback, _reserve, eta);
@@ -1035,11 +998,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function executeFeeWallets() external onlyOwner {
         PendingWalletsChange memory p = pendingWalletsChange;
-        if (p.executeAfter == 0)             revert NoPendingChange(bytes32("FEE_WALLETS"));
+        if (p.executeAfter == 0) revert NoPendingChange(bytes32("FEE_WALLETS"));
         if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
         delete pendingWalletsChange;
-        teamWallet        = p.team;
-        holdbackWallet    = p.holdback;
+        teamWallet = p.team;
+        holdbackWallet = p.holdback;
         reserveFundWallet = p.reserve;
         emit FeeWalletsUpdated(p.team, p.holdback, p.reserve);
     }
@@ -1061,7 +1024,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function executeRouterUpdate() external onlyOwner {
         PendingAddressChange memory p = pendingAddressChanges[CHANGE_ROUTER];
-        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_ROUTER);
+        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_ROUTER);
         if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
         delete pendingAddressChanges[CHANGE_ROUTER];
         camelotRouter = p.value;
@@ -1085,7 +1048,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function executeHubNAVUpdate() external onlyOwner {
         PendingAddressChange memory p = pendingAddressChanges[CHANGE_HUB_NAV];
-        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_HUB_NAV);
+        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_HUB_NAV);
         if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
         delete pendingAddressChanges[CHANGE_HUB_NAV];
         hubNAV = p.value;
@@ -1114,11 +1077,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Batch version of setTrustedSleeveAsset.
-    function setTrustedSleeveAssetBatch(
-        uint8 sleeve,
-        address[] calldata assets,
-        bool trusted
-    ) external onlyOwner {
+    function setTrustedSleeveAssetBatch(uint8 sleeve, address[] calldata assets, bool trusted) external onlyOwner {
         require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
         require(assets.length <= 50, "BGWVault: batch too large");
         for (uint256 i; i < assets.length; ++i) {
@@ -1136,11 +1095,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Founder proposes adding/removing a trusted sleeve asset.
-    function proposeTrustedSleeveAsset(
-        uint8 sleeve,
-        address asset,
-        bool trusted
-    ) external onlyOwner returns (uint256 proposalId) {
+    function proposeTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted)
+        external
+        onlyOwner
+        returns (uint256 proposalId)
+    {
         require(sleeveGovernanceActive, "BGWVault: sleeve governance inactive");
         _validateSleeve(sleeve);
         if (asset == address(0)) revert ZeroAddress();
@@ -1148,11 +1107,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Founder proposes setting/clearing a sleeve adapter.
-    function proposeSleeveAdapter(uint8 sleeve, address adapter)
-        external
-        onlyOwner
-        returns (uint256 proposalId)
-    {
+    function proposeSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner returns (uint256 proposalId) {
         require(sleeveGovernanceActive, "BGWVault: sleeve governance inactive");
         _validateSleeve(sleeve);
         if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
@@ -1218,8 +1173,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit MaxDepositCapUpdated(cap);
     }
 
-    function pause()   external onlyOwner { _pause(); }
-    function unpause() external onlyOwner { _unpause(); }
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
 
     /// @notice Mark a token as protected (true) or unprotected (false).
     ///         Call with true before deploying vault funds into a new protocol.
@@ -1231,10 +1191,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Batch version of setProtectedToken for initial setup.
-    function setProtectedTokenBatch(address[] calldata tokens, bool _protected)
-        external
-        onlyOwner
-    {
+    function setProtectedTokenBatch(address[] calldata tokens, bool _protected) external onlyOwner {
         require(tokens.length <= 50, "BGWVault: batch too large");
         for (uint256 i; i < tokens.length; ++i) {
             if (tokens[i] == address(0)) revert ZeroAddress();
@@ -1246,15 +1203,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Emergency: recover tokens accidentally sent to the vault.
     ///         Blocked for USDC (vault funds), BGW, BGW-GOV, and any token
     ///         registered as a vault position via setProtectedToken (C-02).
-    function recoverToken(address token, uint256 amount, address to)
-        external
-        onlyOwner
-    {
-        require(to != address(0),               "BGWVault: zero recipient");
-        require(token != USDC,                  "BGWVault: cannot recover vault USDC");
-        require(token != address(bgwToken),     "BGWVault: cannot recover BGW");
-        require(token != address(govToken),     "BGWVault: cannot recover BGW-GOV");
-        require(!protectedTokens[token],        "BGWVault: token is a vault position");
+    function recoverToken(address token, uint256 amount, address to) external onlyOwner {
+        require(to != address(0), "BGWVault: zero recipient");
+        require(token != USDC, "BGWVault: cannot recover vault USDC");
+        require(token != address(bgwToken), "BGWVault: cannot recover BGW");
+        require(token != address(govToken), "BGWVault: cannot recover BGW-GOV");
+        require(!protectedTokens[token], "BGWVault: token is a vault position");
         IERC20(token).safeTransfer(to, amount);
     }
 
@@ -1309,23 +1263,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         totalQueuedRedemptionGross += grossUsdc;
         totalQueuedRedemptionNAVLiability += grossUsdc;
 
-        if (
-            perfFeeUsdc > 0
-                && currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM
-        ) {
+        if (perfFeeUsdc > 0 && currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
             highWaterMark = currentNav18;
             lastHWMUpdateTime = block.timestamp;
         }
 
-        emit RedemptionQueued(
-            redemptionId,
-            claimant,
-            bgwBurned,
-            grossUsdc,
-            netUsdc,
-            exitFeeUsdc,
-            perfFeeUsdc
-        );
+        emit RedemptionQueued(redemptionId, claimant, bgwBurned, grossUsdc, netUsdc, exitFeeUsdc, perfFeeUsdc);
     }
 
     function _reducePrincipalForBurn(uint256 bgwAmount) internal {
@@ -1442,12 +1385,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         require(sleeve <= SLEEVE_C, "BGWVault: invalid sleeve");
     }
 
-    function _createSleeveProposal(
-        uint8 action,
-        uint8 sleeve,
-        address target,
-        bool trusted
-    ) internal returns (uint256 proposalId) {
+    function _createSleeveProposal(uint8 action, uint8 sleeve, address target, bool trusted)
+        internal
+        returns (uint256 proposalId)
+    {
         proposalId = ++sleeveProposalCount;
         uint256 snapshotBlock = block.number > 0 ? block.number - 1 : 0;
         uint256 voteEnd = block.timestamp + SLEEVE_VOTING_PERIOD;
@@ -1465,15 +1406,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             canceled: false
         });
 
-        emit SleeveProposalCreated(
-            proposalId,
-            action,
-            sleeve,
-            target,
-            trusted,
-            snapshotBlock,
-            voteEnd
-        );
+        emit SleeveProposalCreated(proposalId, action, sleeve, target, trusted, snapshotBlock, voteEnd);
     }
 
     /// @dev Distribute performance fee across 6 recipients.
@@ -1484,8 +1417,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         FeeLib.FeeSplit memory s = FeeLib.splitPerfFee(totalFee);
 
-        _tryTransferFee(teamWallet,        s.team);
-        _tryTransferFee(holdbackWallet,    s.holdback);
+        _tryTransferFee(teamWallet, s.team);
+        _tryTransferFee(holdbackWallet, s.holdback);
         _tryTransferFee(reserveFundWallet, s.reserve);
 
         buybackAccumulator += s.buyback;
@@ -1495,15 +1428,35 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///      pendingFees so the recipient can pull later via claimFees().
     function _tryTransferFee(address recipient, uint256 amount) internal {
         if (amount == 0) return;
-        (bool ok, bytes memory ret) = USDC.call(
-            abi.encodeWithSelector(IERC20.transfer.selector, recipient, amount)
-        );
+        (bool ok, bytes memory ret) = USDC.call(abi.encodeWithSelector(IERC20.transfer.selector, recipient, amount));
         bool success = ok && (ret.length == 0 || abi.decode(ret, (bool)));
         if (!success) {
-            pendingFees[recipient]   += amount;
-            totalPendingFees         += amount;
+            pendingFees[recipient] += amount;
+            totalPendingFees += amount;
             lastFeeAccrual[recipient] = block.timestamp; // H-13: stale-fee clock
         }
+    }
+
+    /// @dev Apply the conservative USDC settlement mark for redemptions.
+    ///      USDC above peg is capped at $1; USDC below peg reduces payout value.
+    function _redemptionUSDCAmount(uint256 usdValue6) internal view returns (uint256) {
+        return (usdValue6 * getUSDCPriceForRedemption()) / USD_PRICE_SCALE;
+    }
+
+    /// @dev Read and normalize a Chainlink USD feed to 8 decimals.
+    function _usdPrice8(address feed) internal view returns (uint256 price) {
+        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
+            IChainlinkAggregator(feed).latestRoundData();
+        if (block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
+            revert StaleOracle(updatedAt);
+        }
+        require(answeredInRound >= roundId, "BGWVault: stale round");
+        require(answer > 0, "BGWVault: negative oracle price");
+
+        uint8 decimals = IChainlinkAggregator(feed).decimals();
+        if (decimals == 8) return uint256(answer);
+        if (decimals < 8) return uint256(answer) * (10 ** (8 - decimals));
+        return uint256(answer) / (10 ** (decimals - 8));
     }
 
     /// @dev Returns the effective HWM after time-based linear decay.
@@ -1520,7 +1473,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (decayElapsed >= FeeLib.HWM_DECAY_PERIOD) return FeeLib.HWM_FLOOR;
 
         if (highWaterMark <= FeeLib.HWM_FLOOR) return highWaterMark;
-        uint256 gap     = highWaterMark - FeeLib.HWM_FLOOR;
+        uint256 gap = highWaterMark - FeeLib.HWM_FLOOR;
         uint256 decayed = (gap * decayElapsed) / FeeLib.HWM_DECAY_PERIOD;
         return highWaterMark - decayed;
     }
@@ -1544,7 +1497,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (elapsed > 90 days) elapsed = 90 days;
 
         // H-06: charge base rate (0.1%/year) always; full rate (0.5%/year) only above HWM
-        bool aboveHWM  = navPerBGW18() > _decayedHWM();
+        bool aboveHWM = navPerBGW18() > _decayedHWM();
         uint256 feeBps = aboveHWM ? managementFeeBps : FeeLib.BASE_MGMT_FEE_BPS;
 
         uint256 fee = (nav * feeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
@@ -1566,14 +1519,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function _checkSleeveMove(uint256 oldVal, uint256 newVal, uint256 elapsed) internal pure {
         if (oldVal == 0) return;
         if (newVal >= oldVal) {
-            uint256 maxGrow = (oldVal * FeeLib.MAX_SLEEVE_GROWTH_BPS_DAY * elapsed) /
-                (FeeLib.BPS_DENOM * 1 days);
+            uint256 maxGrow = (oldVal * FeeLib.MAX_SLEEVE_GROWTH_BPS_DAY * elapsed) / (FeeLib.BPS_DENOM * 1 days);
             require(newVal - oldVal <= maxGrow, "BGWVault: sleeve growth too fast");
         } else {
-            uint256 maxShrink = (oldVal * FeeLib.MAX_SLEEVE_SHRINK_BPS_DAY * elapsed) /
-                (FeeLib.BPS_DENOM * 1 days);
+            uint256 maxShrink = (oldVal * FeeLib.MAX_SLEEVE_SHRINK_BPS_DAY * elapsed) / (FeeLib.BPS_DENOM * 1 days);
             require(oldVal - newVal <= maxShrink, "BGWVault: sleeve shrink too fast");
         }
     }
-
 }

@@ -12,13 +12,30 @@ import "../contracts/libraries/FeeLib.sol";
 contract MockUSDCDeploy {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
-    uint8   public decimals = 6;
+    uint8 public decimals = 6;
     uint256 public totalSupply;
-    function mint(address to, uint256 amount) external { balanceOf[to] += amount; totalSupply += amount; }
-    function approve(address s, uint256 a) external returns (bool) { allowance[msg.sender][s] = a; return true; }
-    function transfer(address to, uint256 a) external returns (bool) { balanceOf[msg.sender] -= a; balanceOf[to] += a; return true; }
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+        totalSupply += amount;
+    }
+
+    function approve(address s, uint256 a) external returns (bool) {
+        allowance[msg.sender][s] = a;
+        return true;
+    }
+
+    function transfer(address to, uint256 a) external returns (bool) {
+        balanceOf[msg.sender] -= a;
+        balanceOf[to] += a;
+        return true;
+    }
+
     function transferFrom(address f, address to, uint256 a) external returns (bool) {
-        allowance[f][msg.sender] -= a; balanceOf[f] -= a; balanceOf[to] += a; return true;
+        allowance[f][msg.sender] -= a;
+        balanceOf[f] -= a;
+        balanceOf[to] += a;
+        return true;
     }
 }
 
@@ -26,18 +43,19 @@ contract MockUSDCDeploy {
 /// @notice C-04: smoke test that exercises the full deploy sequence (scripts 01–03) and
 ///         verifies role wiring, whitelist state, and automation timelock without a live fork.
 contract DeployTest is Test {
-    address constant USDC_ADDR    = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant USDC_ADDR = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address constant CAMELOT_ADDR = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
 
-    address founder  = makeAddr("founder");
-    address team     = makeAddr("team");
+    address founder = makeAddr("founder");
+    address team = makeAddr("team");
     address holdback = makeAddr("holdback");
-    address reserve  = makeAddr("reserve");
-    address ethFeed  = makeAddr("ethFeed");
+    address reserve = makeAddr("reserve");
+    address ethFeed = makeAddr("ethFeed");
+    address usdcFeed = makeAddr("usdcFeed");
 
-    BGWToken          bgwToken;
-    BGWGovToken       govToken;
-    BGWVault          vault;
+    BGWToken bgwToken;
+    BGWGovToken govToken;
+    BGWVault vault;
     BridgewayAutomation automation;
 
     function setUp() public {
@@ -78,12 +96,13 @@ contract DeployTest is Test {
             founder,
             USDC_ADDR,
             CAMELOT_ADDR,
-            ethFeed
+            ethFeed,
+            usdcFeed
         );
 
         vm.startPrank(founder);
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(),          address(vault));
-        bgwToken.grantRole(bgwToken.BURNER_ROLE(),          address(vault)); // H-11
+        bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
+        bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         vault.setWhitelisted(address(vault), true);
         govToken.initVault(address(vault));
@@ -94,8 +113,8 @@ contract DeployTest is Test {
     function test_Script02_VaultRolesWiredCorrectly() public {
         _deployVault();
 
-        assertTrue(bgwToken.hasRole(bgwToken.MINTER_ROLE(),          address(vault)));
-        assertTrue(bgwToken.hasRole(bgwToken.BURNER_ROLE(),          address(vault)));
+        assertTrue(bgwToken.hasRole(bgwToken.MINTER_ROLE(), address(vault)));
+        assertTrue(bgwToken.hasRole(bgwToken.BURNER_ROLE(), address(vault)));
         assertTrue(bgwToken.hasRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault)));
         assertTrue(bgwToken.whitelist(address(vault)));
         assertTrue(govToken.vaultInitialized());
@@ -108,11 +127,12 @@ contract DeployTest is Test {
     function test_Script02_VaultConstructorArgsMatchABI() public {
         _deployVault();
         // Verify all immutables resolve correctly
-        assertEq(vault.USDC(),       USDC_ADDR);
+        assertEq(vault.USDC(), USDC_ADDR);
         assertEq(vault.ETH_USD_FEED(), ethFeed);
+        assertEq(vault.USDC_USD_FEED(), usdcFeed);
         assertEq(vault.camelotRouter(), CAMELOT_ADDR);
-        assertEq(vault.teamWallet(),        team);
-        assertEq(vault.holdbackWallet(),    holdback);
+        assertEq(vault.teamWallet(), team);
+        assertEq(vault.holdbackWallet(), holdback);
         assertEq(vault.reserveFundWallet(), reserve);
     }
 

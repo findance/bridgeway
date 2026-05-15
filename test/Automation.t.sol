@@ -13,39 +13,52 @@ import "../contracts/libraries/FeeLib.sol";
 contract MockUSDCAutomation {
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
-    uint8   public decimals = 6;
+    uint8 public decimals = 6;
     uint256 public totalSupply;
 
     function mint(address to, uint256 amount) external {
         balanceOf[to] += amount;
-        totalSupply   += amount;
+        totalSupply += amount;
     }
-    function approve(address s, uint256 a) external returns (bool) { allowance[msg.sender][s] = a; return true; }
-    function transfer(address to, uint256 a) external returns (bool) { balanceOf[msg.sender] -= a; balanceOf[to] += a; return true; }
+
+    function approve(address s, uint256 a) external returns (bool) {
+        allowance[msg.sender][s] = a;
+        return true;
+    }
+
+    function transfer(address to, uint256 a) external returns (bool) {
+        balanceOf[msg.sender] -= a;
+        balanceOf[to] += a;
+        return true;
+    }
+
     function transferFrom(address f, address to, uint256 a) external returns (bool) {
-        allowance[f][msg.sender] -= a; balanceOf[f] -= a; balanceOf[to] += a; return true;
+        allowance[f][msg.sender] -= a;
+        balanceOf[f] -= a;
+        balanceOf[to] += a;
+        return true;
     }
 }
 
 contract AutomationTest is Test {
-    BGWToken          bgwToken;
-    BGWGovToken       govToken;
-    BGWVault          vault;
+    BGWToken bgwToken;
+    BGWGovToken govToken;
+    BGWVault vault;
     BridgewayAutomation automation;
 
-    address founder   = makeAddr("founder");
-    address alice     = makeAddr("alice");
-    address team      = makeAddr("team");
-    address holdback  = makeAddr("holdback");
-    address lp        = makeAddr("lp");
-    address reserve   = makeAddr("reserve");
-    address stranger  = makeAddr("stranger");
+    address founder = makeAddr("founder");
+    address alice = makeAddr("alice");
+    address team = makeAddr("team");
+    address holdback = makeAddr("holdback");
+    address lp = makeAddr("lp");
+    address reserve = makeAddr("reserve");
+    address stranger = makeAddr("stranger");
 
-    address constant USDC_ADDR    = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
+    address constant USDC_ADDR = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address constant CAMELOT_ADDR = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
 
-    uint256 constant HARVEST_INTERVAL  = 30 days;
-    uint256 constant BUYBACK_INTERVAL  = 30 days;
+    uint256 constant HARVEST_INTERVAL = 30 days;
+    uint256 constant BUYBACK_INTERVAL = 30 days;
     uint256 constant BUYBACK_THRESHOLD = 500e6; // 500 USDC (M-07)
 
     function setUp() public {
@@ -61,23 +74,30 @@ contract AutomationTest is Test {
         vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
 
         vault = new BGWVault(
-            address(bgwToken), address(govToken),
-            team, holdback, reserve, founder,
-            USDC_ADDR, CAMELOT_ADDR, address(1)
+            address(bgwToken),
+            address(govToken),
+            team,
+            holdback,
+            reserve,
+            founder,
+            USDC_ADDR,
+            CAMELOT_ADDR,
+            address(1),
+            address(2)
         );
 
         // Wire roles
         vm.startPrank(founder);
         bgwToken.setGovernanceCompanion(address(govToken));
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(),          address(vault));
-        bgwToken.grantRole(bgwToken.BURNER_ROLE(),          address(vault)); // H-11
+        bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
+        bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
         vault.setWhitelisted(address(vault), true);
         bgwToken.setWhitelisted(CAMELOT_ADDR, true);
         govToken.initVault(address(vault));
         vault.setWhitelisted(CAMELOT_ADDR, true);
         vault.setWhitelisted(founder, true);
-        vault.setWhitelisted(alice,   true);
+        vault.setWhitelisted(alice, true);
         vm.stopPrank();
 
         // Deploy automation and wire to vault via 48-hour timelock (C-01).
@@ -99,7 +119,7 @@ contract AutomationTest is Test {
         vm.prank(founder);
         automation.manualHarvest();
 
-        (bool needed, ) = automation.checkUpkeep("");
+        (bool needed,) = automation.checkUpkeep("");
         assertFalse(needed);
     }
 
@@ -123,7 +143,7 @@ contract AutomationTest is Test {
         automation.manualHarvest();
 
         // Accumulator starts at 0
-        (bool needed, ) = automation.checkUpkeep("");
+        (bool needed,) = automation.checkUpkeep("");
         assertFalse(needed);
     }
 
@@ -148,7 +168,7 @@ contract AutomationTest is Test {
             40_000e6,
             700_000e6 + (40_000e6 * 70) / 100,
             250_000e6 + (40_000e6 * 25) / 100,
-             50_000e6 + (40_000e6 *  5) / 100
+            50_000e6 + (40_000e6 * 5) / 100
         );
 
         uint256 acc = vault.buybackAccumulator();
@@ -183,14 +203,14 @@ contract AutomationTest is Test {
             35_000e6,
             700_000e6 + (35_000e6 * 70) / 100,
             250_000e6 + (35_000e6 * 25) / 100,
-             50_000e6 + (35_000e6 *  5) / 100
+            50_000e6 + (35_000e6 * 5) / 100
         );
 
         assertGe(vault.buybackAccumulator(), BUYBACK_THRESHOLD);
 
         // Only ~29 days elapsed since automation deployment, which is less than
         // the 30-day BUYBACK_INTERVAL → buyback must not fire.
-        (bool needed, ) = automation.checkUpkeep("");
+        (bool needed,) = automation.checkUpkeep("");
         assertFalse(needed, "buyback must not fire before interval elapses");
     }
 
@@ -234,7 +254,7 @@ contract AutomationTest is Test {
 
         vm.warp(block.timestamp + HARVEST_INTERVAL);
 
-        (bool needed, ) = automation.checkUpkeep("");
+        (bool needed,) = automation.checkUpkeep("");
         assertFalse(needed); // harvest suppressed
     }
 
@@ -305,7 +325,7 @@ contract AutomationTest is Test {
             35_000e6,
             700_000e6 + (35_000e6 * 70) / 100,
             250_000e6 + (35_000e6 * 25) / 100,
-             50_000e6 + (35_000e6 *  5) / 100
+            50_000e6 + (35_000e6 * 5) / 100
         );
 
         assertGe(vault.buybackAccumulator(), BUYBACK_THRESHOLD);

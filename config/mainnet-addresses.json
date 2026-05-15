@@ -53,6 +53,21 @@
         "token_admin_registry": "0xb22764f98dD05c789929716D677382Df22C05Cb6",
         "registry_module_owner": "0x4855174E9479E211337832E109E7721d43A4CA64",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      },
+      "settlementAsset": {
+        "symbol": "USDC",
+        "token": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "usdPriceFeed": "0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6",
+        "tokenDecimals": 6,
+        "feedDecimals": 8,
+        "source": "https://data.chain.link/feeds/ethereum/mainnet/usdc-usd",
+        "explorer": "https://etherscan.io/address/0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6",
+        "redemptionPricing": {
+          "maxUsdPrice": "1.00000000",
+          "allowBelowPeg": true,
+          "neverValueAboveUsd": true,
+          "method": "min(chainlink-usdc-usd, 1e8)"
+        }
       }
     },
     "56": {
@@ -168,6 +183,21 @@
         "token_admin_registry": "0x6f6C373d09C07425BaAE72317863d7F6bb731e37",
         "registry_module_owner": "0xAFEd606Bd2CAb6983fC6F10167c98aaC2173D77f",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      },
+      "settlementAsset": {
+        "symbol": "USDC",
+        "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "usdPriceFeed": "0x51597f405303C4377E36123cBc172b13269EA163",
+        "tokenDecimals": 6,
+        "feedDecimals": 8,
+        "source": "https://data.chain.link/feeds/base/base/usdc-usd",
+        "explorer": "https://basescan.org/address/0x51597f405303C4377E36123cBc172b13269EA163",
+        "redemptionPricing": {
+          "maxUsdPrice": "1.00000000",
+          "allowBelowPeg": true,
+          "neverValueAboveUsd": true,
+          "method": "min(chainlink-usdc-usd, 1e8)"
+        }
       }
     },
     "42161": {
@@ -238,6 +268,21 @@
         "token_admin_registry": "0x39AE1032cF4B334a1Ed41cdD0833bdD7c7E7751E",
         "registry_module_owner": "0x1f1df9f7fc939E71819F766978d8F900B816761b",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      },
+      "settlementAsset": {
+        "symbol": "USDC",
+        "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+        "usdPriceFeed": "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3",
+        "tokenDecimals": 6,
+        "feedDecimals": 8,
+        "source": "https://data.chain.link/feeds/arbitrum/mainnet/usdc-usd",
+        "explorer": "https://arbiscan.io/address/0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3",
+        "redemptionPricing": {
+          "maxUsdPrice": "1.00000000",
+          "allowBelowPeg": true,
+          "neverValueAboveUsd": true,
+          "method": "min(chainlink-usdc-usd, 1e8)"
+        }
       }
     },
     "43114": {
@@ -283,6 +328,21 @@
         "token_admin_registry": "0xc8df5D618c6a59Cc6A311E96a39450381001464F",
         "registry_module_owner": "0x76Aa17dCda9E8529149E76e9ffaE4aD1C4AD701B",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      },
+      "settlementAsset": {
+        "symbol": "USDC",
+        "token": "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E",
+        "usdPriceFeed": "0xF096872672F44d6EBA71458D74fe67F9a77a23B9",
+        "tokenDecimals": 6,
+        "feedDecimals": 8,
+        "source": "https://data.chain.link/feeds/avalanche/mainnet/usdc-usd",
+        "explorer": "https://snowscan.xyz/address/0xF096872672F44d6EBA71458D74fe67F9a77a23B9",
+        "redemptionPricing": {
+          "maxUsdPrice": "1.00000000",
+          "allowBelowPeg": true,
+          "neverValueAboveUsd": true,
+          "method": "min(chainlink-usdc-usd, 1e8)"
+        }
       }
     }
   },
@@ -294,5 +354,13 @@
     "BNB Chain USDC policy",
     "cbBTC policy outside Base/Ethereum",
     "fileIntegrity.gitCommit and fileIntegrity.sha256 after approval"
-  ]
+  ],
+  "settlementPolicy": {
+    "redemptionAsset": "USDC",
+    "accountingUnit": "USD",
+    "neverValueUSDCAboveUSD": true,
+    "allowUSDCBelowUSD": true,
+    "redemptionMaxUsdPrice": "1.00000000",
+    "notes": "Redemptions use min(Chainlink USDC/USD, 1.00000000). USDC premium never increases payout value; depeg below $1 can mark payouts down."
+  }
 }

@@ -205,5 +205,13 @@
     "testnet spoke source sender bytes",
     "testnet operator addresses",
     "fileIntegrity.gitCommit and fileIntegrity.sha256 after approval"
-  ]
+  ],
+  "settlementPolicy": {
+    "redemptionAsset": "USDC",
+    "accountingUnit": "USD",
+    "neverValueUSDCAboveUSD": true,
+    "allowUSDCBelowUSD": true,
+    "redemptionMaxUsdPrice": "1.00000000",
+    "notes": "Testnet settlementAsset rows must be added per deployed test USDC/mocks before broadcast rehearsals."
+  }
 }

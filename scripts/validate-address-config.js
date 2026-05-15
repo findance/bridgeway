@@ -49,6 +49,21 @@ function validateStatus() {
   requireString(config.requiredStatusForBroadcast, "requiredStatusForBroadcast");
   requireString(config.ccipInterfaceVersion, "ccipInterfaceVersion");
 
+  if (config.settlementPolicy) {
+    if (config.settlementPolicy.redemptionAsset !== "USDC") {
+      fail("settlementPolicy.redemptionAsset must be USDC");
+    }
+    if (config.settlementPolicy.neverValueUSDCAboveUSD !== true) {
+      fail("settlementPolicy.neverValueUSDCAboveUSD must be true");
+    }
+    if (config.settlementPolicy.allowUSDCBelowUSD !== true) {
+      fail("settlementPolicy.allowUSDCBelowUSD must be true");
+    }
+    if (config.settlementPolicy.redemptionMaxUsdPrice !== "1.00000000") {
+      fail("settlementPolicy.redemptionMaxUsdPrice must be 1.00000000");
+    }
+  }
+
   if (broadcast && config.status !== config.requiredStatusForBroadcast) {
     fail(`broadcast blocked: status ${config.status} does not equal ${config.requiredStatusForBroadcast}`);
   }
@@ -87,6 +102,32 @@ function validateChain(key, chain) {
     requireAddress(asset.priceFeed, `chains.${key}.assets.${symbol}.priceFeed`);
     if (!Number.isInteger(asset.tokenDecimals)) fail(`chains.${key}.assets.${symbol}.tokenDecimals must be integer`);
     if (!Number.isInteger(asset.feedDecimals)) fail(`chains.${key}.assets.${symbol}.feedDecimals must be integer`);
+  }
+
+  if (chain.settlementAsset) {
+    if (chain.settlementAsset.symbol !== "USDC") fail(`chains.${key}.settlementAsset.symbol must be USDC`);
+    requireAddress(chain.settlementAsset.token, `chains.${key}.settlementAsset.token`);
+    requireAddress(chain.settlementAsset.usdPriceFeed, `chains.${key}.settlementAsset.usdPriceFeed`);
+    if (!Number.isInteger(chain.settlementAsset.tokenDecimals)) {
+      fail(`chains.${key}.settlementAsset.tokenDecimals must be integer`);
+    }
+    if (!Number.isInteger(chain.settlementAsset.feedDecimals)) {
+      fail(`chains.${key}.settlementAsset.feedDecimals must be integer`);
+    }
+    const pricing = chain.settlementAsset.redemptionPricing;
+    if (!pricing) {
+      fail(`chains.${key}.settlementAsset.redemptionPricing is required`);
+    } else {
+      if (pricing.maxUsdPrice !== "1.00000000") {
+        fail(`chains.${key}.settlementAsset.redemptionPricing.maxUsdPrice must be 1.00000000`);
+      }
+      if (pricing.allowBelowPeg !== true) {
+        fail(`chains.${key}.settlementAsset.redemptionPricing.allowBelowPeg must be true`);
+      }
+      if (pricing.neverValueAboveUsd !== true) {
+        fail(`chains.${key}.settlementAsset.redemptionPricing.neverValueAboveUsd must be true`);
+      }
+    }
   }
 
   if (config.environment === "mainnet" && !chain.multisig) {

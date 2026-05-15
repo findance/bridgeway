@@ -21,6 +21,7 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///           USDC_ADDRESS
 ///           CAMELOT_ROUTER
 ///           ETH_USD_FEED
+///           USDC_USD_FEED
 ///
 ///         Command:
 ///           forge script scripts/deploy/02_DeployVault.s.sol \
@@ -29,7 +30,6 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///             --verify \
 ///             --etherscan-api-key $ARBISCAN_KEY
 contract DeployVault is Script {
-
     function _deployVault(address founder) internal returns (BGWVault) {
         return new BGWVault(
             vm.envAddress("BGW_TOKEN"),
@@ -40,7 +40,8 @@ contract DeployVault is Script {
             founder,
             vm.envAddress("USDC_ADDRESS"),
             vm.envAddress("CAMELOT_ROUTER"),
-            vm.envAddress("ETH_USD_FEED")
+            vm.envAddress("ETH_USD_FEED"),
+            vm.envAddress("USDC_USD_FEED")
         );
     }
 
@@ -48,7 +49,7 @@ contract DeployVault is Script {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address founderAddr = vm.envAddress("FOUNDER_ADDRESS");
 
-        BGWToken    bgwToken = BGWToken(vm.envAddress("BGW_TOKEN"));
+        BGWToken bgwToken = BGWToken(vm.envAddress("BGW_TOKEN"));
         BGWGovToken govToken = BGWGovToken(vm.envAddress("GOV_TOKEN"));
 
         vm.startBroadcast(deployerKey);
