@@ -42,3 +42,38 @@ change `BGWVault` mint/redeem behavior yet.
    chain and source sender.
 6. Integrate confirmed hub NAV into `BGWVault` only after spoke reporting,
    stale-report handling, and redemption queues are audited.
+
+## Pinned Roadmap
+
+### Phase 1: Registry + Chain Configs
+
+- Add `BridgewayRegistry`.
+- Make adapters chain-aware.
+- Prepare Arbitrum, Base, and other chain configs.
+
+### Phase 2: Hub-and-Spoke Accounting
+
+- Arbitrum Hub remains the BGW mint, redeem, and accounting chain.
+- Spokes hold assets on native chains.
+- Spokes expose `totalAssets()`.
+- Hub stores confirmed NAV reports from each spoke.
+
+### Phase 3: CCIP Reporting
+
+- Spokes send confirmed NAV updates to Hub.
+- Hub rejects stale or unauthorized reports.
+- Pause mint/redeem if critical spoke data is stale.
+
+### Phase 4: Native Staking Adapters
+
+- SOL on Solana/Jito.
+- AVAX on Avalanche/Benqi.
+- BNB on BNB Chain.
+- LINK via Ethereum/stake.link.
+- BTC via Lombard/Babylon route.
+
+### Phase 5: Redemption Routing
+
+- Normal redemptions paid from the Arbitrum USDC buffer.
+- Large redemptions become queued.
+- Spokes unwind and route liquidity back to Arbitrum.
