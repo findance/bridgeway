@@ -39,6 +39,19 @@ Possible adapter:
 - value assets through Chainlink or a vetted oracle path
 - harvest any rewards into USDC
 
+Implemented base adapter:
+
+- `SleeveABasketAdapter` deploys USDC into a configurable basket of up to 10 approved assets.
+- Each configured asset must respect the Sleeve A 3% minimum and 30% maximum weight.
+- Weights must sum to 100%.
+- NAV is calculated from Chainlink-style token/USD feeds and token balances.
+- Withdrawals sell basket positions pro-rata back to USDC.
+- Buy and sell paths are configured per asset so routes can use liquid connector assets instead of requiring direct pairs.
+- Asset configuration can be changed only while the adapter is empty; an active basket must be unwound before replacing the approved asset list.
+- `rebalance()` sells overweight assets and buys underweight assets back toward the configured weights.
+- `emergencyUnwindAsset()` and `emergencyUnwindAll()` can exit positions into USDC without relying on fresh oracle prices.
+- The adapter is intentionally generic; governance/founder approval still controls which real assets, feeds, and routes are safe to use.
+
 ## Sleeve B: Stability
 
 Purpose: lower-volatility stablecoin yield.

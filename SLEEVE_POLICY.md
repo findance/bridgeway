@@ -34,11 +34,28 @@ Selection rules:
 
 Weighting rules:
 
-- Market-cap weighted.
+- Initial launch weights may be founder-approved fixed weights. Later weights should be updated by founder/governance proposal.
 - Maximum 30% of Sleeve A per asset.
 - Minimum 3% of Sleeve A per included asset.
 - If an asset falls below the 3% floor after market-cap weighting, raise it to 3% and proportionally scale down the uncapped assets.
 - If an asset exceeds the 30% cap, cap it at 30% and proportionally redistribute the excess to uncapped assets.
+
+Initial proposed Sleeve A weights:
+
+| Asset | Weight |
+| --- | ---: |
+| BTC | 25% |
+| ETH | 25% |
+| BNB | 8% |
+| SOL | 8% |
+| XRP | 7% |
+| LINK | 7% |
+| ADA | 6% |
+| AVAX | 5% |
+| TRX | 5% |
+| DOGE | 4% |
+
+This keeps BTC and ETH at 50% combined, places DOGE as the smallest approved exposure, and allocates the remaining 50% across the other eight assets.
 
 Rebalancing:
 
