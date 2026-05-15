@@ -9,8 +9,10 @@ while native-chain spokes hold and stake assets where liquidity is strongest.
 - Spoke chains: native asset custody, staking/lending adapters, local NAV.
 - CCIP/SmartData layer: confirmed NAV reports from spokes to hub.
 
-The current implementation is an infrastructure scaffold only. It does not
-change `BGWVault` mint/redeem behavior yet.
+The current implementation wires confirmed spoke NAV into `BGWVault` pricing
+when the owner connects a deployed `BridgewayHubNAV` through the vault timelock.
+CCIP delivery, native staking adapters, and queued redemption routing are still
+future phases.
 
 ## Contracts
 
@@ -21,6 +23,9 @@ change `BGWVault` mint/redeem behavior yet.
 - `BridgewayHubNAV`: hub-side confirmed NAV cache. It accepts reports only from
   configured reporters, enforces nonces, rejects stale reports, and bounds
   reported NAV movement.
+- `BGWVault`: optional `hubNAV` integration. `totalNAV()` is local sleeve NAV
+  plus confirmed spoke NAV; `totalLocalNAV()` and `totalSpokeNAV()` expose the
+  split for monitoring.
 
 ## Safety Rules
 
@@ -40,8 +45,10 @@ change `BGWVault` mint/redeem behavior yet.
 4. Deploy hub NAV cache on the hub chain.
 5. Wire CCIP receivers to call `reportSpokeNAV()` after validating source
    chain and source sender.
-6. Integrate confirmed hub NAV into `BGWVault` only after spoke reporting,
-   stale-report handling, and redemption queues are audited.
+6. Wire the deployed hub NAV into `BGWVault` with `proposeHubNAVUpdate()`, wait
+   the vault timelock, then call `executeHubNAVUpdate()`.
+7. Keep enough Arbitrum USDC/local sleeve liquidity for normal redemptions until
+   Phase 5 queued redemption routing is implemented.
 
 ## Pinned Roadmap
 
@@ -62,12 +69,27 @@ Phase 1 completion notes:
 - `04_DeployAndConfigureRegistry.s.sol` deploys and seeds a chain-local
   registry based on `block.chainid`.
 
-### Phase 2: Hub-and-Spoke Accounting
+### Phase 2: Hub-and-Spoke Accounting - Complete
 
 - Arbitrum Hub remains the BGW mint, redeem, and accounting chain.
 - Spokes hold assets on native chains.
 - Spokes expose `totalAssets()`.
 - Hub stores confirmed NAV reports from each spoke.
+
+Phase 2 completion notes:
+
+- `BridgewaySpokeReporter` now exposes both `totalAssets()` and
+  `totalAssetsUSDC()` for dashboard and vault-style integrations.
+- `BridgewayHubNAV` remains the confirmed spoke NAV cache with reporter,
+  staleness, nonce, and NAV-movement checks.
+- `BGWVault` can now be timelock-wired to a `BridgewayHubNAV` contract.
+- `totalNAV()` prices BGW from local sleeve NAV plus confirmed spoke NAV.
+- `totalLocalNAV()` and `totalSpokeNAV()` separate hub-chain liquidity from
+  remote spoke accounting.
+- Local sleeve reductions for redemptions and fees are calculated against
+  local NAV only. Remote spoke NAV is not silently reduced until Phase 5
+  redemption routing exists.
+- `05_DeployHubNAV.s.sol` deploys the hub NAV cache for the accounting chain.
 
 ### Phase 3: CCIP Reporting
 

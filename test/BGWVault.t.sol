@@ -5,6 +5,8 @@ import "forge-std/Test.sol";
 import "../contracts/tokens/BGWToken.sol";
 import "../contracts/tokens/BGWGovToken.sol";
 import "../contracts/core/BGWVault.sol";
+import "../contracts/core/BridgewayHubNAV.sol";
+import "../contracts/core/BridgewaySpokeReporter.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
 import "../contracts/mocks/MockSleeveAdapter.sol";
 import "../contracts/libraries/FeeLib.sol";
@@ -67,6 +69,7 @@ contract BGWVaultTest is Test {
 
     address constant USDC_ADDR     = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address constant CAMELOT_ADDR  = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
+    uint64 constant BASE_CHAIN_ID = 8453;
 
     function setUp() public {
         // ── Mock USDC ──────────────────────────────────────────────────────────
@@ -137,6 +140,29 @@ contract BGWVaultTest is Test {
         vm.prank(founder);
         vault.executeAutomation();
         vm.warp(block.timestamp + 180 days);
+    }
+
+    function _wireHubNAV(uint256 spokeNav18) internal returns (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) {
+        hub = new BridgewayHubNAV(founder);
+        spoke = new BridgewaySpokeReporter(founder, BASE_CHAIN_ID);
+
+        vm.prank(founder);
+        hub.configureSpoke(BASE_CHAIN_ID, address(spoke), 7 days, 1_000, true, true);
+
+        vm.prank(founder);
+        spoke.updateLocalNAV(spokeNav18);
+
+        (uint64 chainId, uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
+            abi.decode(spoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
+
+        vm.prank(address(spoke));
+        hub.reportSpokeNAV(chainId, navUsd18, reportedAt, sourceBlockNumber, nonce);
+
+        vm.prank(founder);
+        vault.proposeHubNAVUpdate(address(hub));
+        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY());
+        vm.prank(founder);
+        vault.executeHubNAVUpdate();
     }
 
     // ── NAV bootstrapping ────────────────────────────────────────────────────
@@ -322,6 +348,71 @@ contract BGWVaultTest is Test {
         assertEq(vault.sleeveAValue(), 700e6);
         assertEq(vault.sleeveBValue(), 250e6);
         assertEq(vault.sleeveCValue(),  50e6);
+    }
+
+    // ── Hub-and-spoke accounting ─────────────────────────────────────────────
+
+    function test_TotalNAVIncludesConfirmedSpokeNAV() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAV(500e18);
+
+        assertEq(vault.totalLocalNAV(), 1_000e6);
+        assertEq(vault.totalSpokeNAV(), 500e6);
+        assertEq(vault.totalNAV(), 1_500e6);
+    }
+
+    function test_DepositPricesAgainstConfirmedGlobalNAV() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAV(1_000e18);
+
+        vm.startPrank(bob);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(bgwToken.balanceOf(bob), 500e18);
+        assertEq(vault.totalLocalNAV(), 2_000e6);
+        assertEq(vault.totalSpokeNAV(), 1_000e6);
+    }
+
+    function test_RedeemAgainstGlobalNAVReducesLocalSleevesByGrossAmount() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAV(1_000e18);
+
+        vm.prank(alice);
+        vault.redeem(100e18, 0);
+
+        assertEq(vault.totalLocalNAV(), 800e6);
+        assertEq(vault.totalSpokeNAV(), 1_000e6);
+        assertEq(vault.totalNAV(), 1_800e6);
+    }
+
+    function test_MaterialStaleSpokeBlocksGlobalNAVPricing() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAV(1_000e18);
+        vm.warp(block.timestamp + 8 days);
+
+        vm.startPrank(bob);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.StaleReport.selector, BASE_CHAIN_ID));
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
     }
 
     // ── Redeem ────────────────────────────────────────────────────────────────

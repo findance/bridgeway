@@ -12,6 +12,7 @@ import "../tokens/BGWGovToken.sol";
 import "../interfaces/IChainlinkAggregator.sol";
 import "../interfaces/IAaveV3.sol";
 import "../interfaces/IMorphoBlue.sol";
+import "../interfaces/IBridgewayHubNAV.sol";
 import "../interfaces/ISleeveAdapter.sol";
 import "../libraries/FeeLib.sol";
 
@@ -102,6 +103,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Optional strategy adapters for sleeves A/B/C.
     ///         If unset, the sleeve uses manual vault accounting.
     address[3] public sleeveAdapters;
+
+    /// @notice Optional Arbitrum-side global NAV cache for confirmed native-chain spokes.
+    ///         When set, totalNAV() includes confirmed spoke NAV in addition to local sleeves.
+    address public hubNAV;
 
     /// @notice Governance-approved assets for each sleeve.
     mapping(uint8 => mapping(address => bool)) public trustedSleeveAssets;
@@ -244,6 +249,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     // Router / oracle address changes share the same timelock discipline.
     bytes32 public constant CHANGE_ROUTER = keccak256("CAMELOT_ROUTER");
+    bytes32 public constant CHANGE_HUB_NAV = keccak256("HUB_NAV");
 
     struct PendingAddressChange {
         address value;
@@ -319,6 +325,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event AddressChangeProposed(bytes32 indexed changeType, address newValue, uint256 executeAfter);
     event AddressChangeExecuted(bytes32 indexed changeType, address newValue);
     event AddressChangeCancelled(bytes32 indexed changeType);
+    event HubNAVSet(address indexed hubNAV);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Errors
@@ -414,7 +421,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         The buyback accumulator is also excluded because it is reserved
     ///         for future BGW buyback-and-burn actions, not ordinary redeemable NAV.
     function totalNAV() public view returns (uint256) {
+        return totalLocalNAV() + totalSpokeNAV();
+    }
+
+    /// @notice NAV held on the hub chain in local sleeves.
+    function totalLocalNAV() public view returns (uint256) {
         return _sleeveValue(SLEEVE_A) + _sleeveValue(SLEEVE_B) + _sleeveValue(SLEEVE_C);
+    }
+
+    /// @notice Confirmed spoke NAV cached by the hub NAV contract.
+    function totalSpokeNAV() public view returns (uint256) {
+        address nav = hubNAV;
+        if (nav == address(0)) return 0;
+        return IBridgewayHubNAV(nav).totalSpokeNAVUSDC();
     }
 
     /// @notice Current USDC-denominated value for one sleeve.
@@ -942,6 +961,31 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit AddressChangeCancelled(CHANGE_ROUTER);
     }
 
+    /// @notice Propose wiring the vault to an Arbitrum-side confirmed spoke NAV cache.
+    ///         Use address(0) to disconnect hub-spoke accounting.
+    function proposeHubNAVUpdate(address newHubNAV) external onlyOwner {
+        if (newHubNAV != address(0)) require(newHubNAV.code.length > 0, "BGWVault: hub NAV not contract");
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        pendingAddressChanges[CHANGE_HUB_NAV] = PendingAddressChange(newHubNAV, eta);
+        emit AddressChangeProposed(CHANGE_HUB_NAV, newHubNAV, eta);
+    }
+
+    function executeHubNAVUpdate() external onlyOwner {
+        PendingAddressChange memory p = pendingAddressChanges[CHANGE_HUB_NAV];
+        if (p.executeAfter == 0)             revert NoPendingChange(CHANGE_HUB_NAV);
+        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
+        delete pendingAddressChanges[CHANGE_HUB_NAV];
+        hubNAV = p.value;
+        emit AddressChangeExecuted(CHANGE_HUB_NAV, p.value);
+        emit HubNAVSet(p.value);
+    }
+
+    function cancelHubNAVUpdate() external onlyOwner {
+        if (pendingAddressChanges[CHANGE_HUB_NAV].executeAfter == 0) revert NoPendingChange(CHANGE_HUB_NAV);
+        delete pendingAddressChanges[CHANGE_HUB_NAV];
+        emit AddressChangeCancelled(CHANGE_HUB_NAV);
+    }
+
     /// @notice Set or clear the strategy adapter for one sleeve.
     ///         Use address(0) to return a sleeve to manual accounting.
     function setSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner {
@@ -1119,8 +1163,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @dev Reduce portfolio sleeves proportionally when holder NAV leaves the vault.
     ///      The buyback accumulator is a separate reserve and is not redeemable NAV.
     function _reduceSleevesProRata(uint256 grossUsdc) internal {
-        uint256 nav = totalNAV();
+        uint256 nav = totalLocalNAV();
         if (nav == 0) return;
+        require(grossUsdc <= nav, "BGWVault: insufficient local NAV");
 
         _withdrawFromSleeve(SLEEVE_A, (_sleeveValue(SLEEVE_A) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_B, (_sleeveValue(SLEEVE_B) * grossUsdc) / nav);

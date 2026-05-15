@@ -44,6 +44,10 @@ contract BridgewaySpokeReporter is IBridgewaySpoke, Ownable2Step {
         return Math.mulDiv(navUsd18, 10 ** USDC_DECIMALS, 10 ** VALUE_DECIMALS);
     }
 
+    function totalAssets() external view returns (uint256) {
+        return Math.mulDiv(navUsd18, 10 ** USDC_DECIMALS, 10 ** VALUE_DECIMALS);
+    }
+
     function buildReport() external view returns (bytes memory) {
         return abi.encode(sourceChainId, navUsd18, reportedAt, sourceBlockNumber, nonce);
     }
