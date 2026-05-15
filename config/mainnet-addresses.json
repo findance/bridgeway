@@ -10,15 +10,15 @@
     "sha256": null
   },
   "chains": {
-    "42161": {
-      "chainId": 42161,
-      "name": "Arbitrum One",
+    "1": {
+      "chainId": 1,
+      "name": "Ethereum",
       "ccip": {
         "version": "chainlink-contracts-1.5.0",
-        "selector": "4949039107694359620",
-        "router": "0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1",
-        "explorer": "https://arbiscan.io/address/0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
+        "selector": "5009297550715157269",
+        "router": "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/mainnet",
+        "explorer": "https://etherscan.io/address/0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
         "verification": {
           "verified_at": null,
           "verified_by": null,
@@ -46,31 +46,58 @@
           "founder": null
         }
       },
-      "assets": {
-        "USDC": {
-          "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
-          "priceFeed": "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3",
-          "tokenDecimals": 6,
-          "feedDecimals": 8
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
+    },
+    "56": {
+      "chainId": 56,
+      "name": "BNB Chain",
+      "ccip": {
+        "version": "chainlink-contracts-1.5.0",
+        "selector": "11344663589394136015",
+        "router": "0x34B03Cb9086d7D758AC55af71584F81A598759FE",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/bsc-mainnet",
+        "explorer": "https://bscscan.com/address/0x34B03Cb9086d7D758AC55af71584F81A598759FE",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
         },
-        "WETH": {
-          "token": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
-          "priceFeed": "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
-          "tokenDecimals": 18,
-          "feedDecimals": 8
-        },
-        "WBTC": {
-          "token": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
-          "priceFeed": "0x6ce185860a4963106506C203335A2910413708e9",
-          "tokenDecimals": 8,
-          "feedDecimals": 8
-        },
-        "LINK": {
-          "token": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
-          "priceFeed": "0x86E53CF1B870786351Da77A57575e79CB55812CB",
-          "tokenDecimals": 18,
-          "feedDecimals": 8
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
         }
+      },
+      "multisig": {
+        "registry_owner": null,
+        "vault_owner": null,
+        "hub_nav_owner": null,
+        "ccip_receiver_owner": null,
+        "automation": null,
+        "emergency": null,
+        "treasury": {
+          "team": null,
+          "holdback": null,
+          "reserve": null,
+          "founder": null
+        }
+      },
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
       }
     },
     "8453": {
@@ -134,6 +161,83 @@
           "tokenDecimals": 18,
           "feedDecimals": 8
         }
+      },
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
+    },
+    "42161": {
+      "chainId": 42161,
+      "name": "Arbitrum One",
+      "ccip": {
+        "version": "chainlink-contracts-1.5.0",
+        "selector": "4949039107694359620",
+        "router": "0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1",
+        "explorer": "https://arbiscan.io/address/0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
+      },
+      "multisig": {
+        "registry_owner": null,
+        "vault_owner": null,
+        "hub_nav_owner": null,
+        "ccip_receiver_owner": null,
+        "automation": null,
+        "emergency": null,
+        "treasury": {
+          "team": null,
+          "holdback": null,
+          "reserve": null,
+          "founder": null
+        }
+      },
+      "assets": {
+        "USDC": {
+          "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+          "priceFeed": "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3",
+          "tokenDecimals": 6,
+          "feedDecimals": 8
+        },
+        "WETH": {
+          "token": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+          "priceFeed": "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
+          "tokenDecimals": 18,
+          "feedDecimals": 8
+        },
+        "WBTC": {
+          "token": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+          "priceFeed": "0x6ce185860a4963106506C203335A2910413708e9",
+          "tokenDecimals": 8,
+          "feedDecimals": 8
+        },
+        "LINK": {
+          "token": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+          "priceFeed": "0x86E53CF1B870786351Da77A57575e79CB55812CB",
+          "tokenDecimals": 18,
+          "feedDecimals": 8
+        }
+      },
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
       }
     },
     "43114": {
@@ -172,83 +276,14 @@
           "founder": null
         }
       },
-      "assets": {}
-    },
-    "56": {
-      "chainId": 56,
-      "name": "BNB Chain",
-      "ccip": {
-        "version": "chainlink-contracts-1.5.0",
-        "selector": "11344663589394136015",
-        "router": "0x34B03Cb9086d7D758AC55af71584F81A598759FE",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/bsc-mainnet",
-        "explorer": "https://bscscan.com/address/0x34B03Cb9086d7D758AC55af71584F81A598759FE",
-        "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
-        },
-        "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
-        }
-      },
-      "multisig": {
-        "registry_owner": null,
-        "vault_owner": null,
-        "hub_nav_owner": null,
-        "ccip_receiver_owner": null,
-        "automation": null,
-        "emergency": null,
-        "treasury": {
-          "team": null,
-          "holdback": null,
-          "reserve": null,
-          "founder": null
-        }
-      },
-      "assets": {}
-    },
-    "1": {
-      "chainId": 1,
-      "name": "Ethereum",
-      "ccip": {
-        "version": "chainlink-contracts-1.5.0",
-        "selector": "5009297550715157269",
-        "router": "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
-        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/mainnet",
-        "explorer": "https://etherscan.io/address/0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
-        "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
-        },
-        "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
-        }
-      },
-      "multisig": {
-        "registry_owner": null,
-        "vault_owner": null,
-        "hub_nav_owner": null,
-        "ccip_receiver_owner": null,
-        "automation": null,
-        "emergency": null,
-        "treasury": {
-          "team": null,
-          "holdback": null,
-          "reserve": null,
-          "founder": null
-        }
-      },
-      "assets": {}
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
     }
   },
   "manualConfirmationRequired": [

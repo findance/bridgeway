@@ -10,15 +10,15 @@
     "sha256": null
   },
   "chains": {
-    "421614": {
-      "chainId": 421614,
-      "name": "Arbitrum Sepolia",
+    "97": {
+      "chainId": 97,
+      "name": "BNB Chain Testnet",
       "ccip": {
         "version": "chainlink-contracts-1.5.0",
-        "selector": "3478487238524512106",
-        "router": "0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-arbitrum-1",
-        "explorer": "https://sepolia.arbiscan.io/address/0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
+        "selector": "13264668187771770619",
+        "router": "0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/bsc-testnet",
+        "explorer": "https://testnet.bscscan.com/address/0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
         "verification": {
           "verified_at": null,
           "verified_by": null,
@@ -32,31 +32,14 @@
           "last_probed_at": null
         }
       },
-      "assets": {}
-    },
-    "84532": {
-      "chainId": 84532,
-      "name": "Base Sepolia",
-      "ccip": {
-        "version": "chainlink-contracts-1.5.0",
-        "selector": "10344971235874465080",
-        "router": "0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-base-1",
-        "explorer": "https://sepolia.basescan.org/address/0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
-        "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
-        },
-        "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
-        }
-      },
-      "assets": {}
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
     },
     "43113": {
       "chainId": 43113,
@@ -80,17 +63,24 @@
           "last_probed_at": null
         }
       },
-      "assets": {}
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
     },
-    "97": {
-      "chainId": 97,
-      "name": "BNB Chain Testnet",
+    "84532": {
+      "chainId": 84532,
+      "name": "Base Sepolia",
       "ccip": {
         "version": "chainlink-contracts-1.5.0",
-        "selector": "13264668187771770619",
-        "router": "0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/bsc-testnet",
-        "explorer": "https://testnet.bscscan.com/address/0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
+        "selector": "10344971235874465080",
+        "router": "0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-base-1",
+        "explorer": "https://sepolia.basescan.org/address/0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
         "verification": {
           "verified_at": null,
           "verified_by": null,
@@ -104,17 +94,24 @@
           "last_probed_at": null
         }
       },
-      "assets": {}
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
     },
-    "11155111": {
-      "chainId": 11155111,
-      "name": "Ethereum Sepolia",
+    "421614": {
+      "chainId": 421614,
+      "name": "Arbitrum Sepolia",
       "ccip": {
         "version": "chainlink-contracts-1.5.0",
-        "selector": "16015286601757825753",
-        "router": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
-        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia",
-        "explorer": "https://sepolia.etherscan.io/address/0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+        "selector": "3478487238524512106",
+        "router": "0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-arbitrum-1",
+        "explorer": "https://sepolia.arbiscan.io/address/0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
         "verification": {
           "verified_at": null,
           "verified_by": null,
@@ -128,7 +125,14 @@
           "last_probed_at": null
         }
       },
-      "assets": {}
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
     },
     "560048": {
       "chainId": 560048,
@@ -153,7 +157,45 @@
         }
       },
       "assets": {},
-      "note": "Optional Ethereum testnet. Use Sepolia as default unless Bridgeway specifically needs Hoodi staking/validator-style rehearsal."
+      "note": "Optional Ethereum testnet. Use Sepolia as default unless Bridgeway specifically needs Hoodi staking/validator-style rehearsal.",
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
+    },
+    "11155111": {
+      "chainId": 11155111,
+      "name": "Ethereum Sepolia",
+      "ccip": {
+        "version": "chainlink-contracts-1.5.0",
+        "selector": "16015286601757825753",
+        "router": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia",
+        "explorer": "https://sepolia.etherscan.io/address/0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+        "verification": {
+          "verified_at": null,
+          "verified_by": null,
+          "source_verified": false
+        },
+        "validation": {
+          "router_is_contract": null,
+          "router_code_hash": null,
+          "selector_matches_router": null,
+          "last_probed_block": null,
+          "last_probed_at": null
+        }
+      },
+      "assets": {},
+      "ccip_infra": {
+        "deployCritical": false,
+        "rmn": null,
+        "token_admin_registry": null,
+        "registry_module_owner": null,
+        "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      }
     }
   },
   "manualConfirmationRequired": [

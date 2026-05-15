@@ -79,6 +79,7 @@ These inputs are intentionally not hardcoded as confirmed deployment values yet.
 | Native staking wrappers | Confirm exact protocol contracts for wstETH, LBTC, sAVAX, BNB staking, stake.link/LINK, and any ERC4626-compatible wrappers. |
 | BNB USDC | Decide whether to use Binance-peg USDC or avoid USDC on BNB. Circle's public supported-chain list does not currently make BNB native USDC a confirmed Bridgeway input. |
 | cbBTC outside Base/Ethereum | Treat any Arbitrum cbBTC address as unapproved until Coinbase documentation and liquidity are verified. |
+| CCIP infrastructure metadata | Optional `ccip_infra` rows are documentation and monitoring only. Deploy scripts must not read RMN or registry-module addresses as deployment inputs. |
 
 ## Operator Verification Standard
 
@@ -93,3 +94,4 @@ These inputs are intentionally not hardcoded as confirmed deployment values yet.
 9. Fill every mainnet `multisig` field with the approved Safe or operations wallet.
 10. Flip `status` only after approval: `approved-for-mainnet` or `approved-for-testnet`.
 11. Run `npm run validate:addresses`; deployment scripts must use the same broadcast guard.
+12. If `ccip_infra` is filled, verify those addresses from Chainlink/explorer sources and keep `deployCritical` set to `false`.

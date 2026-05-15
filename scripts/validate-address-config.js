@@ -92,6 +92,12 @@ function validateChain(key, chain) {
   if (config.environment === "mainnet" && !chain.multisig) {
     fail(`chains.${key}.multisig is required for mainnet`);
   }
+
+  if (chain.ccip_infra) {
+    if (chain.ccip_infra.deployCritical !== false) {
+      fail(`chains.${key}.ccip_infra.deployCritical must be false`);
+    }
+  }
 }
 
 validateStatus();
