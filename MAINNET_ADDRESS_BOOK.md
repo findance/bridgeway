@@ -81,6 +81,15 @@ These inputs are intentionally not hardcoded as confirmed deployment values yet.
 | cbBTC outside Base/Ethereum | Treat any Arbitrum cbBTC address as unapproved until Coinbase documentation and liquidity are verified. |
 | CCIP infrastructure metadata | Optional `ccip_infra` rows are documentation and monitoring only. Deploy scripts must not read RMN or registry-module addresses as deployment inputs. |
 
+## CCIP Version Policy
+
+Bridgeway targets Chainlink CCIP v1.6 via `@chainlink/contracts-ccip`.
+The v1.6 line is preferred for v3 because it adds the architecture Chainlink
+uses for Solana/non-EVM expansion and lower execution costs while preserving
+existing EVM application compatibility. Router addresses remain sourced from
+the CCIP directory per chain and must be re-confirmed immediately before
+deployment.
+
 ## Operator Verification Standard
 
 1. Pull token and oracle addresses from the official protocol or Chainlink page.

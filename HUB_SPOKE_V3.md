@@ -124,6 +124,9 @@ Phase 3 completion notes:
   sender bytes.
 - The receiver verifies that the report payload's spoke chain ID matches the
   configured spoke chain ID for that CCIP selector.
+- The repo targets Chainlink CCIP v1.6 contracts for the v3 design. This keeps
+  the EVM receiver path compatible with current routers while aligning future
+  Solana/native-spoke work with Chainlink's non-EVM CCIP architecture.
 - `BridgewayHubNAV` still enforces stale-report, nonce, unauthorized reporter,
   disabled spoke, and NAV-movement checks after CCIP validation.
 - `BGWVault` mint/redeem pricing already calls `totalNAV()`, so material stale

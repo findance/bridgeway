@@ -3,7 +3,7 @@
   "environment": "testnet",
   "status": "draft-testnet-confirmed-ccip",
   "requiredStatusForBroadcast": "approved-for-testnet",
-  "ccipInterfaceVersion": "chainlink-contracts-1.5.0",
+  "ccipInterfaceVersion": "chainlink-ccip-1.6.4",
   "warning": "Testnet values are for rehearsals only. Never use these in a mainnet deployment.",
   "fileIntegrity": {
     "gitCommit": null,
@@ -14,7 +14,7 @@
       "chainId": 97,
       "name": "BNB Chain Testnet",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "13264668187771770619",
         "router": "0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
         "source": "https://docs.chain.link/ccip/directory/testnet/chain/bsc-testnet",
@@ -45,7 +45,7 @@
       "chainId": 43113,
       "name": "Avalanche Fuji",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "14767482510784806043",
         "router": "0xF694E193200268f9a4868e4Aa017A0118C9a8177",
         "source": "https://docs.chain.link/ccip/directory/testnet/chain/avalanche-fuji-testnet",
@@ -76,7 +76,7 @@
       "chainId": 84532,
       "name": "Base Sepolia",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "10344971235874465080",
         "router": "0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
         "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-base-1",
@@ -107,7 +107,7 @@
       "chainId": 421614,
       "name": "Arbitrum Sepolia",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "3478487238524512106",
         "router": "0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
         "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-arbitrum-1",
@@ -138,7 +138,7 @@
       "chainId": 560048,
       "name": "Ethereum Hoodi",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "10380998176179737091",
         "router": "0xc93Dac3422660A41500a24C94BF14616995e3CA6",
         "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-hoodi",
@@ -170,7 +170,7 @@
       "chainId": 11155111,
       "name": "Ethereum Sepolia",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "16015286601757825753",
         "router": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
         "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia",

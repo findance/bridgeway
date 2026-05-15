@@ -3,7 +3,7 @@
   "environment": "mainnet",
   "status": "draft-mainnet-confirmed-inputs",
   "requiredStatusForBroadcast": "approved-for-mainnet",
-  "ccipInterfaceVersion": "chainlink-contracts-1.5.0",
+  "ccipInterfaceVersion": "chainlink-ccip-1.6.4",
   "warning": "Do not deploy until status is approved-for-mainnet, every manualConfirmationRequired item is filled, and all on-chain probes pass.",
   "fileIntegrity": {
     "gitCommit": null,
@@ -14,7 +14,7 @@
       "chainId": 1,
       "name": "Ethereum",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "5009297550715157269",
         "router": "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/mainnet",
@@ -74,7 +74,7 @@
       "chainId": 56,
       "name": "BNB Chain",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "11344663589394136015",
         "router": "0x34B03Cb9086d7D758AC55af71584F81A598759FE",
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/bsc-mainnet",
@@ -134,7 +134,7 @@
       "chainId": 8453,
       "name": "Base",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "15971525489660198786",
         "router": "0x881e3A65B4d4a04dD529061dd0071cf975F58bCD",
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-base-1",
@@ -219,7 +219,7 @@
       "chainId": 42161,
       "name": "Arbitrum One",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "4949039107694359620",
         "router": "0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1",
@@ -304,7 +304,7 @@
       "chainId": 43114,
       "name": "Avalanche C-Chain",
       "ccip": {
-        "version": "chainlink-contracts-1.5.0",
+        "version": "chainlink-ccip-1.6.4",
         "selector": "6433500567565415381",
         "router": "0xF4c7E640EdA248ef95972845a62bdC74237805dB",
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/avalanche-mainnet",
@@ -362,7 +362,7 @@
     }
   },
   "manualConfirmationRequired": [
-    "CCIP interface version compatibility check",
+    "CCIP v1.6.4 interface/router compatibility check",
     "deployed spoke source sender bytes",
     "multisig owner/operator/treasury addresses",
     "native staking wrapper addresses",
