@@ -130,6 +130,27 @@ function validateChain(key, chain) {
     }
   }
 
+  if (config.environment === "mainnet" && chain.chainId === 56) {
+    if (chain.settlementAsset) {
+      fail("chains.56.settlementAsset must remain unset: BNB Chain USDC is not approved for redemption settlement");
+    }
+    const policy = chain.settlementPolicy;
+    if (!policy) {
+      fail("chains.56.settlementPolicy is required");
+    } else {
+      if (policy.status !== "rejected-for-redemption-settlement") {
+        fail("chains.56.settlementPolicy.status must reject redemption settlement");
+      }
+      if (policy.asset !== "USDC") {
+        fail("chains.56.settlementPolicy.asset must be USDC");
+      }
+      if (!Array.isArray(policy.forbiddenUses) || !policy.forbiddenUses.includes("redemption-settlement")) {
+        fail("chains.56.settlementPolicy.forbiddenUses must include redemption-settlement");
+      }
+      requireString(policy.redemptionRoute, "chains.56.settlementPolicy.redemptionRoute");
+    }
+  }
+
   if (config.environment === "mainnet" && !chain.multisig) {
     fail(`chains.${key}.multisig is required for mainnet`);
   }

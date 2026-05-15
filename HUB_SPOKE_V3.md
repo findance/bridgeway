@@ -164,6 +164,9 @@ Phase 4 completion notes:
 - Normal redemptions paid from the Arbitrum USDC buffer.
 - Large redemptions become queued.
 - Spokes unwind and route liquidity back to Arbitrum.
+- BNB Chain is not an approved USDC settlement chain. BNB exposure must be held
+  as native BNB in a spoke, reported to the hub as USD NAV, then unstaked and
+  routed back to Arbitrum USDC before any queued redemption is claimable.
 
 Phase 5 completion notes:
 

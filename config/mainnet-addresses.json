@@ -113,6 +113,21 @@
         "token_admin_registry": "0x736Fd8660c443547a85e4Eaf70A49C1b7Bb008fc",
         "registry_module_owner": "0x47Db76c9c97F4bcFd54D8872FDb848Cab696092d",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
+      },
+      "settlementPolicy": {
+        "status": "rejected-for-redemption-settlement",
+        "asset": "USDC",
+        "reason": "Bridgeway does not approve Binance-peg USDC as a vault settlement asset. BNB Chain can hold and stake native BNB as a spoke, but redemptions must settle from Arbitrum USDC after unwind/routing.",
+        "allowedUses": [
+          "native-bnb-spoke-nav-reporting",
+          "temporary-operator-approved-routing-only"
+        ],
+        "forbiddenUses": [
+          "redemption-settlement",
+          "hub-accounting-collateral",
+          "persistent-usdc-sleeve-balance"
+        ],
+        "redemptionRoute": "unstake native BNB -> swap/route via approved router -> Arbitrum USDC buffer -> claim queued redemption"
       }
     },
     "8453": {
@@ -351,7 +366,7 @@
     "deployed spoke source sender bytes",
     "multisig owner/operator/treasury addresses",
     "native staking wrapper addresses",
-    "BNB Chain USDC policy",
+    "BNB Chain native staking contract and unwind route",
     "cbBTC policy outside Base/Ethereum",
     "fileIntegrity.gitCommit and fileIntegrity.sha256 after approval"
   ],
