@@ -4,6 +4,11 @@
   "chains": {
     "42161": {
       "name": "Arbitrum One",
+      "ccip": {
+        "selector": "4949039107694359620",
+        "router": "0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1"
+      },
       "assets": {
         "USDC": {
           "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",

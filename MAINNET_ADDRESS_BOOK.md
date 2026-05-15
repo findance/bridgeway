@@ -31,14 +31,20 @@ These are the chain-local assets currently seeded by
 | Avalanche C-Chain | 43114 |
 | BNB Chain | 56 |
 
+## Confirmed CCIP Inputs
+
+| Chain | EVM chain ID | CCIP selector | Router | Source |
+| --- | ---: | ---: | --- | --- |
+| Arbitrum One | 42161 | `4949039107694359620` | `0x141fa059441E0ca23ce184B6A78bafD2A517DdE8` | Chainlink CCIP Directory |
+
 ## Manual Confirmation Required
 
 These inputs are intentionally not hardcoded as confirmed deployment values yet.
 
 | Area | What remains |
 | --- | --- |
-| CCIP selectors | Re-copy each selector directly from the current Chainlink CCIP directory immediately before deployment. Do not infer from old tables. |
-| CCIP routers | Pick the router version that matches the imported CCIP interfaces and confirm each router from the current Chainlink CCIP directory. |
+| CCIP selectors | Arbitrum One is confirmed. Re-copy each remaining selector directly from the current Chainlink CCIP directory immediately before deployment. Do not infer from old tables. |
+| CCIP routers | Arbitrum One is confirmed. Pick the router version that matches the imported CCIP interfaces and confirm each remaining router from the current Chainlink CCIP directory. |
 | Source sender bytes | Fill only after each spoke reporter is deployed. The hub must pin exact encoded sender bytes per CCIP selector. |
 | Owner and operator addresses | Replace all EOAs with approved multisigs for owner, automation, treasury, and pause roles. |
 | Native staking wrappers | Confirm exact protocol contracts for wstETH, LBTC, sAVAX, BNB staking, stake.link/LINK, and any ERC4626-compatible wrappers. |
