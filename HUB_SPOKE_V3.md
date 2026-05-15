@@ -11,8 +11,7 @@ while native-chain spokes hold and stake assets where liquidity is strongest.
 
 The current implementation wires confirmed spoke NAV into `BGWVault` pricing
 when the owner connects a deployed `BridgewayHubNAV` through the vault timelock.
-CCIP delivery, native staking adapters, and queued redemption routing are still
-future phases.
+Native staking adapters and queued redemption routing are still future phases.
 
 ## Contracts
 
@@ -23,6 +22,10 @@ future phases.
 - `BridgewayHubNAV`: hub-side confirmed NAV cache. It accepts reports only from
   configured reporters, enforces nonces, rejects stale reports, and bounds
   reported NAV movement.
+- `BridgewayCCIPNAVReceiver`: hub-chain CCIP entry point. It accepts messages
+  only from the configured Chainlink router, verifies the source chain selector
+  and exact source sender bytes, then forwards the decoded NAV report to
+  `BridgewayHubNAV`.
 - `BGWVault`: optional `hubNAV` integration. `totalNAV()` is local sleeve NAV
   plus confirmed spoke NAV; `totalLocalNAV()` and `totalSpokeNAV()` expose the
   split for monitoring.
@@ -33,6 +36,9 @@ future phases.
 - A spoke report is usable only after confirmed delivery to the hub.
 - Material spokes block aggregate NAV if their report is stale.
 - Reporters are allowlisted per source chain.
+- CCIP source selectors are not EVM chain IDs. The receiver maps each CCIP
+  selector to the expected Bridgeway spoke chain ID.
+- Source sender bytes are hashed and pinned per CCIP selector.
 - Report nonces must increase monotonically.
 - Values are normalized to 18-decimal USD internally and can be exposed as
   6-decimal USDC for vault integration.
@@ -42,12 +48,14 @@ future phases.
 1. Deploy one `BridgewayRegistry` per chain.
 2. Configure chain-local token and oracle addresses in that chain's registry.
 3. Deploy spoke reporters next to native-chain adapters.
-4. Deploy hub NAV cache on the hub chain.
-5. Wire CCIP receivers to call `reportSpokeNAV()` after validating source
-   chain and source sender.
-6. Wire the deployed hub NAV into `BGWVault` with `proposeHubNAVUpdate()`, wait
+4. Deploy hub NAV cache on the hub chain with `05_DeployHubNAV.s.sol`.
+5. Deploy hub-chain CCIP receiver with `06_DeployCCIPNAVReceiver.s.sol`.
+6. Configure each CCIP source with `configureSource(ccipSelector, spokeChainId,
+   sourceSenderBytes, true)`.
+7. Configure `BridgewayHubNAV` so each spoke reporter is the CCIP receiver.
+8. Wire the deployed hub NAV into `BGWVault` with `proposeHubNAVUpdate()`, wait
    the vault timelock, then call `executeHubNAVUpdate()`.
-7. Keep enough Arbitrum USDC/local sleeve liquidity for normal redemptions until
+9. Keep enough Arbitrum USDC/local sleeve liquidity for normal redemptions until
    Phase 5 queued redemption routing is implemented.
 
 ## Pinned Roadmap
@@ -91,11 +99,27 @@ Phase 2 completion notes:
   redemption routing exists.
 - `05_DeployHubNAV.s.sol` deploys the hub NAV cache for the accounting chain.
 
-### Phase 3: CCIP Reporting
+### Phase 3: CCIP Reporting - Complete
 
 - Spokes send confirmed NAV updates to Hub.
 - Hub rejects stale or unauthorized reports.
 - Pause mint/redeem if critical spoke data is stale.
+
+Phase 3 completion notes:
+
+- `BridgewayCCIPNAVReceiver` is the only contract that should be allowlisted as
+  the reporter in `BridgewayHubNAV` for CCIP-driven spokes.
+- The receiver rejects messages from any caller other than the configured CCIP
+  router.
+- The receiver rejects unconfigured CCIP source selectors and mismatched source
+  sender bytes.
+- The receiver verifies that the report payload's spoke chain ID matches the
+  configured spoke chain ID for that CCIP selector.
+- `BridgewayHubNAV` still enforces stale-report, nonce, unauthorized reporter,
+  disabled spoke, and NAV-movement checks after CCIP validation.
+- `BGWVault` mint/redeem pricing already calls `totalNAV()`, so material stale
+  spoke data blocks mint/redeem through the hub NAV stale-report revert.
+- `06_DeployCCIPNAVReceiver.s.sol` deploys the hub-chain CCIP receiver.
 
 ### Phase 4: Native Staking Adapters
 
