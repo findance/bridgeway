@@ -1,0 +1,22 @@
+{
+  "status": "confirmed-testnet-ccip-only",
+  "warning": "Testnet values are for rehearsals only. Never use these in a mainnet deployment.",
+  "chains": {
+    "421614": {
+      "name": "Arbitrum Sepolia",
+      "ccip": {
+        "selector": "3478487238524512106",
+        "router": "0x2a9C5afB0d0e4BAb2BCdaE109EC4b0c4Be15a165",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-arbitrum-1"
+      },
+      "assets": {}
+    }
+  },
+  "manualConfirmationRequired": [
+    "testnet token addresses",
+    "testnet price feed addresses",
+    "testnet LINK fee token",
+    "testnet spoke source sender bytes",
+    "testnet operator addresses"
+  ]
+}
