@@ -49,9 +49,9 @@
       "assets": {},
       "ccip_infra": {
         "deployCritical": false,
-        "rmn": null,
-        "token_admin_registry": null,
-        "registry_module_owner": null,
+        "rmn": "0x411dE17f12D1A34ecC7F45f49844626267c75e81",
+        "token_admin_registry": "0xb22764f98dD05c789929716D677382Df22C05Cb6",
+        "registry_module_owner": "0x4855174E9479E211337832E109E7721d43A4CA64",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
       }
     },
@@ -94,9 +94,9 @@
       "assets": {},
       "ccip_infra": {
         "deployCritical": false,
-        "rmn": null,
-        "token_admin_registry": null,
-        "registry_module_owner": null,
+        "rmn": "0x9e09697842194f77d315E0907F1Bda77922e8f84",
+        "token_admin_registry": "0x736Fd8660c443547a85e4Eaf70A49C1b7Bb008fc",
+        "registry_module_owner": "0x47Db76c9c97F4bcFd54D8872FDb848Cab696092d",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
       }
     },
@@ -164,9 +164,9 @@
       },
       "ccip_infra": {
         "deployCritical": false,
-        "rmn": null,
-        "token_admin_registry": null,
-        "registry_module_owner": null,
+        "rmn": "0xC842c69d54F83170C42C4d556B4F6B2ca53Dd3E8",
+        "token_admin_registry": "0x6f6C373d09C07425BaAE72317863d7F6bb731e37",
+        "registry_module_owner": "0xAFEd606Bd2CAb6983fC6F10167c98aaC2173D77f",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
       }
     },
@@ -234,9 +234,9 @@
       },
       "ccip_infra": {
         "deployCritical": false,
-        "rmn": null,
-        "token_admin_registry": null,
-        "registry_module_owner": null,
+        "rmn": "0xC311a21e6fEf769344EB1515588B9d535662a145",
+        "token_admin_registry": "0x39AE1032cF4B334a1Ed41cdD0833bdD7c7E7751E",
+        "registry_module_owner": "0x1f1df9f7fc939E71819F766978d8F900B816761b",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
       }
     },
@@ -279,9 +279,9 @@
       "assets": {},
       "ccip_infra": {
         "deployCritical": false,
-        "rmn": null,
-        "token_admin_registry": null,
-        "registry_module_owner": null,
+        "rmn": "0xcBD48A8eB077381c3c4Eb36b402d7283aB2b11Bc",
+        "token_admin_registry": "0xc8df5D618c6a59Cc6A311E96a39450381001464F",
+        "registry_module_owner": "0x76Aa17dCda9E8529149E76e9ffaE4aD1C4AD701B",
         "notes": "Documentation and monitoring only. Deployment scripts must not read this block."
       }
     }

@@ -97,6 +97,10 @@ function validateChain(key, chain) {
     if (chain.ccip_infra.deployCritical !== false) {
       fail(`chains.${key}.ccip_infra.deployCritical must be false`);
     }
+    for (const field of ["rmn", "token_admin_registry", "registry_module_owner"]) {
+      const value = chain.ccip_infra[field];
+      if (value !== null && value !== undefined) requireAddress(value, `chains.${key}.ccip_infra.${field}`);
+    }
   }
 }
 
