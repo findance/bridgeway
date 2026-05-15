@@ -130,6 +130,22 @@ function validateChain(key, chain) {
     }
   }
 
+  for (const [symbol, wrapper] of Object.entries(chain.stakingWrappers || {})) {
+    requireString(wrapper.symbol, `chains.${key}.stakingWrappers.${symbol}.symbol`);
+    requireAddress(wrapper.token, `chains.${key}.stakingWrappers.${symbol}.token`);
+    requireString(wrapper.type, `chains.${key}.stakingWrappers.${symbol}.type`);
+    requireString(wrapper.status, `chains.${key}.stakingWrappers.${symbol}.status`);
+    requireString(wrapper.explorer, `chains.${key}.stakingWrappers.${symbol}.explorer`);
+    if (!Array.isArray(wrapper.sources) || wrapper.sources.length === 0) {
+      fail(`chains.${key}.stakingWrappers.${symbol}.sources must be a non-empty array`);
+    }
+    if (chain.chainId === 42161 && symbol === "LBTC") {
+      if (wrapper.status !== "blocked-redundant-pending-lombard-registry") {
+        fail("chains.42161.stakingWrappers.LBTC must remain blocked until Lombard lists Arbitrum");
+      }
+    }
+  }
+
   if (config.environment === "mainnet" && chain.chainId === 56) {
     if (chain.settlementAsset) {
       fail("chains.56.settlementAsset must remain unset: BNB Chain USDC is not approved for redemption settlement");

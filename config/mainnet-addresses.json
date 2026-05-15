@@ -68,6 +68,44 @@
           "neverValueAboveUsd": true,
           "method": "min(chainlink-usdc-usd, 1e8)"
         }
+      },
+      "stakingWrappers": {
+        "wstETH": {
+          "symbol": "wstETH",
+          "token": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+          "type": "value-accruing-erc20-non-rebasing",
+          "status": "verified",
+          "sources": [
+            "https://docs.lido.fi/contracts/wsteth/",
+            "https://etherscan.io/address/0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
+          ],
+          "explorer": "https://etherscan.io/address/0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+          "notes": "Use ETH/USD plus wstETH/stETH exchange-rate pricing."
+        },
+        "LBTC": {
+          "symbol": "LBTC",
+          "token": "0x8236a87084f8B84306f72007F36F2618A5634494",
+          "type": "value-accruing-erc20-babylon-yield",
+          "status": "verified",
+          "sources": [
+            "https://docs.lombard.finance/learn/transparency/smart-contracts",
+            "https://etherscan.io/token/0x8236a87084f8b84306f72007f36f2618a5634494"
+          ],
+          "explorer": "https://etherscan.io/token/0x8236a87084f8b84306f72007f36f2618a5634494",
+          "notes": "Use BTC/USD plus Lombard/POR policy before production allocation."
+        },
+        "wstLINK": {
+          "symbol": "wstLINK",
+          "token": "0x911D86C72155c33993d594B0Ec7E6206B4C803da",
+          "type": "value-accruing-erc20-non-rebasing",
+          "status": "verified",
+          "sources": [
+            "https://docs.stake.link/resources/contracts-and-integrations",
+            "https://etherscan.io/token/0x911d86c72155c33993d594b0ec7e6206b4c803da"
+          ],
+          "explorer": "https://etherscan.io/token/0x911d86c72155c33993d594b0ec7e6206b4c803da",
+          "notes": "Use LINK/USD plus wstLINK/stLINK exchange-rate pricing."
+        }
       }
     },
     "56": {
@@ -128,6 +166,33 @@
           "persistent-usdc-sleeve-balance"
         ],
         "redemptionRoute": "unstake native BNB -> swap/route via approved router -> Arbitrum USDC buffer -> claim queued redemption"
+      },
+      "stakingWrappers": {
+        "ankrBNB": {
+          "symbol": "ankrBNB",
+          "token": "0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827",
+          "type": "reward-bearing-lst-exchange-rate",
+          "status": "verified",
+          "sources": [
+            "https://www.ankr.com/docs/staking-extra/staking-smart-contracts/",
+            "https://www.ankr.com/docs/staking-for-developers/smart-contract-api/bnb-api/",
+            "https://bscscan.com/address/0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827"
+          ],
+          "explorer": "https://bscscan.com/address/0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827",
+          "notes": "Use BNB/USD plus ankrBNB exchange-rate pricing; BNB Chain USDC remains rejected for settlement."
+        },
+        "LBTC": {
+          "symbol": "LBTC",
+          "token": "0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "type": "value-accruing-erc20-ccip-native",
+          "status": "verified-create2-listed-chain",
+          "sources": [
+            "https://docs.lombard.finance/learn/transparency/smart-contracts",
+            "https://docs.lombard.finance/use/bridging"
+          ],
+          "explorer": "https://bscscan.com/token/0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "notes": "Approved only if on-chain probe confirms symbol/decimals/source verification on BNB Chain."
+        }
       }
     },
     "8453": {
@@ -212,6 +277,20 @@
           "allowBelowPeg": true,
           "neverValueAboveUsd": true,
           "method": "min(chainlink-usdc-usd, 1e8)"
+        }
+      },
+      "stakingWrappers": {
+        "LBTC": {
+          "symbol": "LBTC",
+          "token": "0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "type": "value-accruing-erc20-ccip-native",
+          "status": "verified-create2-listed-chain",
+          "sources": [
+            "https://docs.lombard.finance/learn/transparency/smart-contracts",
+            "https://docs.lombard.finance/use/bridging"
+          ],
+          "explorer": "https://basescan.org/token/0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "notes": "Approved only if on-chain probe confirms symbol/decimals/source verification on Base."
         }
       }
     },
@@ -298,6 +377,46 @@
           "neverValueAboveUsd": true,
           "method": "min(chainlink-usdc-usd, 1e8)"
         }
+      },
+      "stakingWrappers": {
+        "wstETH": {
+          "symbol": "wstETH",
+          "token": "0x5979D7b546E38E414F7E9822514be443A4800529",
+          "type": "value-accruing-erc20-non-rebasing",
+          "status": "verified",
+          "sources": [
+            "https://docs.lido.fi/deployed-contracts/",
+            "https://github.com/lidofinance/lido-l2/blob/main/artifacts-arb.json",
+            "https://arbiscan.io/token/0x5979D7b546E38E414F7E9822514be443A4800529"
+          ],
+          "explorer": "https://arbiscan.io/token/0x5979D7b546E38E414F7E9822514be443A4800529",
+          "notes": "Use ETH/USD plus wstETH/stETH exchange-rate pricing."
+        },
+        "wstLINK": {
+          "symbol": "wstLINK",
+          "token": "0x3106E2e148525b3DB36795b04691D444c24972fB",
+          "type": "value-accruing-erc20-ccip-bridged",
+          "status": "verified",
+          "sources": [
+            "https://docs.stake.link/resources/contracts-and-integrations",
+            "https://arbiscan.io/token/0x3106e2e148525b3db36795b04691d444c24972fb"
+          ],
+          "explorer": "https://arbiscan.io/token/0x3106e2e148525b3db36795b04691d444c24972fb",
+          "notes": "Use LINK/USD plus wstLINK/stLINK exchange-rate pricing."
+        },
+        "LBTC": {
+          "symbol": "LBTC",
+          "token": "0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "type": "value-accruing-erc20-ccip-native",
+          "status": "blocked-redundant-pending-lombard-registry",
+          "sources": [
+            "https://docs.lombard.finance/use/bridging",
+            "https://docs.lombard.finance/learn/transparency/smart-contracts",
+            "https://arbiscan.io/token/0xecAc9C5F704e954931349Da37F60E39f515c11c1"
+          ],
+          "explorer": "https://arbiscan.io/token/0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "notes": "Do not use on Arbitrum until Lombard registry adds official Arbitrum row and Arbiscan probe confirms exact address plus verified contract."
+        }
       }
     },
     "43114": {
@@ -358,6 +477,33 @@
           "neverValueAboveUsd": true,
           "method": "min(chainlink-usdc-usd, 1e8)"
         }
+      },
+      "stakingWrappers": {
+        "sAVAX": {
+          "symbol": "sAVAX",
+          "token": "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE",
+          "type": "exchange-rate-lst-custom-not-erc4626",
+          "status": "verified",
+          "sources": [
+            "https://docs.benqi.fi/resources/contracts",
+            "https://docs.benqi.fi/resources/contracts/liquid-staking",
+            "https://snowtrace.io/address/0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE"
+          ],
+          "explorer": "https://snowtrace.io/address/0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE",
+          "notes": "Requires custom adapter, not ERC4626. Use AVAX/USD plus sAVAX exchange-rate pricing."
+        },
+        "LBTC": {
+          "symbol": "LBTC",
+          "token": "0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "type": "value-accruing-erc20-ccip-native",
+          "status": "verified-create2-listed-chain",
+          "sources": [
+            "https://docs.lombard.finance/learn/transparency/smart-contracts",
+            "https://docs.lombard.finance/use/bridging"
+          ],
+          "explorer": "https://snowscan.xyz/token/0xecAc9C5F704e954931349Da37F60E39f515c11c1",
+          "notes": "Approved only if on-chain probe confirms symbol/decimals/source verification on Avalanche."
+        }
       }
     }
   },
@@ -365,7 +511,8 @@
     "CCIP v1.6.4 interface/router compatibility check",
     "deployed spoke source sender bytes",
     "multisig owner/operator/treasury addresses",
-    "native staking wrapper addresses",
+    "native staking wrapper exchange-rate adapters and pricing methods",
+    "Arbitrum LBTC Lombard registry row",
     "BNB Chain native staking contract and unwind route",
     "cbBTC policy outside Base/Ethereum",
     "fileIntegrity.gitCommit and fileIntegrity.sha256 after approval"

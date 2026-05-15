@@ -21,6 +21,26 @@ These are the chain-local assets currently seeded by
 | Base | 8453 | cbBTC | `0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf` | `0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F` | 8 | 8 | Coinbase / Chainlink |
 | Base | 8453 | LINK | `0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196` | `0x17CAb8FE31E32f08326e5E27412894e49B0f9D65` | 18 | 8 | Chainlink |
 
+## Native Staking Wrappers
+
+These are staking-wrapper candidates tracked in `config/mainnet-addresses.json`.
+They are token-address inputs only. Production allocation still requires the
+approved exchange-rate pricing method, unwind route, and on-chain probe.
+
+| Chain | Chain ID | Asset | Token | Status | Notes |
+| --- | ---: | --- | --- | --- | --- |
+| Ethereum | 1 | wstETH | `0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0` | Verified | Non-rebasing Lido wrapper. |
+| Ethereum | 1 | LBTC | `0x8236a87084f8B84306f72007F36F2618A5634494` | Verified | Lombard mainnet LBTC. |
+| Ethereum | 1 | wstLINK | `0x911D86C72155c33993d594B0Ec7E6206B4C803da` | Verified | Wrapped stake.link LINK. |
+| Arbitrum One | 42161 | wstETH | `0x5979D7b546E38E414F7E9822514be443A4800529` | Verified | Lido L2 wstETH. |
+| Arbitrum One | 42161 | wstLINK | `0x3106E2e148525b3DB36795b04691D444c24972fB` | Verified | stake.link CCIP-bridged wrapper. |
+| Arbitrum One | 42161 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Blocked | Redundant/pending until Lombard registry lists the official Arbitrum row and Arbiscan probe confirms it. |
+| Base | 8453 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Verified candidate | CREATE2 Lombard address on a listed chain; probe before deploy. |
+| Avalanche C-Chain | 43114 | sAVAX | `0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE` | Verified | BENQI custom exchange-rate LST, not ERC4626. |
+| Avalanche C-Chain | 43114 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Verified candidate | CREATE2 Lombard address on a listed chain; probe before deploy. |
+| BNB Chain | 56 | ankrBNB | `0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827` | Verified | Corrected Ankr Staked BNB address. |
+| BNB Chain | 56 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Verified candidate | CREATE2 Lombard address on a listed chain; probe before deploy. |
+
 ## Confirmed Chain IDs
 
 | Chain | EVM chain ID |
@@ -76,7 +96,8 @@ These inputs are intentionally not hardcoded as confirmed deployment values yet.
 | CCIP routers | Confirmed for Ethereum, Arbitrum, Base, Avalanche, and BNB mainnet plus their listed testnets. Verify the router version matches the imported CCIP interfaces before deployment. |
 | Source sender bytes | Fill only after each spoke reporter is deployed. The hub must pin exact encoded sender bytes per CCIP selector. |
 | Owner and operator addresses | Replace all EOAs with approved multisigs for owner, automation, treasury, and pause roles. |
-| Native staking wrappers | Confirm exact protocol contracts for wstETH, LBTC, sAVAX, BNB staking, stake.link/LINK, and any ERC4626-compatible wrappers. |
+| Native staking wrappers | Confirm exchange-rate adapters, pricing methods, and unwind routes for each approved wrapper. |
+| Arbitrum LBTC | Keep blocked/redundant until Lombard adds the official Arbitrum row and Arbiscan probe confirms the exact address plus verified contract. |
 | BNB USDC | Rejected for redemption settlement. BNB Chain may only be used as a native BNB spoke; redemptions unwind/route value back to Arbitrum USDC before claim. |
 | cbBTC outside Base/Ethereum | Treat any Arbitrum cbBTC address as unapproved until Coinbase documentation and liquidity are verified. |
 | CCIP infrastructure metadata | Optional `ccip_infra` rows are documentation and monitoring only. Deploy scripts must not read RMN or registry-module addresses as deployment inputs. |
