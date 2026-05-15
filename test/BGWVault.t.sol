@@ -165,6 +165,36 @@ contract BGWVaultTest is Test {
         vault.executeHubNAVUpdate();
     }
 
+    function _wireHubNAVWithMoveLimit(uint256 spokeNav18, uint256 maxNavMoveBps)
+        internal
+        returns (BridgewayHubNAV hub, BridgewaySpokeReporter spoke)
+    {
+        hub = new BridgewayHubNAV(founder);
+        spoke = new BridgewaySpokeReporter(founder, BASE_CHAIN_ID);
+
+        vm.prank(founder);
+        hub.configureSpoke(BASE_CHAIN_ID, address(spoke), 7 days, maxNavMoveBps, true, true);
+
+        vm.prank(founder);
+        spoke.updateLocalNAV(spokeNav18);
+
+        _relaySpokeReport(hub, spoke);
+
+        vm.prank(founder);
+        vault.proposeHubNAVUpdate(address(hub));
+        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY());
+        vm.prank(founder);
+        vault.executeHubNAVUpdate();
+    }
+
+    function _relaySpokeReport(BridgewayHubNAV hub, BridgewaySpokeReporter spoke) internal {
+        (uint64 chainId, uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
+            abi.decode(spoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
+
+        vm.prank(address(spoke));
+        hub.reportSpokeNAV(chainId, navUsd18, reportedAt, sourceBlockNumber, nonce);
+    }
+
     // ── NAV bootstrapping ────────────────────────────────────────────────────
 
     function test_NavIsOneBeforeDeposit() public view {
@@ -413,6 +443,80 @@ contract BGWVaultTest is Test {
         vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.StaleReport.selector, BASE_CHAIN_ID));
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
+    }
+
+    function test_LargeRedemptionQueuesWhenLocalNAVCannotCover() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAVWithMoveLimit(3_000e18, 10_000);
+
+        vm.prank(alice);
+        vault.redeem(500e18, 0);
+
+        (
+            address claimant,
+            uint256 bgwBurned,
+            uint256 grossUsdc,
+            uint256 netUsdc,
+            uint256 exitFeeUsdc,
+            uint256 perfFeeUsdc,
+            uint256 navLiabilityUsdc,
+            bool claimed
+        ) = vault.queuedRedemptions(1);
+
+        assertEq(claimant, alice);
+        assertEq(bgwBurned, 500e18);
+        assertEq(grossUsdc, 2_000e6);
+        assertEq(netUsdc, 1_773e6);
+        assertEq(exitFeeUsdc, 2e6);
+        assertEq(perfFeeUsdc, 225e6);
+        assertEq(navLiabilityUsdc, 2_000e6);
+        assertFalse(claimed);
+        assertEq(vault.totalQueuedRedemptionGross(), 2_000e6);
+        assertEq(vault.totalQueuedRedemptionNAVLiability(), 2_000e6);
+        assertEq(vault.totalNAV(), 2_000e6);
+        assertEq(bgwToken.totalSupply(), 500e18);
+    }
+
+    function test_QueuedRedemptionClaimsAfterSpokeLiquidityAcknowledged() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) = _wireHubNAVWithMoveLimit(3_000e18, 10_000);
+
+        vm.prank(alice);
+        vault.redeem(500e18, 0);
+
+        MockUSDC(USDC_ADDR).mint(address(vault), 2_000e6);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.QueuedRedemptionNotReady.selector, 1, 2_000e6));
+        vault.claimQueuedRedemption(1);
+
+        vm.prank(founder);
+        spoke.updateLocalNAV(1_000e18);
+        _relaySpokeReport(hub, spoke);
+
+        vm.prank(founder);
+        vault.acknowledgeQueuedRedemptionLiquidity(1, 2_000e6);
+
+        uint256 aliceUsdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vm.prank(alice);
+        vault.claimQueuedRedemption(1);
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(alice) - aliceUsdcBefore, 1_773e6);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(holdback), 69_500_000);
+        assertEq(vault.totalQueuedRedemptionGross(), 0);
+        assertEq(vault.totalQueuedRedemptionNAVLiability(), 0);
+        assertEq(vault.totalNAV(), 2_000e6);
+
+        (,,,,,,, bool claimed) = vault.queuedRedemptions(1);
+        assertTrue(claimed);
     }
 
     // ── Redeem ────────────────────────────────────────────────────────────────

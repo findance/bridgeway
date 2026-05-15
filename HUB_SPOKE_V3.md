@@ -33,7 +33,8 @@ Native staking adapters and queued redemption routing are still future phases.
   native staking/lending wrappers that expose ERC4626-style accounting.
 - `BGWVault`: optional `hubNAV` integration. `totalNAV()` is local sleeve NAV
   plus confirmed spoke NAV; `totalLocalNAV()` and `totalSpokeNAV()` expose the
-  split for monitoring.
+  split for monitoring. Large redemptions that cannot be covered by local NAV
+  are burned immediately and queued as claimant liabilities.
 
 ## Safety Rules
 
@@ -45,6 +46,8 @@ Native staking adapters and queued redemption routing are still future phases.
   selector to the expected Bridgeway spoke chain ID.
 - Source sender bytes are hashed and pinned per CCIP selector.
 - Report nonces must increase monotonically.
+- Queued redemptions remain NAV liabilities until the hub acknowledges that the
+  matching local/spoke NAV has been removed from active accounting.
 - Values are normalized to 18-decimal USD internally and can be exposed as
   6-decimal USDC for vault integration.
 
@@ -62,6 +65,9 @@ Native staking adapters and queued redemption routing are still future phases.
    the vault timelock, then call `executeHubNAVUpdate()`.
 9. Keep enough Arbitrum USDC/local sleeve liquidity for normal redemptions until
    Phase 5 queued redemption routing is implemented.
+10. For queued redemptions, unwind spoke liquidity, update/confirm the spoke NAV
+    drop, call `acknowledgeQueuedRedemptionLiquidity()`, then let the claimant
+    call `claimQueuedRedemption()`.
 
 ## Pinned Roadmap
 
@@ -155,8 +161,27 @@ Phase 4 completion notes:
 - `07_DeployNativeERC4626Spoke.s.sol` deploys a spoke portfolio plus one
   ERC4626 native staking adapter.
 
-### Phase 5: Redemption Routing
+### Phase 5: Redemption Routing - Complete
 
 - Normal redemptions paid from the Arbitrum USDC buffer.
 - Large redemptions become queued.
 - Spokes unwind and route liquidity back to Arbitrum.
+
+Phase 5 completion notes:
+
+- `redeem()` still pays normal redemptions immediately when local hub-chain NAV
+  can cover the gross redemption amount.
+- If the gross redemption is larger than local NAV, the vault burns BGW
+  immediately, computes exit/performance fees at the current confirmed NAV, and
+  stores a queued redemption for the claimant.
+- Queued redemption gross value is subtracted from holder NAV through
+  `totalQueuedRedemptionNAVLiability`, so remaining holders do not receive an
+  artificial NAV increase while remote assets are unwinding.
+- A queued redemption cannot be claimed until owner/automation calls
+  `acknowledgeQueuedRedemptionLiquidity()` for that redemption. This should only
+  happen after the corresponding spoke NAV has dropped or matching liquidity is
+  otherwise no longer counted in active NAV.
+- `claimQueuedRedemption()` pays the claimant from Arbitrum USDC liquidity and
+  routes exit/performance fees through the existing fee logic.
+- Tests cover automatic queuing, NAV liability accounting, not-ready claim
+  rejection, spoke NAV drop relay, acknowledgement, and final claimant payout.

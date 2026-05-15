@@ -218,6 +218,26 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         from totalNAV() because it belongs to fee recipients, not BGW holders.
     uint256 public totalPendingFees;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // State — queued cross-chain redemptions
+    // ─────────────────────────────────────────────────────────────────────────
+
+    struct QueuedRedemption {
+        address claimant;
+        uint256 bgwBurned;
+        uint256 grossUsdc;
+        uint256 netUsdc;
+        uint256 exitFeeUsdc;
+        uint256 perfFeeUsdc;
+        uint256 navLiabilityUsdc;
+        bool claimed;
+    }
+
+    uint256 public queuedRedemptionCount;
+    uint256 public totalQueuedRedemptionGross;
+    uint256 public totalQueuedRedemptionNAVLiability;
+    mapping(uint256 => QueuedRedemption) public queuedRedemptions;
+
     /// @notice Timestamp when fees last failed for each recipient (used by sweepStaleFees).
     mapping(address => uint256) public lastFeeAccrual;
 
@@ -274,6 +294,27 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 usdcPaid,
         uint256 exitFeeUsdc,
         uint256 perfFeeUsdc
+    );
+    event RedemptionQueued(
+        uint256 indexed redemptionId,
+        address indexed user,
+        uint256 bgwBurned,
+        uint256 grossUsdc,
+        uint256 netUsdc,
+        uint256 exitFeeUsdc,
+        uint256 perfFeeUsdc
+    );
+    event QueuedRedemptionClaimed(
+        uint256 indexed redemptionId,
+        address indexed user,
+        uint256 netUsdc,
+        uint256 exitFeeUsdc,
+        uint256 perfFeeUsdc
+    );
+    event QueuedRedemptionLiquidityAcknowledged(
+        uint256 indexed redemptionId,
+        uint256 amount,
+        uint256 remainingNAVLiability
     );
     event HarvestRecorded(
         uint256 netYieldUsdc,
@@ -342,6 +383,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error NoPendingChange(bytes32 changeType);
     error TimelockNotElapsed(uint256 executeAfter);
     error DepositExceedsCap(uint256 amount, uint256 cap);
+    error UnknownQueuedRedemption(uint256 redemptionId);
+    error NotQueuedRedemptionClaimant(uint256 redemptionId, address caller);
+    error QueuedRedemptionAlreadyClaimed(uint256 redemptionId);
+    error QueuedRedemptionNotReady(uint256 redemptionId, uint256 navLiabilityRemaining);
+    error InsufficientLocalLiquidity(uint256 available, uint256 required);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
@@ -421,7 +467,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         The buyback accumulator is also excluded because it is reserved
     ///         for future BGW buyback-and-burn actions, not ordinary redeemable NAV.
     function totalNAV() public view returns (uint256) {
-        return totalLocalNAV() + totalSpokeNAV();
+        uint256 grossNav = totalLocalNAV() + totalSpokeNAV();
+        uint256 queued = totalQueuedRedemptionNAVLiability;
+        return grossNav > queued ? grossNav - queued : 0;
     }
 
     /// @notice NAV held on the hub chain in local sleeves.
@@ -544,15 +592,27 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 netUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
         if (netUsdc < minUSDC) revert SlippageTooHigh(netUsdc, minUSDC);
 
+        uint256 currentNav18ForHwm = currentNav18;
+
         // Proportionally reduce cumulative principal before burning (C-01).
         // Must be done before adminBurn because totalSupply changes after the burn.
-        uint256 supply = bgwToken.totalSupply();
-        if (supply > 0 && cumulativePrincipal > 0) {
-            uint256 principalSlice = (bgwAmount * cumulativePrincipal) / supply;
-            cumulativePrincipal -= principalSlice;
-        }
+        _reducePrincipalForBurn(bgwAmount);
 
         bgwToken.adminBurn(msg.sender, bgwAmount);
+
+        if (grossUsdc > totalLocalNAV()) {
+            _queueRedemption(
+                msg.sender,
+                bgwAmount,
+                grossUsdc,
+                netUsdc,
+                exitFeeUsdc,
+                perfFeeUsdc,
+                currentNav18ForHwm,
+                effectiveHwm
+            );
+            return;
+        }
 
         _reduceSleevesProRata(grossUsdc);
 
@@ -572,6 +632,59 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         IERC20(USDC).safeTransfer(msg.sender, netUsdc);
 
         emit Redeemed(msg.sender, bgwAmount, netUsdc, exitFeeUsdc, perfFeeUsdc);
+    }
+
+    /// @notice Claim a queued redemption once Arbitrum liquidity has arrived
+    ///         from spoke unwinds or treasury buffering.
+    function claimQueuedRedemption(uint256 redemptionId) external nonReentrant whenNotPaused {
+        QueuedRedemption storage redemption = queuedRedemptions[redemptionId];
+        if (redemption.claimant == address(0)) revert UnknownQueuedRedemption(redemptionId);
+        if (redemption.claimant != msg.sender) revert NotQueuedRedemptionClaimant(redemptionId, msg.sender);
+        if (redemption.claimed) revert QueuedRedemptionAlreadyClaimed(redemptionId);
+        if (redemption.navLiabilityUsdc > 0) {
+            revert QueuedRedemptionNotReady(redemptionId, redemption.navLiabilityUsdc);
+        }
+
+        uint256 requiredUsdc = redemption.netUsdc + redemption.exitFeeUsdc + redemption.perfFeeUsdc;
+        uint256 availableUsdc = _availableUSDC();
+        if (availableUsdc < requiredUsdc) revert InsufficientLocalLiquidity(availableUsdc, requiredUsdc);
+
+        redemption.claimed = true;
+        totalQueuedRedemptionGross -= redemption.grossUsdc;
+
+        if (redemption.perfFeeUsdc > 0) {
+            _distributePerfFee(redemption.perfFeeUsdc);
+        }
+        if (redemption.exitFeeUsdc > 0) {
+            _tryTransferFee(holdbackWallet, redemption.exitFeeUsdc);
+        }
+
+        IERC20(USDC).safeTransfer(msg.sender, redemption.netUsdc);
+
+        emit QueuedRedemptionClaimed(
+            redemptionId,
+            msg.sender,
+            redemption.netUsdc,
+            redemption.exitFeeUsdc,
+            redemption.perfFeeUsdc
+        );
+    }
+
+    /// @notice Mark queued redemption NAV as no longer counted in spoke/local
+    ///         reports after unwind liquidity has arrived or a source NAV report
+    ///         has dropped. This prepares the queue item for claimant withdrawal.
+    function acknowledgeQueuedRedemptionLiquidity(uint256 redemptionId, uint256 amount) external {
+        if (msg.sender != owner() && msg.sender != automation) revert OnlyAutomation();
+        QueuedRedemption storage redemption = queuedRedemptions[redemptionId];
+        if (redemption.claimant == address(0)) revert UnknownQueuedRedemption(redemptionId);
+        if (redemption.claimed) revert QueuedRedemptionAlreadyClaimed(redemptionId);
+        if (amount > redemption.navLiabilityUsdc) amount = redemption.navLiabilityUsdc;
+        if (amount == 0) return;
+
+        redemption.navLiabilityUsdc -= amount;
+        totalQueuedRedemptionNAVLiability -= amount;
+
+        emit QueuedRedemptionLiquidityAcknowledged(redemptionId, amount, redemption.navLiabilityUsdc);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1170,6 +1283,62 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _withdrawFromSleeve(SLEEVE_A, (_sleeveValue(SLEEVE_A) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_B, (_sleeveValue(SLEEVE_B) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_C, (_sleeveValue(SLEEVE_C) * grossUsdc) / nav);
+    }
+
+    function _queueRedemption(
+        address claimant,
+        uint256 bgwBurned,
+        uint256 grossUsdc,
+        uint256 netUsdc,
+        uint256 exitFeeUsdc,
+        uint256 perfFeeUsdc,
+        uint256 currentNav18,
+        uint256 effectiveHwm
+    ) internal {
+        uint256 redemptionId = ++queuedRedemptionCount;
+        queuedRedemptions[redemptionId] = QueuedRedemption({
+            claimant: claimant,
+            bgwBurned: bgwBurned,
+            grossUsdc: grossUsdc,
+            netUsdc: netUsdc,
+            exitFeeUsdc: exitFeeUsdc,
+            perfFeeUsdc: perfFeeUsdc,
+            navLiabilityUsdc: grossUsdc,
+            claimed: false
+        });
+        totalQueuedRedemptionGross += grossUsdc;
+        totalQueuedRedemptionNAVLiability += grossUsdc;
+
+        if (
+            perfFeeUsdc > 0
+                && currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM
+        ) {
+            highWaterMark = currentNav18;
+            lastHWMUpdateTime = block.timestamp;
+        }
+
+        emit RedemptionQueued(
+            redemptionId,
+            claimant,
+            bgwBurned,
+            grossUsdc,
+            netUsdc,
+            exitFeeUsdc,
+            perfFeeUsdc
+        );
+    }
+
+    function _reducePrincipalForBurn(uint256 bgwAmount) internal {
+        uint256 supply = bgwToken.totalSupply();
+        if (supply > 0 && cumulativePrincipal > 0) {
+            uint256 principalSlice = (bgwAmount * cumulativePrincipal) / supply;
+            cumulativePrincipal -= principalSlice;
+        }
+    }
+
+    function _availableUSDC() internal view returns (uint256) {
+        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
+        return usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
     }
 
     function _deployToSleeve(uint8 sleeve, uint256 usdcAmount) internal {
