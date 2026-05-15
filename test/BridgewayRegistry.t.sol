@@ -70,12 +70,14 @@ contract BridgewayRegistryTest is Test {
     function test_BaseSeedsIncludeCorePortableAssets() public pure {
         BridgewayChainConfig.AssetSeed[] memory seeds = BridgewayChainConfig.seeds(BridgewayChainConfig.BASE);
 
-        assertEq(seeds.length, 3);
+        assertEq(seeds.length, 4);
         assertEq(seeds[0].assetId, BridgewayChainConfig.ASSET_USDC);
         assertEq(seeds[0].token, 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913);
         assertEq(seeds[1].assetId, BridgewayChainConfig.ASSET_WETH);
         assertEq(seeds[1].token, 0x4200000000000000000000000000000000000006);
         assertEq(seeds[2].assetId, BridgewayChainConfig.ASSET_CBBTC);
         assertEq(seeds[2].token, 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf);
+        assertEq(seeds[3].assetId, BridgewayChainConfig.ASSET_LINK);
+        assertEq(seeds[3].token, 0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196);
     }
 }

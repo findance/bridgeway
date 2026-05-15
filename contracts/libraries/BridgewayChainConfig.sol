@@ -67,7 +67,7 @@ library BridgewayChainConfig {
     }
 
     function baseSeeds() internal pure returns (AssetSeed[] memory result) {
-        result = new AssetSeed[](3);
+        result = new AssetSeed[](4);
         result[0] = AssetSeed({
             assetId: ASSET_USDC,
             token: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,
@@ -89,6 +89,14 @@ library BridgewayChainConfig {
             token: 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf,
             priceFeed: 0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F,
             tokenDecimals: 8,
+            feedDecimals: 8,
+            trusted: true
+        });
+        result[3] = AssetSeed({
+            assetId: ASSET_LINK,
+            token: 0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196,
+            priceFeed: 0x17CAb8FE31E32f08326e5E27412894e49B0f9D65,
+            tokenDecimals: 18,
             feedDecimals: 8,
             trusted: true
         });

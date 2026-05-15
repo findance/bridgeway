@@ -1,0 +1,73 @@
+{
+  "status": "confirmed-registry-seeds-only",
+  "warning": "Do not deploy until every manualConfirmationRequired item is filled and probed on-chain.",
+  "chains": {
+    "42161": {
+      "name": "Arbitrum One",
+      "assets": {
+        "USDC": {
+          "token": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+          "priceFeed": "0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3",
+          "tokenDecimals": 6,
+          "feedDecimals": 8
+        },
+        "WETH": {
+          "token": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+          "priceFeed": "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612",
+          "tokenDecimals": 18,
+          "feedDecimals": 8
+        },
+        "WBTC": {
+          "token": "0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f",
+          "priceFeed": "0x6ce185860a4963106506C203335A2910413708e9",
+          "tokenDecimals": 8,
+          "feedDecimals": 8
+        },
+        "LINK": {
+          "token": "0xf97f4df75117a78c1A5a0DBb814Af92458539FB4",
+          "priceFeed": "0x86E53CF1B870786351Da77A57575e79CB55812CB",
+          "tokenDecimals": 18,
+          "feedDecimals": 8
+        }
+      }
+    },
+    "8453": {
+      "name": "Base",
+      "assets": {
+        "USDC": {
+          "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          "priceFeed": "0x51597f405303C4377E36123cBc172b13269EA163",
+          "tokenDecimals": 6,
+          "feedDecimals": 8
+        },
+        "WETH": {
+          "token": "0x4200000000000000000000000000000000000006",
+          "priceFeed": "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70",
+          "tokenDecimals": 18,
+          "feedDecimals": 8
+        },
+        "cbBTC": {
+          "token": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          "priceFeed": "0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F",
+          "tokenDecimals": 8,
+          "feedDecimals": 8
+        },
+        "LINK": {
+          "token": "0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196",
+          "priceFeed": "0x17CAb8FE31E32f08326e5E27412894e49B0f9D65",
+          "tokenDecimals": 18,
+          "feedDecimals": 8
+        }
+      }
+    }
+  },
+  "manualConfirmationRequired": [
+    "CCIP selectors",
+    "CCIP router addresses and interface version",
+    "deployed spoke source sender bytes",
+    "multisig owner/operator/treasury addresses",
+    "native staking wrapper addresses",
+    "BNB Chain USDC policy",
+    "cbBTC policy outside Base/Ethereum"
+  ]
+}
