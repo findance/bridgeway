@@ -26,6 +26,11 @@ Native staking adapters and queued redemption routing are still future phases.
   only from the configured Chainlink router, verifies the source chain selector
   and exact source sender bytes, then forwards the decoded NAV report to
   `BridgewayHubNAV`.
+- `BridgewayNativeSpokePortfolio`: chain-local native asset portfolio. It
+  aggregates approved native staking adapters and prepares monotonic NAV
+  reports for CCIP relay.
+- `ERC4626NativeStakingAdapter`: generic EVM-chain adapter for approved
+  native staking/lending wrappers that expose ERC4626-style accounting.
 - `BGWVault`: optional `hubNAV` integration. `totalNAV()` is local sleeve NAV
   plus confirmed spoke NAV; `totalLocalNAV()` and `totalSpokeNAV()` expose the
   split for monitoring.
@@ -121,13 +126,34 @@ Phase 3 completion notes:
   spoke data blocks mint/redeem through the hub NAV stale-report revert.
 - `06_DeployCCIPNAVReceiver.s.sol` deploys the hub-chain CCIP receiver.
 
-### Phase 4: Native Staking Adapters
+### Phase 4: Native Staking Adapter Foundation - Complete
 
 - SOL on Solana/Jito.
 - AVAX on Avalanche/Benqi.
 - BNB on BNB Chain.
 - LINK via Ethereum/stake.link.
 - BTC via Lombard/Babylon route.
+
+Phase 4 completion notes:
+
+- `ERC4626NativeStakingAdapter` supports EVM-compatible native-chain staking
+  wrappers where the approved provider exposes ERC4626-style share accounting.
+- The adapter stakes asset already transferred to it, withdraws asset back to
+  the spoke/controller, values positions through Chainlink-style USD feeds, and
+  rejects stale or invalid oracle prices.
+- `BridgewayNativeSpokePortfolio` aggregates one or more native staking
+  adapters into a single spoke NAV and prepares nonce-incrementing reports for
+  CCIP relay.
+- Phase 4 is protocol-address agnostic: Jito, Benqi, stake.link, Lombard, and
+  Babylon route addresses must be approved per chain before deployment.
+- EVM-native legs such as AVAX, BNB-chain assets, LINK wrappers, and BTC
+  wrapper/restaking vaults can use this adapter when their approved wrapper is
+  ERC4626-compatible.
+- Solana/Jito cannot be deployed from this Solidity repo. It needs a Solana
+  program or trusted Solana-side reporter that emits the same report payload
+  format for the Phase 3 CCIP receiver.
+- `07_DeployNativeERC4626Spoke.s.sol` deploys a spoke portfolio plus one
+  ERC4626 native staking adapter.
 
 ### Phase 5: Redemption Routing
 
