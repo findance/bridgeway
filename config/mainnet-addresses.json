@@ -1,5 +1,5 @@
 {
-  "status": "confirmed-registry-seeds-only",
+  "status": "confirmed-registry-seeds-and-ccip-inputs",
   "warning": "Do not deploy until every manualConfirmationRequired item is filled and probed on-chain.",
   "chains": {
     "42161": {
@@ -38,6 +38,11 @@
     },
     "8453": {
       "name": "Base",
+      "ccip": {
+        "selector": "15971525489660198786",
+        "router": "0x881e3A65B4d4a04dD529061dd0071cf975F58bCD",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-base-1"
+      },
       "assets": {
         "USDC": {
           "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
@@ -64,11 +69,37 @@
           "feedDecimals": 8
         }
       }
+    },
+    "43114": {
+      "name": "Avalanche C-Chain",
+      "ccip": {
+        "selector": "6433500567565415381",
+        "router": "0xF4c7E640EdA248ef95972845a62bdC74237805dB",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/avalanche-mainnet"
+      },
+      "assets": {}
+    },
+    "56": {
+      "name": "BNB Chain",
+      "ccip": {
+        "selector": "11344663589394136015",
+        "router": "0x34B03Cb9086d7D758AC55af71584F81A598759FE",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/bsc-mainnet"
+      },
+      "assets": {}
+    },
+    "1": {
+      "name": "Ethereum",
+      "ccip": {
+        "selector": "5009297550715157269",
+        "router": "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
+        "source": "https://docs.chain.link/ccip/directory/mainnet/chain/mainnet"
+      },
+      "assets": {}
     }
   },
   "manualConfirmationRequired": [
-    "CCIP selectors",
-    "CCIP router addresses and interface version",
+    "CCIP interface version compatibility check",
     "deployed spoke source sender bytes",
     "multisig owner/operator/treasury addresses",
     "native staking wrapper addresses",

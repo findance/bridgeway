@@ -10,6 +10,52 @@
         "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-arbitrum-1"
       },
       "assets": {}
+    },
+    "84532": {
+      "name": "Base Sepolia",
+      "ccip": {
+        "selector": "10344971235874465080",
+        "router": "0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia-base-1"
+      },
+      "assets": {}
+    },
+    "43113": {
+      "name": "Avalanche Fuji",
+      "ccip": {
+        "selector": "14767482510784806043",
+        "router": "0xF694E193200268f9a4868e4Aa017A0118C9a8177",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/avalanche-fuji-testnet"
+      },
+      "assets": {}
+    },
+    "97": {
+      "name": "BNB Chain Testnet",
+      "ccip": {
+        "selector": "13264668187771770619",
+        "router": "0xE1053aE1857476f36A3C62580FF9b016E8EE8F6f",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/bsc-testnet"
+      },
+      "assets": {}
+    },
+    "11155111": {
+      "name": "Ethereum Sepolia",
+      "ccip": {
+        "selector": "16015286601757825753",
+        "router": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-sepolia"
+      },
+      "assets": {}
+    },
+    "560048": {
+      "name": "Ethereum Hoodi",
+      "ccip": {
+        "selector": "10380998176179737091",
+        "router": "0xc93Dac3422660A41500a24C94BF14616995e3CA6",
+        "source": "https://docs.chain.link/ccip/directory/testnet/chain/ethereum-testnet-hoodi"
+      },
+      "assets": {},
+      "note": "Optional Ethereum testnet. Use Sepolia as default unless Bridgeway specifically needs Hoodi staking/validator-style rehearsal."
     }
   },
   "manualConfirmationRequired": [
