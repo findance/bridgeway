@@ -459,21 +459,30 @@
           "symbol": "wstLINK",
           "token": "0x3106E2e148525b3DB36795b04691D444c24972fB",
           "type": "value-accruing-erc20-ccip-bridged",
-          "status": "pending-rate-provider",
+          "status": "pending-rate-reporter-deployment",
           "sources": [
             "https://docs.stake.link/resources/contracts-and-integrations",
             "https://arbiscan.io/token/0x3106e2e148525b3db36795b04691d444c24972fb"
           ],
           "explorer": "https://arbiscan.io/token/0x3106e2e148525b3db36795b04691d444c24972fb",
           "rateModel": {
-            "method": "pending-trusted-rate-provider",
+            "method": "bridgeway-ccip-rate-reporter",
             "underlyingSymbol": "stLINK",
             "underlyingDecimals": 18,
-            "blockedReason": "Arbitrum CCIP BurnMintERC677 token does not expose getUnderlyingByWrapped(uint256); no confirmed Arbitrum wstLINK/LINK exchange-rate Chainlink feed.",
-            "requiredBeforeUse": "stake.link-approved RateProvider or Bridgeway-approved Ethereum mainnet rate reporter",
+            "payloadVersion": 1,
+            "scalingFactor": "1e18",
+            "defaultMaxStalenessThreshold": 86400,
+            "trustedL1Source": "0x911D86C72155c33993d594B0Ec7E6206B4C803da",
+            "sourceFunction": "getUnderlyingByWrapped(uint256)",
+            "sourceSelector": "0xda9a6cf8",
+            "sampleInput": "1000000000000000000",
+            "upperRateBound": "2000000000000000000",
+            "lowerRateBound": "1000000000000000000",
+            "fallbackPolicy": "pause-wstLINK-accounting-only",
+            "requiredBeforeUse": "Deploy BridgewayL1RateReporter on Ethereum, deploy BridgewayRateRegistry on Arbitrum, approve this L2 asset, fund reporter, and confirm first CCIP rate update.",
             "forbiddenPrimaryOracle": "DEX-implied wstLINK/LINK ratio"
           },
-          "notes": "Verified token address, but not deploy-ready for NAV until a trusted wstLINK/stLINK rate source is approved."
+          "notes": "Verified token address with Bridgeway CCIP rate reporter implementation ready; deploy and confirm first CCIP update before marking adapter-ready."
         },
         "LBTC": {
           "symbol": "LBTC",
