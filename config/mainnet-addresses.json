@@ -74,12 +74,31 @@
           "symbol": "wstETH",
           "token": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
           "type": "value-accruing-erc20-non-rebasing",
-          "status": "verified",
+          "status": "adapter-ready",
           "sources": [
             "https://docs.lido.fi/contracts/wsteth/",
             "https://etherscan.io/address/0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
           ],
           "explorer": "https://etherscan.io/address/0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+          "rateModel": {
+            "method": "on-token-exchange-rate",
+            "underlyingSymbol": "stETH",
+            "underlyingDecimals": 18,
+            "wrappedToUnderlyingFunction": "stEthPerToken()",
+            "wrappedToUnderlyingSelector": "0x035faf82",
+            "underlyingToWrappedFunction": "tokensPerStEth()",
+            "underlyingToWrappedSelector": "0x9576a0c8",
+            "sampleInput": "1e18",
+            "direction": "underlying = wrapped * stEthPerToken / 1e18",
+            "probe": {
+              "lastProbedAt": "2026-05-16T03:18:22Z",
+              "lastProbedBlock": 25104971,
+              "tokenDecimals": 18,
+              "stEthPerTokenSample": "1234537563054252847",
+              "tokensPerStEthSample": "810019905369257778",
+              "rpc": "https://ethereum.publicnode.com"
+            }
+          },
           "notes": "Use ETH/USD plus wstETH/stETH exchange-rate pricing."
         },
         "LBTC": {
@@ -98,12 +117,31 @@
           "symbol": "wstLINK",
           "token": "0x911D86C72155c33993d594B0Ec7E6206B4C803da",
           "type": "value-accruing-erc20-non-rebasing",
-          "status": "verified",
+          "status": "adapter-ready",
           "sources": [
             "https://docs.stake.link/resources/contracts-and-integrations",
             "https://etherscan.io/token/0x911d86c72155c33993d594b0ec7e6206b4c803da"
           ],
           "explorer": "https://etherscan.io/token/0x911d86c72155c33993d594b0ec7e6206b4c803da",
+          "rateModel": {
+            "method": "on-token-exchange-rate",
+            "underlyingSymbol": "stLINK",
+            "underlyingDecimals": 18,
+            "wrappedToUnderlyingFunction": "getUnderlyingByWrapped(uint256)",
+            "wrappedToUnderlyingSelector": "0xda9a6cf8",
+            "underlyingToWrappedFunction": "getWrappedByUnderlying(uint256)",
+            "underlyingToWrappedSelector": "0xb0851367",
+            "sampleInput": "1e18",
+            "direction": "underlying = getUnderlyingByWrapped(wrapped)",
+            "probe": {
+              "lastProbedAt": "2026-05-16T03:18:22Z",
+              "lastProbedBlock": 25104971,
+              "tokenDecimals": 18,
+              "getUnderlyingByWrappedSample": "1222761515949738428",
+              "getWrappedByUnderlyingSample": "817820962596523986",
+              "rpc": "https://ethereum.publicnode.com"
+            }
+          },
           "notes": "Use LINK/USD plus wstLINK/stLINK exchange-rate pricing."
         }
       }
@@ -172,13 +210,30 @@
           "symbol": "ankrBNB",
           "token": "0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827",
           "type": "reward-bearing-lst-exchange-rate",
-          "status": "verified",
+          "status": "adapter-ready",
           "sources": [
             "https://www.ankr.com/docs/staking-extra/staking-smart-contracts/",
             "https://www.ankr.com/docs/staking-for-developers/smart-contract-api/bnb-api/",
             "https://bscscan.com/address/0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827"
           ],
           "explorer": "https://bscscan.com/address/0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827",
+          "rateModel": {
+            "method": "on-token-inverted-exchange-rate",
+            "underlyingSymbol": "BNB",
+            "underlyingDecimals": 18,
+            "wrappedToUnderlyingFunction": "ratio()",
+            "wrappedToUnderlyingSelector": "0x71ca337d",
+            "sampleInput": "1e18",
+            "direction": "underlying = wrapped * 1e18 / ratio",
+            "note": "Ankr ratio is inverted relative to most LST wrappers and is expected to decrease as rewards accrue.",
+            "probe": {
+              "lastProbedAt": "2026-05-16T03:18:22Z",
+              "lastProbedBlock": 98548897,
+              "tokenDecimals": 18,
+              "ratioSample": "904803413404352455",
+              "rpc": "https://bsc-rpc.publicnode.com"
+            }
+          },
           "notes": "Use BNB/USD plus ankrBNB exchange-rate pricing; BNB Chain USDC remains rejected for settlement."
         },
         "LBTC": {
@@ -390,19 +445,35 @@
             "https://arbiscan.io/token/0x5979D7b546E38E414F7E9822514be443A4800529"
           ],
           "explorer": "https://arbiscan.io/token/0x5979D7b546E38E414F7E9822514be443A4800529",
+          "rateModel": {
+            "method": "chainlink-direct-usd-preferred",
+            "underlyingSymbol": "wstETH",
+            "underlyingDecimals": 18,
+            "primaryOracle": "wstETH/USD on Arbitrum",
+            "fallbackOracle": "wstETH/ETH plus ETH/USD if both feeds are confirmed",
+            "note": "Do not assume L1 wstETH view functions exist on the L2 bridged token until ABI probe confirms them."
+          },
           "notes": "Use ETH/USD plus wstETH/stETH exchange-rate pricing."
         },
         "wstLINK": {
           "symbol": "wstLINK",
           "token": "0x3106E2e148525b3DB36795b04691D444c24972fB",
           "type": "value-accruing-erc20-ccip-bridged",
-          "status": "verified",
+          "status": "pending-rate-provider",
           "sources": [
             "https://docs.stake.link/resources/contracts-and-integrations",
             "https://arbiscan.io/token/0x3106e2e148525b3db36795b04691d444c24972fb"
           ],
           "explorer": "https://arbiscan.io/token/0x3106e2e148525b3db36795b04691d444c24972fb",
-          "notes": "Use LINK/USD plus wstLINK/stLINK exchange-rate pricing."
+          "rateModel": {
+            "method": "pending-trusted-rate-provider",
+            "underlyingSymbol": "stLINK",
+            "underlyingDecimals": 18,
+            "blockedReason": "Arbitrum CCIP BurnMintERC677 token does not expose getUnderlyingByWrapped(uint256); no confirmed Arbitrum wstLINK/LINK exchange-rate Chainlink feed.",
+            "requiredBeforeUse": "stake.link-approved RateProvider or Bridgeway-approved Ethereum mainnet rate reporter",
+            "forbiddenPrimaryOracle": "DEX-implied wstLINK/LINK ratio"
+          },
+          "notes": "Verified token address, but not deploy-ready for NAV until a trusted wstLINK/stLINK rate source is approved."
         },
         "LBTC": {
           "symbol": "LBTC",
@@ -483,13 +554,32 @@
           "symbol": "sAVAX",
           "token": "0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE",
           "type": "exchange-rate-lst-custom-not-erc4626",
-          "status": "verified",
+          "status": "adapter-ready",
           "sources": [
             "https://docs.benqi.fi/resources/contracts",
             "https://docs.benqi.fi/resources/contracts/liquid-staking",
             "https://snowtrace.io/address/0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE"
           ],
           "explorer": "https://snowtrace.io/address/0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE",
+          "rateModel": {
+            "method": "on-token-exchange-rate",
+            "underlyingSymbol": "AVAX",
+            "underlyingDecimals": 18,
+            "wrappedToUnderlyingFunction": "getPooledAvaxByShares(uint256)",
+            "wrappedToUnderlyingSelector": "0x4a36d6c1",
+            "underlyingToWrappedFunction": "getSharesByPooledAvax(uint256)",
+            "underlyingToWrappedSelector": "0xf1ee8d92",
+            "sampleInput": "1e18",
+            "direction": "underlying = getPooledAvaxByShares(shares)",
+            "probe": {
+              "lastProbedAt": "2026-05-16T03:18:22Z",
+              "lastProbedBlock": 85548391,
+              "tokenDecimals": 18,
+              "getPooledAvaxBySharesSample": "1262273463036754981",
+              "getSharesByPooledAvaxSample": "792221360333614110",
+              "rpc": "https://api.avax.network/ext/bc/C/rpc"
+            }
+          },
           "notes": "Requires custom adapter, not ERC4626. Use AVAX/USD plus sAVAX exchange-rate pricing."
         },
         "LBTC": {

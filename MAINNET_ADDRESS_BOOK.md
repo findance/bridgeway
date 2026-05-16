@@ -29,16 +29,16 @@ approved exchange-rate pricing method, unwind route, and on-chain probe.
 
 | Chain | Chain ID | Asset | Token | Status | Notes |
 | --- | ---: | --- | --- | --- | --- |
-| Ethereum | 1 | wstETH | `0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0` | Verified | Non-rebasing Lido wrapper. |
+| Ethereum | 1 | wstETH | `0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0` | Adapter-ready | Non-rebasing Lido wrapper. Block `25104971`: `stEthPerToken()` = `1234537563054252847`, `tokensPerStEth()` = `810019905369257778`. |
 | Ethereum | 1 | LBTC | `0x8236a87084f8B84306f72007F36F2618A5634494` | Verified | Lombard mainnet LBTC. |
-| Ethereum | 1 | wstLINK | `0x911D86C72155c33993d594B0Ec7E6206B4C803da` | Verified | Wrapped stake.link LINK. |
-| Arbitrum One | 42161 | wstETH | `0x5979D7b546E38E414F7E9822514be443A4800529` | Verified | Lido L2 wstETH. |
-| Arbitrum One | 42161 | wstLINK | `0x3106E2e148525b3DB36795b04691D444c24972fB` | Verified | stake.link CCIP-bridged wrapper. |
+| Ethereum | 1 | wstLINK | `0x911D86C72155c33993d594B0Ec7E6206B4C803da` | Adapter-ready | Wrapped stake.link LINK. Block `25104971`: `getUnderlyingByWrapped(1e18)` = `1222761515949738428`, `getWrappedByUnderlying(1e18)` = `817820962596523986`. |
+| Arbitrum One | 42161 | wstETH | `0x5979D7b546E38E414F7E9822514be443A4800529` | Verified | Lido L2 wstETH. Prefer Chainlink direct USD pricing until ABI probe confirms local wrapper functions. |
+| Arbitrum One | 42161 | wstLINK | `0x3106E2e148525b3DB36795b04691D444c24972fB` | Pending rate provider | stake.link CCIP-bridged token is address-verified, but NAV pricing is blocked until a trusted wstLINK/stLINK rate provider is approved. |
 | Arbitrum One | 42161 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Blocked | Redundant/pending until Lombard registry lists the official Arbitrum row and Arbiscan probe confirms it. |
 | Base | 8453 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Verified candidate | CREATE2 Lombard address on a listed chain; probe before deploy. |
-| Avalanche C-Chain | 43114 | sAVAX | `0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE` | Verified | BENQI custom exchange-rate LST, not ERC4626. |
+| Avalanche C-Chain | 43114 | sAVAX | `0x2b2C81e08f1Af8835a78Bb2A90AE924ACE0eA4bE` | Adapter-ready | BENQI custom exchange-rate LST, not ERC4626. Block `85548391`: `getPooledAvaxByShares(1e18)` = `1262273463036754981`, `getSharesByPooledAvax(1e18)` = `792221360333614110`. |
 | Avalanche C-Chain | 43114 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Verified candidate | CREATE2 Lombard address on a listed chain; probe before deploy. |
-| BNB Chain | 56 | ankrBNB | `0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827` | Verified | Corrected Ankr Staked BNB address. |
+| BNB Chain | 56 | ankrBNB | `0x52F24a5e03aee338Da5fd9Df68D2b6FAe1178827` | Adapter-ready | Corrected Ankr Staked BNB address. Block `98548897`: `ratio()` = `904803413404352455`; direction is inverted as `underlying = wrapped * 1e18 / ratio`. |
 | BNB Chain | 56 | LBTC | `0xecAc9C5F704e954931349Da37F60E39f515c11c1` | Verified candidate | CREATE2 Lombard address on a listed chain; probe before deploy. |
 
 ## Confirmed Chain IDs

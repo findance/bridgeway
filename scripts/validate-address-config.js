@@ -5,6 +5,7 @@ const fs = require("fs");
 const MAINNET_CHAIN_IDS = new Set([1, 56, 8453, 42161, 43114]);
 const TESTNET_CHAIN_IDS = new Set([97, 84532, 421614, 43113, 11155111, 560048]);
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+const FUNCTION_SELECTOR_RE = /^0x[0-9a-fA-F]{8}$/;
 const UINT_RE = /^[0-9]+$/;
 
 function usage() {
@@ -35,6 +36,11 @@ function requireAddress(value, path) {
 function requireSelector(value, path) {
   requireString(value, path);
   if (typeof value === "string" && !UINT_RE.test(value)) fail(`${path} must be a decimal string`);
+}
+
+function requireFunctionSelector(value, path) {
+  requireString(value, path);
+  if (typeof value === "string" && !FUNCTION_SELECTOR_RE.test(value)) fail(`${path} must be a 4-byte selector`);
 }
 
 function validateStatus() {
@@ -139,9 +145,36 @@ function validateChain(key, chain) {
     if (!Array.isArray(wrapper.sources) || wrapper.sources.length === 0) {
       fail(`chains.${key}.stakingWrappers.${symbol}.sources must be a non-empty array`);
     }
+    if (wrapper.rateModel) {
+      requireString(wrapper.rateModel.method, `chains.${key}.stakingWrappers.${symbol}.rateModel.method`);
+      requireString(wrapper.rateModel.underlyingSymbol, `chains.${key}.stakingWrappers.${symbol}.rateModel.underlyingSymbol`);
+      if (!Number.isInteger(wrapper.rateModel.underlyingDecimals)) {
+        fail(`chains.${key}.stakingWrappers.${symbol}.rateModel.underlyingDecimals must be integer`);
+      }
+      if (wrapper.rateModel.wrappedToUnderlyingSelector) {
+        requireFunctionSelector(
+          wrapper.rateModel.wrappedToUnderlyingSelector,
+          `chains.${key}.stakingWrappers.${symbol}.rateModel.wrappedToUnderlyingSelector`
+        );
+      }
+      if (wrapper.rateModel.underlyingToWrappedSelector) {
+        requireFunctionSelector(
+          wrapper.rateModel.underlyingToWrappedSelector,
+          `chains.${key}.stakingWrappers.${symbol}.rateModel.underlyingToWrappedSelector`
+        );
+      }
+    }
     if (chain.chainId === 42161 && symbol === "LBTC") {
       if (wrapper.status !== "blocked-redundant-pending-lombard-registry") {
         fail("chains.42161.stakingWrappers.LBTC must remain blocked until Lombard lists Arbitrum");
+      }
+    }
+    if (chain.chainId === 42161 && symbol === "wstLINK") {
+      if (wrapper.status !== "pending-rate-provider") {
+        fail("chains.42161.stakingWrappers.wstLINK must remain pending until a trusted rate provider is approved");
+      }
+      if (!wrapper.rateModel || wrapper.rateModel.method !== "pending-trusted-rate-provider") {
+        fail("chains.42161.stakingWrappers.wstLINK must document pending-trusted-rate-provider pricing");
       }
     }
   }
