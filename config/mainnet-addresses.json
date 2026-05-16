@@ -33,17 +33,17 @@
         }
       },
       "multisig": {
-        "registry_owner": null,
-        "vault_owner": null,
-        "hub_nav_owner": null,
-        "ccip_receiver_owner": null,
-        "automation": null,
-        "emergency": null,
+        "registry_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "vault_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "hub_nav_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "ccip_receiver_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "automation": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "emergency": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
         "treasury": {
-          "team": null,
-          "holdback": null,
-          "reserve": null,
-          "founder": null
+          "team": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "holdback": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "reserve": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "founder": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
         }
       },
       "assets": {},
@@ -169,17 +169,17 @@
         }
       },
       "multisig": {
-        "registry_owner": null,
-        "vault_owner": null,
-        "hub_nav_owner": null,
-        "ccip_receiver_owner": null,
-        "automation": null,
-        "emergency": null,
+        "registry_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "vault_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "hub_nav_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "ccip_receiver_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "automation": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "emergency": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
         "treasury": {
-          "team": null,
-          "holdback": null,
-          "reserve": null,
-          "founder": null
+          "team": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "holdback": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "reserve": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "founder": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
         }
       },
       "assets": {},
@@ -273,17 +273,17 @@
         }
       },
       "multisig": {
-        "registry_owner": null,
-        "vault_owner": null,
-        "hub_nav_owner": null,
-        "ccip_receiver_owner": null,
-        "automation": null,
-        "emergency": null,
+        "registry_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "vault_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "hub_nav_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "ccip_receiver_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "automation": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "emergency": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
         "treasury": {
-          "team": null,
-          "holdback": null,
-          "reserve": null,
-          "founder": null
+          "team": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "holdback": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "reserve": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "founder": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
         }
       },
       "assets": {
@@ -372,17 +372,17 @@
         }
       },
       "multisig": {
-        "registry_owner": null,
-        "vault_owner": null,
-        "hub_nav_owner": null,
-        "ccip_receiver_owner": null,
-        "automation": null,
-        "emergency": null,
+        "registry_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "vault_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "hub_nav_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "ccip_receiver_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "automation": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "emergency": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
         "treasury": {
-          "team": null,
-          "holdback": null,
-          "reserve": null,
-          "founder": null
+          "team": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "holdback": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "reserve": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "founder": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
         }
       },
       "assets": {
@@ -522,17 +522,17 @@
         }
       },
       "multisig": {
-        "registry_owner": null,
-        "vault_owner": null,
-        "hub_nav_owner": null,
-        "ccip_receiver_owner": null,
-        "automation": null,
-        "emergency": null,
+        "registry_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "vault_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "hub_nav_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "ccip_receiver_owner": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "automation": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+        "emergency": "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
         "treasury": {
-          "team": null,
-          "holdback": null,
-          "reserve": null,
-          "founder": null
+          "team": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "holdback": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "reserve": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625",
+          "founder": "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
         }
       },
       "assets": {},
