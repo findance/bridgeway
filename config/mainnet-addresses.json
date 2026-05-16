@@ -20,16 +20,16 @@
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/mainnet",
         "explorer": "https://etherscan.io/address/0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
         "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
+          "verified_at": "2026-05-16T22:30:39Z",
+          "verified_by": "Codex via Chainlink docs + public RPC eth_getCode/codehash probes",
+          "source_verified": true
         },
         "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
+          "router_is_contract": true,
+          "router_code_hash": "0x4159f4241b169f7b37152c6b1ea572bd7463e6a75eb8aa0aebdcf4553e1642f9",
+          "selector_matches_router": true,
+          "last_probed_block": 25110732,
+          "last_probed_at": "2026-05-16T22:30:39Z"
         }
       },
       "multisig": {
@@ -156,16 +156,16 @@
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/bsc-mainnet",
         "explorer": "https://bscscan.com/address/0x34B03Cb9086d7D758AC55af71584F81A598759FE",
         "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
+          "verified_at": "2026-05-16T22:30:39Z",
+          "verified_by": "Codex via Chainlink docs + public RPC eth_getCode/codehash probes",
+          "source_verified": true
         },
         "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
+          "router_is_contract": true,
+          "router_code_hash": "0x27de0794fba121f7badf9c648a2f630b9fbc2684d43cc17b94d8d7902dbe71a4",
+          "selector_matches_router": true,
+          "last_probed_block": 98702353,
+          "last_probed_at": "2026-05-16T22:30:39Z"
         }
       },
       "multisig": {
@@ -260,16 +260,16 @@
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-base-1",
         "explorer": "https://basescan.org/address/0x881e3A65B4d4a04dD529061dd0071cf975F58bCD",
         "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
+          "verified_at": "2026-05-16T22:30:39Z",
+          "verified_by": "Codex via Chainlink docs + public RPC eth_getCode/codehash probes",
+          "source_verified": true
         },
         "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
+          "router_is_contract": true,
+          "router_code_hash": "0x84e1ee17ea4d59bf1a00fab1e5b88b84c4c0248559955dd9d753a695549c7ffe",
+          "selector_matches_router": true,
+          "last_probed_block": 46090631,
+          "last_probed_at": "2026-05-16T22:30:39Z"
         }
       },
       "multisig": {
@@ -359,16 +359,16 @@
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/ethereum-mainnet-arbitrum-1",
         "explorer": "https://arbiscan.io/address/0x141fa059441E0ca23ce184B6A78bafD2A517DdE8",
         "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
+          "verified_at": "2026-05-16T22:30:39Z",
+          "verified_by": "Codex via Chainlink docs + public RPC eth_getCode/codehash probes",
+          "source_verified": true
         },
         "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
+          "router_is_contract": true,
+          "router_code_hash": "0x0eec2ce1cfdadb0003ee4f17f58e99c95f5581d1651372b1178ce3fd0712aabb",
+          "selector_matches_router": true,
+          "last_probed_block": 463571976,
+          "last_probed_at": "2026-05-16T22:30:39Z"
         }
       },
       "multisig": {
@@ -509,16 +509,16 @@
         "source": "https://docs.chain.link/ccip/directory/mainnet/chain/avalanche-mainnet",
         "explorer": "https://snowtrace.io/address/0xF4c7E640EdA248ef95972845a62bdC74237805dB",
         "verification": {
-          "verified_at": null,
-          "verified_by": null,
-          "source_verified": false
+          "verified_at": "2026-05-16T22:30:39Z",
+          "verified_by": "Codex via Chainlink docs + public RPC eth_getCode/codehash probes",
+          "source_verified": true
         },
         "validation": {
-          "router_is_contract": null,
-          "router_code_hash": null,
-          "selector_matches_router": null,
-          "last_probed_block": null,
-          "last_probed_at": null
+          "router_is_contract": true,
+          "router_code_hash": "0x5121ed59dd141f65026f63414bd01223568f42277d6aad2eada10dba9209701e",
+          "selector_matches_router": true,
+          "last_probed_block": 85615772,
+          "last_probed_at": "2026-05-16T22:30:39Z"
         }
       },
       "multisig": {
@@ -607,7 +607,6 @@
     }
   },
   "manualConfirmationRequired": [
-    "CCIP v1.6.4 interface/router compatibility check",
     "deployed spoke source sender bytes",
     "multisig owner/operator/treasury addresses",
     "native staking wrapper exchange-rate adapters and pricing methods",
