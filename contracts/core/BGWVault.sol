@@ -521,11 +521,26 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Deposit
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Deposit USDC into the vault. Must be whitelisted.
+    /// @notice Deposit USDC into the vault for the caller. Must be whitelisted.
     ///         Mints BGW at current NAV. Distributes proportional BGW-GOV.
     /// @param  usdcAmount  Amount of USDC (6 dec) to deposit.
     /// @param  minBgwOut   Minimum BGW to receive (slippage guard, 18 dec). Pass 0 to skip.
-    function deposit(uint256 usdcAmount, uint256 minBgwOut) external nonReentrant whenNotPaused onlyWhitelisted {
+    function deposit(uint256 usdcAmount, uint256 minBgwOut) external {
+        depositFor(msg.sender, usdcAmount, minBgwOut);
+    }
+
+    /// @notice Deposit USDC into the vault and mint BGW/BGW-GOV to `recipient`.
+    ///         This supports external zaps/aggregators that deliver Arbitrum USDC.
+    /// @param  recipient   Address receiving BGW and BGW-GOV on Arbitrum.
+    /// @param  usdcAmount  Amount of USDC (6 dec) to deposit.
+    /// @param  minBgwOut   Minimum BGW to receive (slippage guard, 18 dec). Pass 0 to skip.
+    function depositFor(address recipient, uint256 usdcAmount, uint256 minBgwOut)
+        public
+        nonReentrant
+        whenNotPaused
+    {
+        if (recipient == address(0)) revert ZeroAddress();
+        if (!whitelist[recipient]) revert NotWhitelisted(recipient);
         if (usdcAmount == 0) revert ZeroAmount();
         if (maxDepositUsdc > 0 && usdcAmount > maxDepositUsdc) {
             revert DepositExceedsCap(usdcAmount, maxDepositUsdc);
@@ -542,10 +557,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         // Effects before interactions (CEI)
         _deployToSleeves(usdcAmount);
 
-        bgwToken.mint(msg.sender, bgwToMint);
-        (uint256 depositorGov,) = govToken.mintForDeposit(msg.sender, bgwToMint);
+        bgwToken.mint(recipient, bgwToMint);
+        (uint256 depositorGov,) = govToken.mintForDeposit(recipient, bgwToMint);
 
-        emit Deposited(msg.sender, usdcAmount, bgwToMint, depositorGov);
+        emit Deposited(recipient, usdcAmount, bgwToMint, depositorGov);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -274,6 +274,34 @@ contract BGWVaultTest is Test {
         vault.deposit(0, 0);
     }
 
+    function test_DepositForMintsToRecipient() public {
+        address router = makeAddr("router");
+        MockUSDC(USDC_ADDR).mint(router, 1_000e6);
+
+        vm.startPrank(router);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.depositFor(alice, 1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(bgwToken.balanceOf(alice), 1_000e18);
+        assertEq(govToken.balanceOf(alice), 300e18);
+        assertEq(bgwToken.balanceOf(router), 0);
+        assertEq(govToken.balanceOf(router), 0);
+        assertEq(vault.totalNAV(), 1_000e6);
+    }
+
+    function test_DepositForRevertsIfRecipientNotWhitelisted() public {
+        address router = makeAddr("router");
+        address outsider = makeAddr("outsider");
+        MockUSDC(USDC_ADDR).mint(router, 1_000e6);
+
+        vm.startPrank(router);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.NotWhitelisted.selector, outsider));
+        vault.depositFor(outsider, 1_000e6, 0);
+        vm.stopPrank();
+    }
+
     // ── BGW-GOV distribution ──────────────────────────────────────────────────
 
     function test_GovMintedAtThirtySeventySplit() public {
