@@ -125,3 +125,33 @@ deployment.
 10. Flip `status` only after approval: `approved-for-mainnet` or `approved-for-testnet`.
 11. Run `npm run validate:addresses`; deployment scripts must use the same broadcast guard.
 12. If `ccip_infra` is filled, verify those addresses from Chainlink/explorer sources and keep `deployCritical` set to `false`.
+
+## File Integrity Policy
+
+`fileIntegrity.sha256` is the exact approved artifact hash. It intentionally
+covers transient verification fields such as probe timestamps, block numbers,
+and operator notes, because those are part of the evidence reviewed at approval
+time. If any verification timestamp or probe result changes, re-run the review
+and approve a new hash rather than treating the change as metadata-only.
+
+`fileIntegrity.gitCommit` must be the full 40-character commit hash associated
+with the approved artifact. Short hashes are not acceptable for deployment
+approval.
+
+## Rate Reporter Operations
+
+The wstLINK rate registry uses a 60 second settle window after each fresh CCIP
+rate update. The window is meant to close same-block and same-moment repricing
+around `RateUpdated`; it is not intended to eliminate every possible MEV
+strategy. Frontends should call `rateStatus(address)` to display whether the
+rate is valid, settling, stale, paused, unapproved, or missing data. Adapters
+must use `getValidatedRate(address)` or `getValidatedRateData(address)`.
+
+If `forceRevokeSourceSender()` is called on the Arbitrum registry, pause the
+Ethereum reporter in the same Safe batch or operator runbook. Otherwise the L1
+reporter can continue paying CCIP fees while the L2 registry rejects delivery.
+
+Monitoring must alert if `RateUpdated` does not arrive within
+`lastReportedTimestamp + (minUpdateInterval * 1.5)`. A failed CCIP delivery is
+not repaired by retrying the same stale payload; send a fresh report once the
+cause is understood.

@@ -14,6 +14,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
     uint256 public constant DEFAULT_MAX_STALENESS = 24 hours;
     uint256 public constant DEFAULT_MIN_RATE_SETTLE_TIME = 60 seconds;
+    uint256 public constant MIN_VALID_READ_WINDOW = 1 hours;
     uint256 public constant MIN_RATE_SETTLE_TIME = 1 seconds;
     uint256 public constant MAX_RATE_SETTLE_TIME = DEFAULT_MAX_STALENESS / 2;
     uint256 public constant DEFAULT_MIN_RATE = 1e18;
@@ -40,6 +41,15 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     struct PendingUintChange {
         uint256 value;
         uint256 executeAfter;
+    }
+
+    enum RateState {
+        Valid,
+        Settling,
+        Stale,
+        Paused,
+        Unapproved,
+        NoData
     }
 
     address public ccipRouter;
@@ -120,6 +130,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     function setMaxStaleness(address asset, uint256 seconds_) external onlyOwner {
         if (asset == address(0)) revert ZeroAddress();
         if (seconds_ == 0) revert InvalidDuration();
+        if (seconds_ <= minRateSettleTime + MIN_VALID_READ_WINDOW) revert InvalidDuration();
         maxStalenessThreshold[asset] = seconds_;
         emit StalenessThresholdChanged(asset, seconds_);
     }
@@ -243,6 +254,40 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     {
         RateData memory data = _validatedRateData(asset);
         return (data.rate, data.lastUpdated, data.l1BlockNumber, data.l1Timestamp);
+    }
+
+    function rateStatus(address asset)
+        external
+        view
+        returns (
+            uint256 rate,
+            uint256 lastUpdated,
+            uint256 settlesAt,
+            uint256 staleAt,
+            uint256 l1BlockNumber,
+            uint256 l1Timestamp,
+            RateState state
+        )
+    {
+        if (!isApprovedRateAsset[asset]) return (0, 0, 0, 0, 0, 0, RateState.Unapproved);
+        if (isAssetPaused[asset]) return (0, 0, 0, 0, 0, 0, RateState.Paused);
+
+        RateData memory data = _assetRates[asset];
+        if (data.rate == 0) return (0, 0, 0, 0, 0, 0, RateState.NoData);
+
+        uint256 threshold = maxStalenessThreshold[asset];
+        if (threshold == 0) threshold = DEFAULT_MAX_STALENESS;
+
+        rate = data.rate;
+        lastUpdated = data.lastUpdated;
+        settlesAt = data.lastUpdated + minRateSettleTime;
+        staleAt = data.lastUpdated + threshold;
+        l1BlockNumber = data.l1BlockNumber;
+        l1Timestamp = data.l1Timestamp;
+
+        if (block.timestamp < settlesAt) state = RateState.Settling;
+        else if (block.timestamp > staleAt) state = RateState.Stale;
+        else state = RateState.Valid;
     }
 
     function pause() external onlyOwner {

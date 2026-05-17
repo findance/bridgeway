@@ -177,6 +177,40 @@ contract BridgewayRateReporterTest is Test {
         assertEq(l1Timestamp, 456);
     }
 
+    function test_RateRegistryReportsNonRevertingStatusForFrontend() public {
+        (,,,,,, BridgewayRateRegistry.RateState state) = registry.rateStatus(makeAddr("unknown"));
+        assertEq(uint256(state), uint256(BridgewayRateRegistry.RateState.Unapproved));
+
+        address approvedNoData = makeAddr("approvedNoData");
+        registry.setApprovedRateAsset(approvedNoData, true);
+        (,,,,,, state) = registry.rateStatus(approvedNoData);
+        assertEq(uint256(state), uint256(BridgewayRateRegistry.RateState.NoData));
+
+        uint256 rate = source.rate();
+        ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+
+        vm.prank(address(router));
+        registry.ccipReceive(message);
+
+        (uint256 statusRate, uint256 lastUpdated, uint256 settlesAt, uint256 staleAt, uint256 l1Block, uint256 l1Time, BridgewayRateRegistry.RateState statusState) =
+            registry.rateStatus(wstLinkL2);
+        assertEq(statusRate, rate);
+        assertEq(lastUpdated, block.timestamp);
+        assertEq(settlesAt, block.timestamp + registry.minRateSettleTime());
+        assertEq(staleAt, block.timestamp + registry.DEFAULT_MAX_STALENESS());
+        assertEq(l1Block, 123);
+        assertEq(l1Time, 456);
+        assertEq(uint256(statusState), uint256(BridgewayRateRegistry.RateState.Settling));
+
+        vm.warp(settlesAt);
+        (,,,,,, statusState) = registry.rateStatus(wstLinkL2);
+        assertEq(uint256(statusState), uint256(BridgewayRateRegistry.RateState.Valid));
+
+        registry.setAssetPaused(wstLinkL2, true);
+        (,,,,,, statusState) = registry.rateStatus(wstLinkL2);
+        assertEq(uint256(statusState), uint256(BridgewayRateRegistry.RateState.Paused));
+    }
+
     function test_RateRegistryRejectsBadRouterSenderAssetAndBounds() public {
         uint256 rate = source.rate();
         ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
@@ -281,6 +315,14 @@ contract BridgewayRateReporterTest is Test {
         vm.warp(block.timestamp + 24 hours + 1);
         vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.StaleRate.selector, wstLinkL2));
         registry.getValidatedRate(wstLinkL2);
+    }
+
+    function test_RateRegistryRejectsImpossibleStalenessWindow() public {
+        uint256 impossibleWindow = registry.minRateSettleTime() + registry.MIN_VALID_READ_WINDOW();
+        vm.expectRevert(BridgewayRateRegistry.InvalidDuration.selector);
+        registry.setMaxStaleness(wstLinkL2, impossibleWindow);
+
+        registry.setMaxStaleness(wstLinkL2, impossibleWindow + 1);
     }
 
     function test_RateRegistryCanForceRevokeSourceSender() public {

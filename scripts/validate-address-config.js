@@ -91,6 +91,10 @@ function checksumAddress(value) {
     stdio: ["ignore", "pipe", "pipe"]
   });
   if (result.status !== 0) {
+    if (result.error && result.error.code === "ENOENT") {
+      fail(`cast not found. Install Foundry before validating addresses: https://book.getfoundry.sh/getting-started/installation`);
+      return null;
+    }
     fail(`cast to-checksum failed for ${value}: ${result.stderr.trim() || "unknown error"}`);
     return null;
   }

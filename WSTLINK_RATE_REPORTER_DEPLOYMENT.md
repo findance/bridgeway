@@ -61,7 +61,9 @@ Run on Ethereum mainnet from the reporter owner or via the owner Safe.
 `RATE_REPORT_VALUE_WEI` is sent into `reportRate()` as a CCIP fee cushion.
 The reporter also enforces `maxFeePerReport`, which defaults to `0.005 ETH`.
 The Arbitrum registry enforces a default 60 second settle window after each
-fresh rate update before `getValidatedRate()` can be used for accounting.
+fresh rate update before `getValidatedRate()` can be used for accounting. This
+is a same-block and same-moment repricing defense, not a promise to eliminate
+all MEV.
 
 ```bash
 export L1_RATE_REPORTER=<printed reporter address from Step 1>
@@ -104,6 +106,11 @@ Ethereum reporter immediately in the same operator runbook. Otherwise recurring
 reports will continue paying CCIP delivery fees while the L2 receiver rejects
 them.
 
+Operational monitoring should alert if `RateUpdated` does not arrive within
+`lastReportedTimestamp + (minUpdateInterval * 1.5)`. After a failed CCIP
+delivery, send a fresh report once the cause is understood; do not rely on
+manual re-execution of the rejected payload.
+
 ## Step 4: Confirm Arbitrum Registry State
 
 After CCIP delivery, confirm:
@@ -116,6 +123,8 @@ cast call $L2_RATE_REGISTRY \
 ```
 
 The call should return a rate between `1e18` and `2e18`.
+If it reverts with `RateStillSettling`, wait until `rateStatus(address)` reports
+`Valid` and retry.
 
 ## Step 5: Record Deployment
 
