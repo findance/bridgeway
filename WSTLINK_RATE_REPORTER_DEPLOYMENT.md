@@ -75,8 +75,8 @@ forge script scripts/deploy/12_SetReceiverAndReportWstLINKRate.s.sol \
 
 Save the printed CCIP message ID.
 If the transaction reverts with `FeeExceedsMaximum`, review the current CCIP
-fee and raise `maxFeePerReport` through the reporter owner only if the fee is
-expected.
+fee. The fee cap is bounded to `0.001 ETH` through `0.05 ETH` and any change
+must be proposed and executed after the 48 hour timelock.
 
 ## Optional Separate Maintenance Calls
 
@@ -92,12 +92,17 @@ For future recurring rate updates, use:
 
 ```bash
 export L1_RATE_REPORTER=<printed reporter address from Step 1>
-export RATE_REPORT_VALUE_WEI=50000000000000000
+export RATE_REPORT_VALUE_WEI=1000000000000000
 
 forge script scripts/deploy/11_ReportWstLINKRate.s.sol \
   --rpc-url $ETH_RPC_URL \
   --broadcast
 ```
+
+If `forceRevokeSourceSender()` is ever used on the Arbitrum registry, pause the
+Ethereum reporter immediately in the same operator runbook. Otherwise recurring
+reports will continue paying CCIP delivery fees while the L2 receiver rejects
+them.
 
 ## Step 4: Confirm Arbitrum Registry State
 

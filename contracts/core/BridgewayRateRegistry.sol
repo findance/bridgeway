@@ -14,6 +14,8 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
     uint256 public constant DEFAULT_MAX_STALENESS = 24 hours;
     uint256 public constant DEFAULT_MIN_RATE_SETTLE_TIME = 60 seconds;
+    uint256 public constant MIN_RATE_SETTLE_TIME = 1 seconds;
+    uint256 public constant MAX_RATE_SETTLE_TIME = DEFAULT_MAX_STALENESS / 2;
     uint256 public constant DEFAULT_MIN_RATE = 1e18;
     uint256 public constant DEFAULT_MAX_REASONABLE_RATE = 2e18;
 
@@ -35,6 +37,11 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         uint256 executeAfter;
     }
 
+    struct PendingUintChange {
+        uint256 value;
+        uint256 executeAfter;
+    }
+
     address public ccipRouter;
     address public expectedSourceSender;
     uint64 public immutable sourceChainSelector;
@@ -42,18 +49,21 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     uint256 public minRate = DEFAULT_MIN_RATE;
     uint256 public maxReasonableRate = DEFAULT_MAX_REASONABLE_RATE;
 
-    mapping(address => RateData) public assetRates;
+    mapping(address => RateData) private _assetRates;
     mapping(address => bool) public isApprovedRateAsset;
     mapping(address => bool) public isAssetPaused;
     mapping(address => uint256) public maxStalenessThreshold;
     mapping(bytes32 => PendingAddressChange) public pendingAddressChanges;
     PendingRateBoundsChange public pendingRateBoundsChange;
+    PendingUintChange public pendingMinRateSettleTimeChange;
 
     event RateUpdated(address indexed asset, uint256 rate, uint256 l1BlockNumber, uint256 l1Timestamp);
     event ApprovedAssetStatusChanged(address indexed asset, bool approved);
     event AssetPauseStatusChanged(address indexed asset, bool paused);
     event StalenessThresholdChanged(address indexed asset, uint256 seconds_);
+    event MinRateSettleTimeProposed(uint256 seconds_, uint256 executeAfter);
     event MinRateSettleTimeChanged(uint256 seconds_);
+    event MinRateSettleTimeCancelled();
     event AddressChangeProposed(bytes32 indexed changeType, address indexed value, uint256 executeAfter);
     event AddressChangeExecuted(bytes32 indexed changeType, address indexed value);
     event AddressChangeCancelled(bytes32 indexed changeType);
@@ -78,6 +88,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     error StaleRate(address asset);
     error RateStillSettling(address asset);
     error InvalidDuration();
+    error InvalidSettleTime();
     error InvalidRateBounds();
     error NoPendingChange(bytes32 changeType);
     error TimelockNotElapsed(uint256 executeAfter);
@@ -113,9 +124,26 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         emit StalenessThresholdChanged(asset, seconds_);
     }
 
-    function setMinRateSettleTime(uint256 seconds_) external onlyOwner {
-        minRateSettleTime = seconds_;
-        emit MinRateSettleTimeChanged(seconds_);
+    function proposeMinRateSettleTime(uint256 seconds_) external onlyOwner {
+        if (seconds_ < MIN_RATE_SETTLE_TIME || seconds_ > MAX_RATE_SETTLE_TIME) revert InvalidSettleTime();
+        uint256 eta = block.timestamp + CONFIG_TIMELOCK_DELAY;
+        pendingMinRateSettleTimeChange = PendingUintChange({value: seconds_, executeAfter: eta});
+        emit MinRateSettleTimeProposed(seconds_, eta);
+    }
+
+    function executeMinRateSettleTime() external onlyOwner {
+        PendingUintChange memory pending = pendingMinRateSettleTimeChange;
+        if (pending.executeAfter == 0) revert NoPendingChange(bytes32("MIN_RATE_SETTLE_TIME"));
+        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
+        delete pendingMinRateSettleTimeChange;
+        minRateSettleTime = pending.value;
+        emit MinRateSettleTimeChanged(pending.value);
+    }
+
+    function cancelMinRateSettleTime() external onlyOwner {
+        if (pendingMinRateSettleTimeChange.executeAfter == 0) revert NoPendingChange(bytes32("MIN_RATE_SETTLE_TIME"));
+        delete pendingMinRateSettleTimeChange;
+        emit MinRateSettleTimeCancelled();
     }
 
     function proposeRouterUpdate(address router_) external onlyOwner {
@@ -190,11 +218,11 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         if (incomingRate < minRate) revert RateBelowBaseline(incomingRate);
         if (incomingRate > maxReasonableRate) revert RateExceedsMaximum(incomingRate);
 
-        RateData memory previous = assetRates[targetL2Asset];
+        RateData memory previous = _assetRates[targetL2Asset];
         if (incomingRate == previous.rate && l1Block == previous.l1BlockNumber) return;
         if (l1Block <= previous.l1BlockNumber) revert NonIncreasingL1Block(l1Block, previous.l1BlockNumber);
 
-        assetRates[targetL2Asset] = RateData({
+        _assetRates[targetL2Asset] = RateData({
             rate: incomingRate,
             lastUpdated: block.timestamp,
             l1BlockNumber: l1Block,
@@ -205,18 +233,16 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     }
 
     function getValidatedRate(address asset) external view returns (uint256) {
-        if (!isApprovedRateAsset[asset]) revert UnapprovedRateAsset(asset);
-        if (isAssetPaused[asset]) revert AssetRatePaused(asset);
+        return _validatedRateData(asset).rate;
+    }
 
-        RateData memory data = assetRates[asset];
-        if (data.rate == 0) revert NoRateData(asset);
-
-        uint256 threshold = maxStalenessThreshold[asset];
-        if (threshold == 0) threshold = DEFAULT_MAX_STALENESS;
-        if (block.timestamp - data.lastUpdated > threshold) revert StaleRate(asset);
-        if (block.timestamp - data.lastUpdated < minRateSettleTime) revert RateStillSettling(asset);
-
-        return data.rate;
+    function getValidatedRateData(address asset)
+        external
+        view
+        returns (uint256 rate, uint256 lastUpdated, uint256 l1BlockNumber, uint256 l1Timestamp)
+    {
+        RateData memory data = _validatedRateData(asset);
+        return (data.rate, data.lastUpdated, data.l1BlockNumber, data.l1Timestamp);
     }
 
     function pause() external onlyOwner {
@@ -229,6 +255,20 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
 
     function getProtocolVersion() external pure returns (uint8) {
         return EXPECTED_VERSION;
+    }
+
+    function _validatedRateData(address asset) internal view returns (RateData memory data) {
+        if (!isApprovedRateAsset[asset]) revert UnapprovedRateAsset(asset);
+        if (isAssetPaused[asset]) revert AssetRatePaused(asset);
+
+        data = _assetRates[asset];
+        if (data.rate == 0) revert NoRateData(asset);
+
+        uint256 threshold = maxStalenessThreshold[asset];
+        if (threshold == 0) threshold = DEFAULT_MAX_STALENESS;
+        if (minRateSettleTime >= threshold) revert InvalidSettleTime();
+        if (block.timestamp - data.lastUpdated > threshold) revert StaleRate(asset);
+        if (block.timestamp - data.lastUpdated < minRateSettleTime) revert RateStillSettling(asset);
     }
 
     function _proposeAddressChange(bytes32 changeType, address value) internal {

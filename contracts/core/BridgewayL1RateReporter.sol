@@ -20,8 +20,16 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant RATE_SAMPLE_INPUT = 1e18;
     uint256 public constant DEFAULT_GAS_LIMIT = 250_000;
     uint256 public constant MIN_UPDATE_INTERVAL = 5 minutes;
+    uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
+    uint256 public constant MIN_FEE_PER_REPORT = 0.001 ether;
+    uint256 public constant MAX_FEE_PER_REPORT = 0.05 ether;
     uint256 public constant FEE_WARNING_BPS = 8_000;
     uint256 public constant BPS_DENOMINATOR = 10_000;
+
+    struct PendingFeeChange {
+        uint256 maxFeePerReport;
+        uint256 executeAfter;
+    }
 
     address public immutable ccipRouter;
     address public immutable wstLinkL1;
@@ -32,10 +40,13 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public lastReportedTimestamp;
     uint256 public minUpdateInterval = 1 hours;
     uint256 public maxFeePerReport = 0.005 ether;
+    PendingFeeChange public pendingFeeChange;
 
     event ReceiverUpdated(address indexed receiver);
     event MinUpdateIntervalUpdated(uint256 interval);
+    event MaxFeePerReportProposed(uint256 maxFeePerReport, uint256 executeAfter);
     event MaxFeePerReportUpdated(uint256 maxFeePerReport);
+    event MaxFeePerReportCancelled();
     event RateReported(
         bytes32 indexed messageId,
         address indexed l2Asset,
@@ -55,6 +66,9 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     error InsufficientFees();
     error FeeExceedsMaximum(uint256 fee, uint256 maxFee);
     error InvalidUpdateInterval();
+    error InvalidFeeCap();
+    error NoPendingFeeChange();
+    error TimelockNotElapsed(uint256 executeAfter);
     error WithdrawalFailed();
 
     constructor(
@@ -87,9 +101,28 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
         emit MinUpdateIntervalUpdated(interval_);
     }
 
-    function setMaxFeePerReport(uint256 maxFeePerReport_) external onlyOwner {
-        maxFeePerReport = maxFeePerReport_;
-        emit MaxFeePerReportUpdated(maxFeePerReport_);
+    function proposeMaxFeePerReport(uint256 maxFeePerReport_) external onlyOwner {
+        if (maxFeePerReport_ < MIN_FEE_PER_REPORT || maxFeePerReport_ > MAX_FEE_PER_REPORT) {
+            revert InvalidFeeCap();
+        }
+        uint256 eta = block.timestamp + CONFIG_TIMELOCK_DELAY;
+        pendingFeeChange = PendingFeeChange({maxFeePerReport: maxFeePerReport_, executeAfter: eta});
+        emit MaxFeePerReportProposed(maxFeePerReport_, eta);
+    }
+
+    function executeMaxFeePerReport() external onlyOwner {
+        PendingFeeChange memory pending = pendingFeeChange;
+        if (pending.executeAfter == 0) revert NoPendingFeeChange();
+        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
+        delete pendingFeeChange;
+        maxFeePerReport = pending.maxFeePerReport;
+        emit MaxFeePerReportUpdated(pending.maxFeePerReport);
+    }
+
+    function cancelMaxFeePerReport() external onlyOwner {
+        if (pendingFeeChange.executeAfter == 0) revert NoPendingFeeChange();
+        delete pendingFeeChange;
+        emit MaxFeePerReportCancelled();
     }
 
     /// @notice Permissionless keeper entry point. CCIP fees are paid from this
@@ -123,10 +156,10 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
 
         ICCIPRouterClient router = ICCIPRouterClient(ccipRouter);
         uint256 fee = router.getFee(destinationChainSelector, message);
+        if (fee > maxFeePerReport) revert FeeExceedsMaximum(fee, maxFeePerReport);
         if (fee * BPS_DENOMINATOR >= maxFeePerReport * FEE_WARNING_BPS) {
             emit HighFeeWarning(fee, maxFeePerReport);
         }
-        if (fee > maxFeePerReport) revert FeeExceedsMaximum(fee, maxFeePerReport);
         if (address(this).balance < fee) revert InsufficientFees();
 
         lastReportedTimestamp = block.timestamp;

@@ -179,8 +179,8 @@ function validateFileIntegrity() {
   }
 
   const { gitCommit, sha256 } = config.fileIntegrity;
-  if (gitCommit !== null && (typeof gitCommit !== "string" || !/^[0-9a-f]{7,40}$/.test(gitCommit))) {
-    fail("fileIntegrity.gitCommit must be null or a git commit hash");
+  if (gitCommit !== null && (typeof gitCommit !== "string" || !/^[0-9a-f]{40}$/.test(gitCommit))) {
+    fail("fileIntegrity.gitCommit must be null or a full 40-character git commit hash");
   }
   if (sha256 !== null) {
     if (typeof sha256 !== "string" || !/^[0-9a-f]{64}$/.test(sha256)) {

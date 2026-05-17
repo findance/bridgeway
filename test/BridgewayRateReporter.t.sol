@@ -108,8 +108,8 @@ contract BridgewayRateReporterTest is Test {
         reporter.reportRate();
 
         vm.warp(block.timestamp + 1 hours);
-        router.setFee(2 ether);
-        reporter.setMaxFeePerReport(3 ether);
+        reporter.withdrawETH(payable(makeAddr("sink")), address(reporter).balance);
+        router.setFee(0.004 ether);
         vm.expectRevert(BridgewayL1RateReporter.InsufficientFees.selector);
         reporter.reportRate();
     }
@@ -129,6 +129,22 @@ contract BridgewayRateReporterTest is Test {
         reporter.pause();
         vm.expectRevert();
         reporter.reportRate();
+    }
+
+    function test_ReportRateTimelocksAndBoundsFeeCap() public {
+        vm.expectRevert(BridgewayL1RateReporter.InvalidFeeCap.selector);
+        reporter.proposeMaxFeePerReport(0);
+
+        vm.expectRevert(BridgewayL1RateReporter.InvalidFeeCap.selector);
+        reporter.proposeMaxFeePerReport(0.051 ether);
+
+        reporter.proposeMaxFeePerReport(0.01 ether);
+        vm.expectRevert();
+        reporter.executeMaxFeePerReport();
+
+        vm.warp(block.timestamp + reporter.CONFIG_TIMELOCK_DELAY());
+        reporter.executeMaxFeePerReport();
+        assertEq(reporter.maxFeePerReport(), 0.01 ether);
     }
 
     function test_ReportRateFailedReadCountsAgainstCooldown() public {
@@ -154,7 +170,7 @@ contract BridgewayRateReporterTest is Test {
         vm.warp(block.timestamp + registry.minRateSettleTime());
         assertEq(registry.getValidatedRate(wstLinkL2), rate);
         (uint256 storedRate, uint256 lastUpdated, uint256 l1BlockNumber, uint256 l1Timestamp) =
-            registry.assetRates(wstLinkL2);
+            registry.getValidatedRateData(wstLinkL2);
         assertEq(storedRate, rate);
         assertEq(lastUpdated, updatedAt);
         assertEq(l1BlockNumber, 123);
@@ -228,6 +244,20 @@ contract BridgewayRateReporterTest is Test {
         registry.executeRateBounds();
         assertEq(registry.minRate(), 1e18 - 1);
         assertEq(registry.maxReasonableRate(), 3e18);
+
+        vm.expectRevert(BridgewayRateRegistry.InvalidSettleTime.selector);
+        registry.proposeMinRateSettleTime(0);
+
+        uint256 tooLongSettleTime = registry.MAX_RATE_SETTLE_TIME() + 1;
+        vm.expectRevert(BridgewayRateRegistry.InvalidSettleTime.selector);
+        registry.proposeMinRateSettleTime(tooLongSettleTime);
+
+        registry.proposeMinRateSettleTime(5 minutes);
+        vm.expectRevert();
+        registry.executeMinRateSettleTime();
+        vm.warp(block.timestamp + 48 hours);
+        registry.executeMinRateSettleTime();
+        assertEq(registry.minRateSettleTime(), 5 minutes);
     }
 
     function test_RateRegistryIsolatesPauseAndStalenessByAsset() public {
