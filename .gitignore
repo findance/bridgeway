@@ -8,8 +8,13 @@
 /cache/
 /broadcast/
 
-# Dependencies (reinstall with forge install)
+# Hardhat artifacts
+/artifacts/
+/cache/
+
+# Dependencies
 /lib/
+/node_modules/
 
 # OS
 .DS_Store
