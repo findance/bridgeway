@@ -76,8 +76,9 @@ contract BridgewayHubSpokeTest is Test {
     }
 
     function test_SpokeConfigRejectsNavMoveBpsAboveOneHundredPercent() public {
-        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.InvalidNavMoveBps.selector, 10_001));
-        hub.configureSpoke(BASE_CHAIN_ID, address(baseSpoke), 24 hours, 10_001, true, true);
+        uint256 tooHigh = hub.MAX_NAV_MOVE_BPS() + 1;
+        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.InvalidNavMoveBps.selector, tooHigh));
+        hub.configureSpoke(BASE_CHAIN_ID, address(baseSpoke), 24 hours, tooHigh, true, true);
     }
 
     function test_HubAggregatesMultipleSpokes() public {

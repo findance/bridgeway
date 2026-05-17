@@ -15,6 +15,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     uint256 public constant VALUE_DECIMALS = 18;
     uint256 public constant DEFAULT_MAX_REPORT_AGE = 24 hours;
     uint256 public constant DEFAULT_MAX_NAV_MOVE_BPS = 1_000; // 10%
+    uint256 public constant MAX_NAV_MOVE_BPS = 3_000; // 30%
     uint256 public constant BPS_DENOM = 10_000;
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
 
@@ -247,7 +248,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         if (reporter == address(0)) revert ZeroAddress();
         if (maxReportAge == 0) maxReportAge = DEFAULT_MAX_REPORT_AGE;
         if (maxNavMoveBps == 0) maxNavMoveBps = DEFAULT_MAX_NAV_MOVE_BPS;
-        if (maxNavMoveBps > BPS_DENOM) revert InvalidNavMoveBps(maxNavMoveBps);
+        if (maxNavMoveBps > MAX_NAV_MOVE_BPS) revert InvalidNavMoveBps(maxNavMoveBps);
 
         config = SpokeConfig({
             reporter: reporter,

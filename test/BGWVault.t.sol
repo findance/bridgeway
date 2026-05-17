@@ -199,6 +199,24 @@ contract BGWVaultTest is Test {
         hub.reportSpokeNAV(chainId, navUsd18, reportedAt, sourceBlockNumber, nonce);
     }
 
+    function _stepSpokeNAVDownWithinMoveLimit(
+        BridgewayHubNAV hub,
+        BridgewaySpokeReporter spoke,
+        uint256 targetNav18
+    ) internal {
+        (uint256 currentNav18,,,) = hub.spokeReports(BASE_CHAIN_ID);
+        while (currentNav18 > targetNav18) {
+            uint256 maxDrop = (currentNav18 * hub.MAX_NAV_MOVE_BPS()) / hub.BPS_DENOM();
+            uint256 nextNav18 = currentNav18 - maxDrop;
+            if (nextNav18 < targetNav18) nextNav18 = targetNav18;
+
+            vm.prank(founder);
+            spoke.updateLocalNAV(nextNav18);
+            _relaySpokeReport(hub, spoke);
+            currentNav18 = nextNav18;
+        }
+    }
+
     // ── NAV bootstrapping ────────────────────────────────────────────────────
 
     function test_NavIsOneBeforeDeposit() public view {
@@ -455,7 +473,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        _wireHubNAVWithMoveLimit(3_000e18, 10_000);
+        _wireHubNAVWithMoveLimit(3_000e18, 3_000);
 
         vm.prank(alice);
         vault.redeem(500e18, 0);
@@ -491,7 +509,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) = _wireHubNAVWithMoveLimit(3_000e18, 10_000);
+        (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) = _wireHubNAVWithMoveLimit(3_000e18, 3_000);
 
         vm.prank(alice);
         vault.redeem(500e18, 0);
@@ -502,9 +520,7 @@ contract BGWVaultTest is Test {
         vm.expectRevert(abi.encodeWithSelector(BGWVault.QueuedRedemptionNotReady.selector, 1, 2_000e6));
         vault.claimQueuedRedemption(1);
 
-        vm.prank(founder);
-        spoke.updateLocalNAV(1_000e18);
-        _relaySpokeReport(hub, spoke);
+        _stepSpokeNAVDownWithinMoveLimit(hub, spoke, 1_000e18);
 
         vm.prank(founder);
         vault.acknowledgeQueuedRedemptionLiquidity(1, 2_000e6);

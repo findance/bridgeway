@@ -314,6 +314,14 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         return EXPECTED_VERSION;
     }
 
+    function rateAssetCount() external view returns (uint256) {
+        return _rateAssets.length;
+    }
+
+    function rateAssetAt(uint256 index) external view returns (address) {
+        return _rateAssets[index];
+    }
+
     function _validatedRateData(address asset) internal view returns (RateData memory data) {
         if (!isApprovedRateAsset[asset]) revert UnapprovedRateAsset(asset);
         if (isAssetPaused[asset]) revert AssetRatePaused(asset);

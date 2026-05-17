@@ -239,6 +239,21 @@ contract BridgewayRateReporterTest is Test {
         assertEq(uint256(statusState), uint256(BridgewayRateRegistry.RateState.Paused));
     }
 
+    function test_RateRegistryExposesKnownRateAssetsForOps() public {
+        address secondAsset = makeAddr("secondAsset");
+
+        assertEq(registry.rateAssetCount(), 1);
+        assertEq(registry.rateAssetAt(0), wstLinkL2);
+
+        registry.setApprovedRateAsset(secondAsset, true);
+        assertEq(registry.rateAssetCount(), 2);
+        assertEq(registry.rateAssetAt(1), secondAsset);
+
+        registry.setApprovedRateAsset(secondAsset, false);
+        assertEq(registry.rateAssetCount(), 2);
+        assertEq(registry.rateAssetAt(1), secondAsset);
+    }
+
     function test_RateRegistryRejectsBadRouterSenderAssetAndBounds() public {
         uint256 rate = source.rate();
         ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
