@@ -20,6 +20,7 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant RATE_SAMPLE_INPUT = 1e18;
     uint256 public constant DEFAULT_GAS_LIMIT = 250_000;
     uint256 public constant MIN_UPDATE_INTERVAL = 5 minutes;
+    uint256 public constant MAX_UPDATE_INTERVAL = 7 days;
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
     uint256 public constant MIN_FEE_PER_REPORT = 0.001 ether;
     uint256 public constant MAX_FEE_PER_REPORT = 0.05 ether;
@@ -28,6 +29,16 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
 
     struct PendingFeeChange {
         uint256 maxFeePerReport;
+        uint256 executeAfter;
+    }
+
+    struct PendingAddressChange {
+        address value;
+        uint256 executeAfter;
+    }
+
+    struct PendingUintChange {
+        uint256 value;
         uint256 executeAfter;
     }
 
@@ -40,10 +51,17 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public lastReportedTimestamp;
     uint256 public minUpdateInterval = 1 hours;
     uint256 public maxFeePerReport = 0.005 ether;
+    PendingAddressChange public pendingReceiverChange;
+    PendingUintChange public pendingMinUpdateIntervalChange;
     PendingFeeChange public pendingFeeChange;
 
     event ReceiverUpdated(address indexed receiver);
+    event ReceiverUpdateProposed(address indexed receiver, uint256 executeAfter);
+    event ReceiverUpdateCancelled();
+    event ReceiverCleared(address indexed oldReceiver);
+    event MinUpdateIntervalProposed(uint256 interval, uint256 executeAfter);
     event MinUpdateIntervalUpdated(uint256 interval);
+    event MinUpdateIntervalCancelled();
     event MaxFeePerReportProposed(uint256 maxFeePerReport, uint256 executeAfter);
     event MaxFeePerReportUpdated(uint256 maxFeePerReport);
     event MaxFeePerReportCancelled();
@@ -67,6 +85,9 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     error FeeExceedsMaximum(uint256 fee, uint256 maxFee);
     error InvalidUpdateInterval();
     error InvalidFeeCap();
+    error ReceiverAlreadyConfigured();
+    error NoPendingReceiverChange();
+    error NoPendingIntervalChange();
     error NoPendingFeeChange();
     error TimelockNotElapsed(uint256 executeAfter);
     error WithdrawalFailed();
@@ -90,15 +111,61 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     }
 
     function setReceiver(address receiver_) external onlyOwner {
+        if (receiverOnL2 != address(0)) revert ReceiverAlreadyConfigured();
         if (receiver_ == address(0)) revert ZeroAddress();
         receiverOnL2 = receiver_;
         emit ReceiverUpdated(receiver_);
     }
 
-    function setMinUpdateInterval(uint256 interval_) external onlyOwner {
-        if (interval_ < MIN_UPDATE_INTERVAL) revert InvalidUpdateInterval();
-        minUpdateInterval = interval_;
-        emit MinUpdateIntervalUpdated(interval_);
+    function proposeReceiverUpdate(address receiver_) external onlyOwner {
+        if (receiver_ == address(0)) revert ZeroAddress();
+        uint256 eta = block.timestamp + CONFIG_TIMELOCK_DELAY;
+        pendingReceiverChange = PendingAddressChange({value: receiver_, executeAfter: eta});
+        emit ReceiverUpdateProposed(receiver_, eta);
+    }
+
+    function executeReceiverUpdate() external onlyOwner {
+        PendingAddressChange memory pending = pendingReceiverChange;
+        if (pending.executeAfter == 0) revert NoPendingReceiverChange();
+        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
+        delete pendingReceiverChange;
+        receiverOnL2 = pending.value;
+        emit ReceiverUpdated(pending.value);
+    }
+
+    function cancelReceiverUpdate() external onlyOwner {
+        if (pendingReceiverChange.executeAfter == 0) revert NoPendingReceiverChange();
+        delete pendingReceiverChange;
+        emit ReceiverUpdateCancelled();
+    }
+
+    function clearReceiver() external onlyOwner {
+        address oldReceiver = receiverOnL2;
+        receiverOnL2 = address(0);
+        delete pendingReceiverChange;
+        emit ReceiverCleared(oldReceiver);
+    }
+
+    function proposeMinUpdateInterval(uint256 interval_) external onlyOwner {
+        if (interval_ < MIN_UPDATE_INTERVAL || interval_ > MAX_UPDATE_INTERVAL) revert InvalidUpdateInterval();
+        uint256 eta = block.timestamp + CONFIG_TIMELOCK_DELAY;
+        pendingMinUpdateIntervalChange = PendingUintChange({value: interval_, executeAfter: eta});
+        emit MinUpdateIntervalProposed(interval_, eta);
+    }
+
+    function executeMinUpdateInterval() external onlyOwner {
+        PendingUintChange memory pending = pendingMinUpdateIntervalChange;
+        if (pending.executeAfter == 0) revert NoPendingIntervalChange();
+        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
+        delete pendingMinUpdateIntervalChange;
+        minUpdateInterval = pending.value;
+        emit MinUpdateIntervalUpdated(pending.value);
+    }
+
+    function cancelMinUpdateInterval() external onlyOwner {
+        if (pendingMinUpdateIntervalChange.executeAfter == 0) revert NoPendingIntervalChange();
+        delete pendingMinUpdateIntervalChange;
+        emit MinUpdateIntervalCancelled();
     }
 
     function proposeMaxFeePerReport(uint256 maxFeePerReport_) external onlyOwner {

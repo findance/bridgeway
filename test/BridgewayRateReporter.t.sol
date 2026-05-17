@@ -116,7 +116,11 @@ contract BridgewayRateReporterTest is Test {
 
     function test_ReportRateGuardsPauseIntervalAndFeeCeiling() public {
         vm.expectRevert(BridgewayL1RateReporter.InvalidUpdateInterval.selector);
-        reporter.setMinUpdateInterval(5 minutes - 1);
+        reporter.proposeMinUpdateInterval(5 minutes - 1);
+
+        uint256 tooLongInterval = reporter.MAX_UPDATE_INTERVAL() + 1;
+        vm.expectRevert(BridgewayL1RateReporter.InvalidUpdateInterval.selector);
+        reporter.proposeMinUpdateInterval(tooLongInterval);
 
         vm.warp(1 hours);
         router.setFee(0.006 ether);
@@ -129,6 +133,30 @@ contract BridgewayRateReporterTest is Test {
         reporter.pause();
         vm.expectRevert();
         reporter.reportRate();
+    }
+
+    function test_ReportRateTimelocksReceiverAndMinUpdateInterval() public {
+        address newReceiver = makeAddr("newReceiver");
+
+        vm.expectRevert(BridgewayL1RateReporter.ReceiverAlreadyConfigured.selector);
+        reporter.setReceiver(newReceiver);
+
+        reporter.proposeReceiverUpdate(newReceiver);
+        vm.expectRevert();
+        reporter.executeReceiverUpdate();
+        vm.warp(block.timestamp + reporter.CONFIG_TIMELOCK_DELAY());
+        reporter.executeReceiverUpdate();
+        assertEq(reporter.receiverOnL2(), newReceiver);
+
+        reporter.proposeMinUpdateInterval(2 hours);
+        vm.expectRevert();
+        reporter.executeMinUpdateInterval();
+        vm.warp(block.timestamp + reporter.CONFIG_TIMELOCK_DELAY());
+        reporter.executeMinUpdateInterval();
+        assertEq(reporter.minUpdateInterval(), 2 hours);
+
+        reporter.clearReceiver();
+        assertEq(reporter.receiverOnL2(), address(0));
     }
 
     function test_ReportRateTimelocksAndBoundsFeeCap() public {
@@ -323,6 +351,25 @@ contract BridgewayRateReporterTest is Test {
         registry.setMaxStaleness(wstLinkL2, impossibleWindow);
 
         registry.setMaxStaleness(wstLinkL2, impossibleWindow + 1);
+    }
+
+    function test_RateRegistryRejectsSettleTimeThatWouldBrickApprovedAsset() public {
+        address tightAsset = makeAddr("tightAsset");
+        registry.setApprovedRateAsset(tightAsset, true);
+        registry.setMaxStaleness(tightAsset, 2 hours);
+
+        registry.proposeMinRateSettleTime(90 minutes);
+        vm.warp(block.timestamp + registry.CONFIG_TIMELOCK_DELAY());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BridgewayRateRegistry.MisconfiguredStaleness.selector,
+                tightAsset,
+                90 minutes,
+                2 hours
+            )
+        );
+        registry.executeMinRateSettleTime();
     }
 
     function test_RateRegistryCanForceRevokeSourceSender() public {

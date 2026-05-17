@@ -86,6 +86,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     error BootstrapAlreadyFinalized();
     error NoPendingConfig(uint64 chainId);
     error TimelockNotReady(uint64 chainId, uint256 executableAt);
+    error InvalidNavMoveBps(uint256 maxNavMoveBps);
 
     constructor(address owner_) Ownable(owner_) {
         if (owner_ == address(0)) revert ZeroAddress();
@@ -185,7 +186,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
 
         SpokeReport memory previous = spokeReports[chainId];
         if (nonce <= previous.nonce) revert NonceNotIncreasing(chainId);
-        if (previous.navUsd18 > 0 && config.maxNavMoveBps < BPS_DENOM) {
+        if (previous.navUsd18 > 0) {
             uint256 maxMove = Math.mulDiv(previous.navUsd18, config.maxNavMoveBps, BPS_DENOM);
             uint256 delta = navUsd18 > previous.navUsd18 ? navUsd18 - previous.navUsd18 : previous.navUsd18 - navUsd18;
             if (delta > maxMove) revert NavMoveTooLarge(chainId);
@@ -246,6 +247,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         if (reporter == address(0)) revert ZeroAddress();
         if (maxReportAge == 0) maxReportAge = DEFAULT_MAX_REPORT_AGE;
         if (maxNavMoveBps == 0) maxNavMoveBps = DEFAULT_MAX_NAV_MOVE_BPS;
+        if (maxNavMoveBps > BPS_DENOM) revert InvalidNavMoveBps(maxNavMoveBps);
 
         config = SpokeConfig({
             reporter: reporter,

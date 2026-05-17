@@ -75,6 +75,11 @@ contract BridgewayHubSpokeTest is Test {
         assertTrue(material);
     }
 
+    function test_SpokeConfigRejectsNavMoveBpsAboveOneHundredPercent() public {
+        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.InvalidNavMoveBps.selector, 10_001));
+        hub.configureSpoke(BASE_CHAIN_ID, address(baseSpoke), 24 hours, 10_001, true, true);
+    }
+
     function test_HubAggregatesMultipleSpokes() public {
         _report(baseSpoke, BASE_CHAIN_ID, 1_000e18);
         _report(avaxSpoke, AVAX_CHAIN_ID, 500e18);

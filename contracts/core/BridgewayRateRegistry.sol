@@ -49,7 +49,8 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         Stale,
         Paused,
         Unapproved,
-        NoData
+        NoData,
+        Misconfigured
     }
 
     address public ccipRouter;
@@ -61,11 +62,13 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
 
     mapping(address => RateData) private _assetRates;
     mapping(address => bool) public isApprovedRateAsset;
+    mapping(address => bool) private _rateAssetKnown;
     mapping(address => bool) public isAssetPaused;
     mapping(address => uint256) public maxStalenessThreshold;
     mapping(bytes32 => PendingAddressChange) public pendingAddressChanges;
     PendingRateBoundsChange public pendingRateBoundsChange;
     PendingUintChange public pendingMinRateSettleTimeChange;
+    address[] private _rateAssets;
 
     event RateUpdated(address indexed asset, uint256 rate, uint256 l1BlockNumber, uint256 l1Timestamp);
     event ApprovedAssetStatusChanged(address indexed asset, bool approved);
@@ -99,6 +102,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     error RateStillSettling(address asset);
     error InvalidDuration();
     error InvalidSettleTime();
+    error MisconfiguredStaleness(address asset, uint256 settleTime, uint256 threshold);
     error InvalidRateBounds();
     error NoPendingChange(bytes32 changeType);
     error TimelockNotElapsed(uint256 executeAfter);
@@ -117,6 +121,10 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
 
     function setApprovedRateAsset(address asset, bool approved) external onlyOwner {
         if (asset == address(0)) revert ZeroAddress();
+        if (!_rateAssetKnown[asset]) {
+            _rateAssetKnown[asset] = true;
+            _rateAssets.push(asset);
+        }
         isApprovedRateAsset[asset] = approved;
         emit ApprovedAssetStatusChanged(asset, approved);
     }
@@ -146,6 +154,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         PendingUintChange memory pending = pendingMinRateSettleTimeChange;
         if (pending.executeAfter == 0) revert NoPendingChange(bytes32("MIN_RATE_SETTLE_TIME"));
         if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
+        _validateSettleTimeAgainstApprovedAssets(pending.value);
         delete pendingMinRateSettleTimeChange;
         minRateSettleTime = pending.value;
         emit MinRateSettleTimeChanged(pending.value);
@@ -277,6 +286,9 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
 
         uint256 threshold = maxStalenessThreshold[asset];
         if (threshold == 0) threshold = DEFAULT_MAX_STALENESS;
+        if (threshold <= minRateSettleTime + MIN_VALID_READ_WINDOW) {
+            return (0, 0, 0, 0, 0, 0, RateState.Misconfigured);
+        }
 
         rate = data.rate;
         lastUpdated = data.lastUpdated;
@@ -311,9 +323,24 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
 
         uint256 threshold = maxStalenessThreshold[asset];
         if (threshold == 0) threshold = DEFAULT_MAX_STALENESS;
-        if (minRateSettleTime >= threshold) revert InvalidSettleTime();
+        if (threshold <= minRateSettleTime + MIN_VALID_READ_WINDOW) {
+            revert MisconfiguredStaleness(asset, minRateSettleTime, threshold);
+        }
         if (block.timestamp - data.lastUpdated > threshold) revert StaleRate(asset);
         if (block.timestamp - data.lastUpdated < minRateSettleTime) revert RateStillSettling(asset);
+    }
+
+    function _validateSettleTimeAgainstApprovedAssets(uint256 settleTime) internal view {
+        uint256 count = _rateAssets.length;
+        for (uint256 i; i < count; ++i) {
+            address asset = _rateAssets[i];
+            if (!isApprovedRateAsset[asset]) continue;
+            uint256 threshold = maxStalenessThreshold[asset];
+            if (threshold == 0) threshold = DEFAULT_MAX_STALENESS;
+            if (threshold <= settleTime + MIN_VALID_READ_WINDOW) {
+                revert MisconfiguredStaleness(asset, settleTime, threshold);
+            }
+        }
     }
 
     function _proposeAddressChange(bytes32 changeType, address value) internal {
