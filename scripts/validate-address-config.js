@@ -7,6 +7,26 @@ const TESTNET_CHAIN_IDS = new Set([97, 84532, 421614, 43113, 11155111, 560048]);
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const FUNCTION_SELECTOR_RE = /^0x[0-9a-fA-F]{8}$/;
 const UINT_RE = /^[0-9]+$/;
+const SAFE_TEXT_RE = /^[\x20-\x7E]*$/;
+const ALLOWED_URL_HOSTS = new Set([
+  "api.avax.network",
+  "arbiscan.io",
+  "basescan.org",
+  "bsc-rpc.publicnode.com",
+  "bscscan.com",
+  "data.chain.link",
+  "docs.benqi.fi",
+  "docs.chain.link",
+  "docs.lido.fi",
+  "docs.lombard.finance",
+  "docs.stake.link",
+  "ethereum.publicnode.com",
+  "etherscan.io",
+  "github.com",
+  "snowscan.xyz",
+  "snowtrace.io",
+  "www.ankr.com"
+]);
 
 function usage() {
   console.error("Usage: node scripts/validate-address-config.js <config.json> [--broadcast]");
@@ -26,6 +46,25 @@ function fail(message) {
 
 function requireString(value, path) {
   if (typeof value !== "string" || value.length === 0) fail(`${path} must be a non-empty string`);
+}
+
+function requireSafeText(value, path, maxLength = 500) {
+  requireString(value, path);
+  if (typeof value === "string") {
+    if (value.length > maxLength) fail(`${path} exceeds ${maxLength} characters`);
+    if (!SAFE_TEXT_RE.test(value)) fail(`${path} must be printable ASCII without newlines`);
+  }
+}
+
+function requireAllowedUrl(value, path) {
+  requireSafeText(value, path, 300);
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:") fail(`${path} must use https`);
+    if (!ALLOWED_URL_HOSTS.has(url.hostname)) fail(`${path} host is not allowlisted: ${url.hostname}`);
+  } catch {
+    fail(`${path} must be a valid URL`);
+  }
 }
 
 function requireAddress(value, path) {
@@ -88,6 +127,7 @@ function validateChain(key, chain) {
   }
 
   requireString(chain.name, `chains.${key}.name`);
+  requireSafeText(chain.name, `chains.${key}.name`, 80);
 
   if (!chain.ccip) {
     fail(`chains.${key}.ccip is required`);
@@ -97,8 +137,8 @@ function validateChain(key, chain) {
     }
     requireSelector(chain.ccip.selector, `chains.${key}.ccip.selector`);
     requireAddress(chain.ccip.router, `chains.${key}.ccip.router`);
-    requireString(chain.ccip.source, `chains.${key}.ccip.source`);
-    requireString(chain.ccip.explorer, `chains.${key}.ccip.explorer`);
+    requireAllowedUrl(chain.ccip.source, `chains.${key}.ccip.source`);
+    requireAllowedUrl(chain.ccip.explorer, `chains.${key}.ccip.explorer`);
     if (!chain.ccip.verification) fail(`chains.${key}.ccip.verification is required`);
     if (!chain.ccip.validation) fail(`chains.${key}.ccip.validation is required`);
   }
@@ -106,6 +146,7 @@ function validateChain(key, chain) {
   for (const [symbol, asset] of Object.entries(chain.assets || {})) {
     requireAddress(asset.token, `chains.${key}.assets.${symbol}.token`);
     requireAddress(asset.priceFeed, `chains.${key}.assets.${symbol}.priceFeed`);
+    requireSafeText(symbol, `chains.${key}.assets symbol`, 40);
     if (!Number.isInteger(asset.tokenDecimals)) fail(`chains.${key}.assets.${symbol}.tokenDecimals must be integer`);
     if (!Number.isInteger(asset.feedDecimals)) fail(`chains.${key}.assets.${symbol}.feedDecimals must be integer`);
   }
@@ -114,6 +155,8 @@ function validateChain(key, chain) {
     if (chain.settlementAsset.symbol !== "USDC") fail(`chains.${key}.settlementAsset.symbol must be USDC`);
     requireAddress(chain.settlementAsset.token, `chains.${key}.settlementAsset.token`);
     requireAddress(chain.settlementAsset.usdPriceFeed, `chains.${key}.settlementAsset.usdPriceFeed`);
+    if (chain.settlementAsset.source) requireAllowedUrl(chain.settlementAsset.source, `chains.${key}.settlementAsset.source`);
+    if (chain.settlementAsset.explorer) requireAllowedUrl(chain.settlementAsset.explorer, `chains.${key}.settlementAsset.explorer`);
     if (!Number.isInteger(chain.settlementAsset.tokenDecimals)) {
       fail(`chains.${key}.settlementAsset.tokenDecimals must be integer`);
     }
@@ -138,12 +181,20 @@ function validateChain(key, chain) {
 
   for (const [symbol, wrapper] of Object.entries(chain.stakingWrappers || {})) {
     requireString(wrapper.symbol, `chains.${key}.stakingWrappers.${symbol}.symbol`);
+    requireSafeText(wrapper.symbol, `chains.${key}.stakingWrappers.${symbol}.symbol`, 40);
     requireAddress(wrapper.token, `chains.${key}.stakingWrappers.${symbol}.token`);
     requireString(wrapper.type, `chains.${key}.stakingWrappers.${symbol}.type`);
+    requireSafeText(wrapper.type, `chains.${key}.stakingWrappers.${symbol}.type`, 80);
     requireString(wrapper.status, `chains.${key}.stakingWrappers.${symbol}.status`);
-    requireString(wrapper.explorer, `chains.${key}.stakingWrappers.${symbol}.explorer`);
+    requireSafeText(wrapper.status, `chains.${key}.stakingWrappers.${symbol}.status`, 80);
+    requireAllowedUrl(wrapper.explorer, `chains.${key}.stakingWrappers.${symbol}.explorer`);
     if (!Array.isArray(wrapper.sources) || wrapper.sources.length === 0) {
       fail(`chains.${key}.stakingWrappers.${symbol}.sources must be a non-empty array`);
+    } else {
+      wrapper.sources.forEach((source, i) => requireAllowedUrl(source, `chains.${key}.stakingWrappers.${symbol}.sources[${i}]`));
+    }
+    if (wrapper.notes) {
+      requireSafeText(wrapper.notes, `chains.${key}.stakingWrappers.${symbol}.notes`, 500);
     }
     if (wrapper.rateModel) {
       requireString(wrapper.rateModel.method, `chains.${key}.stakingWrappers.${symbol}.rateModel.method`);

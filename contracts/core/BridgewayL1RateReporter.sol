@@ -2,6 +2,8 @@
 pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "../interfaces/ICCIPRouterClient.sol";
 import "../libraries/BridgewayCCIPClient.sol";
@@ -13,10 +15,11 @@ interface IStakeLinkWstLink {
 /// @title BridgewayL1RateReporter
 /// @notice Ethereum-side CCIP reporter for canonical L1 exchange rates used by
 ///         hub-chain accounting when the L2 token does not expose a local rate.
-contract BridgewayL1RateReporter is Ownable2Step {
+contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     uint8 public constant PAYLOAD_VERSION = 1;
     uint256 public constant RATE_SAMPLE_INPUT = 1e18;
     uint256 public constant DEFAULT_GAS_LIMIT = 250_000;
+    uint256 public constant MIN_UPDATE_INTERVAL = 5 minutes;
 
     address public immutable ccipRouter;
     address public immutable wstLinkL1;
@@ -26,9 +29,11 @@ contract BridgewayL1RateReporter is Ownable2Step {
     address public receiverOnL2;
     uint256 public lastReportedTimestamp;
     uint256 public minUpdateInterval = 1 hours;
+    uint256 public maxFeePerReport = 0.01 ether;
 
     event ReceiverUpdated(address indexed receiver);
     event MinUpdateIntervalUpdated(uint256 interval);
+    event MaxFeePerReportUpdated(uint256 maxFeePerReport);
     event RateReported(
         bytes32 indexed messageId,
         address indexed l2Asset,
@@ -38,12 +43,15 @@ contract BridgewayL1RateReporter is Ownable2Step {
         uint256 fee
     );
     event ETHWithdrawn(address indexed to, uint256 amount);
+    event RateReadFailed(address indexed source);
 
     error ZeroAddress();
     error InvalidChainSelector();
     error CooldownActive();
     error ReceiverNotConfigured();
     error InsufficientFees();
+    error FeeExceedsMaximum(uint256 fee, uint256 maxFee);
+    error InvalidUpdateInterval();
     error WithdrawalFailed();
 
     constructor(
@@ -71,17 +79,29 @@ contract BridgewayL1RateReporter is Ownable2Step {
     }
 
     function setMinUpdateInterval(uint256 interval_) external onlyOwner {
+        if (interval_ < MIN_UPDATE_INTERVAL) revert InvalidUpdateInterval();
         minUpdateInterval = interval_;
         emit MinUpdateIntervalUpdated(interval_);
     }
 
+    function setMaxFeePerReport(uint256 maxFeePerReport_) external onlyOwner {
+        maxFeePerReport = maxFeePerReport_;
+        emit MaxFeePerReportUpdated(maxFeePerReport_);
+    }
+
     /// @notice Permissionless keeper entry point. CCIP fees are paid from this
     ///         contract's ETH balance; any msg.value stays as future fee cushion.
-    function reportRate() external payable returns (bytes32 messageId) {
+    function reportRate() external payable whenNotPaused returns (bytes32 messageId) {
         if (block.timestamp - lastReportedTimestamp < minUpdateInterval) revert CooldownActive();
         if (receiverOnL2 == address(0)) revert ReceiverNotConfigured();
 
-        uint256 currentRate = IStakeLinkWstLink(wstLinkL1).getUnderlyingByWrapped(RATE_SAMPLE_INPUT);
+        uint256 currentRate;
+        try IStakeLinkWstLink(wstLinkL1).getUnderlyingByWrapped(RATE_SAMPLE_INPUT) returns (uint256 rate) {
+            currentRate = rate;
+        } catch {
+            emit RateReadFailed(wstLinkL1);
+            return bytes32(0);
+        }
         bytes memory payload = abi.encode(PAYLOAD_VERSION, wstLinkL2, currentRate, block.number, block.timestamp);
 
         ICCIPRouterClient.EVM2AnyMessage memory message = ICCIPRouterClient.EVM2AnyMessage({
@@ -90,12 +110,16 @@ contract BridgewayL1RateReporter is Ownable2Step {
             tokenAmounts: new ICCIPRouterClient.EVMTokenAmount[](0),
             feeToken: address(0),
             extraArgs: BridgewayCCIPClient.argsToBytes(
-                BridgewayCCIPClient.EVMExtraArgsV1({gasLimit: DEFAULT_GAS_LIMIT})
+                BridgewayCCIPClient.GenericExtraArgsV2({
+                    gasLimit: DEFAULT_GAS_LIMIT,
+                    allowOutOfOrderExecution: true
+                })
             )
         });
 
         ICCIPRouterClient router = ICCIPRouterClient(ccipRouter);
         uint256 fee = router.getFee(destinationChainSelector, message);
+        if (fee > maxFeePerReport) revert FeeExceedsMaximum(fee, maxFeePerReport);
         if (address(this).balance < fee) revert InsufficientFees();
 
         lastReportedTimestamp = block.timestamp;
@@ -104,11 +128,23 @@ contract BridgewayL1RateReporter is Ownable2Step {
         emit RateReported(messageId, wstLinkL2, currentRate, block.number, block.timestamp, fee);
     }
 
-    function withdrawETH(address payable to, uint256 amount) external onlyOwner {
+    function withdrawETH(address payable to, uint256 amount) external onlyOwner nonReentrant {
         if (to == address(0)) revert ZeroAddress();
         (bool success,) = to.call{value: amount}("");
         if (!success) revert WithdrawalFailed();
         emit ETHWithdrawn(to, amount);
+    }
+
+    function getProtocolVersion() external pure returns (uint8) {
+        return PAYLOAD_VERSION;
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     receive() external payable {}

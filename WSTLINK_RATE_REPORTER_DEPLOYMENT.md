@@ -32,6 +32,10 @@ forge script scripts/deploy/08_DeployWstLINKL1RateReporter.s.sol \
 
 Save the printed `BridgewayL1RateReporter` address.
 
+Do not accept the pending Safe ownership transfer until Step 3 is complete,
+unless Step 3 will be executed directly through the Safe. The deployer remains
+the active owner until the Safe accepts ownership.
+
 ## Step 2: Deploy Arbitrum Rate Registry
 
 Run on Arbitrum One.
@@ -55,6 +59,7 @@ Save the printed `BridgewayRateRegistry` address.
 
 Run on Ethereum mainnet from the reporter owner or via the owner Safe.
 `RATE_REPORT_VALUE_WEI` is sent into `reportRate()` as a CCIP fee cushion.
+The reporter also enforces `maxFeePerReport`, which defaults to `0.01 ETH`.
 
 ```bash
 export L1_RATE_REPORTER=<printed reporter address from Step 1>
@@ -67,6 +72,9 @@ forge script scripts/deploy/12_SetReceiverAndReportWstLINKRate.s.sol \
 ```
 
 Save the printed CCIP message ID.
+If the transaction reverts with `FeeExceedsMaximum`, review the current CCIP
+fee and raise `maxFeePerReport` through the reporter owner only if the fee is
+expected.
 
 ## Optional Separate Maintenance Calls
 

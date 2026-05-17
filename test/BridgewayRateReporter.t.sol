@@ -103,7 +103,25 @@ contract BridgewayRateReporterTest is Test {
 
         vm.warp(block.timestamp + 1 hours);
         router.setFee(2 ether);
+        reporter.setMaxFeePerReport(3 ether);
         vm.expectRevert(BridgewayL1RateReporter.InsufficientFees.selector);
+        reporter.reportRate();
+    }
+
+    function test_ReportRateGuardsPauseIntervalAndFeeCeiling() public {
+        vm.expectRevert(BridgewayL1RateReporter.InvalidUpdateInterval.selector);
+        reporter.setMinUpdateInterval(5 minutes - 1);
+
+        vm.warp(1 hours);
+        router.setFee(0.02 ether);
+        vm.expectRevert(
+            abi.encodeWithSelector(BridgewayL1RateReporter.FeeExceedsMaximum.selector, 0.02 ether, 0.01 ether)
+        );
+        reporter.reportRate();
+
+        router.setFee(0.01 ether);
+        reporter.pause();
+        vm.expectRevert();
         reporter.reportRate();
     }
 
@@ -150,6 +168,46 @@ contract BridgewayRateReporterTest is Test {
         vm.prank(address(router));
         vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.RateExceedsMaximum.selector, 2e18 + 1));
         registry.ccipReceive(message);
+    }
+
+    function test_RateRegistryRejectsOutOfOrderRateUpdates() public {
+        uint256 rate = source.rate();
+        ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+
+        vm.prank(address(router));
+        registry.ccipReceive(message);
+
+        message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate + 1, 122, 455));
+        vm.prank(address(router));
+        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.NonIncreasingL1Block.selector, 122, 123));
+        registry.ccipReceive(message);
+
+        message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+        vm.prank(address(router));
+        registry.ccipReceive(message);
+    }
+
+    function test_RateRegistryTimelockedConfigUpdates() public {
+        address newRouter = makeAddr("newRouter");
+        address newReporter = makeAddr("newReporter");
+
+        registry.proposeRouterUpdate(newRouter);
+        vm.expectRevert();
+        registry.executeRouterUpdate();
+        vm.warp(block.timestamp + 48 hours);
+        registry.executeRouterUpdate();
+        assertEq(registry.ccipRouter(), newRouter);
+
+        registry.proposeSourceSenderUpdate(newReporter);
+        vm.warp(block.timestamp + 48 hours);
+        registry.executeSourceSenderUpdate();
+        assertEq(registry.expectedSourceSender(), newReporter);
+
+        registry.proposeRateBounds(1e18 - 1, 3e18);
+        vm.warp(block.timestamp + 48 hours);
+        registry.executeRateBounds();
+        assertEq(registry.minRate(), 1e18 - 1);
+        assertEq(registry.maxReasonableRate(), 3e18);
     }
 
     function test_RateRegistryIsolatesPauseAndStalenessByAsset() public {
