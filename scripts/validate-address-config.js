@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const crypto = require("crypto");
+const { spawnSync } = require("child_process");
 
 const MAINNET_CHAIN_IDS = new Set([1, 56, 8453, 42161, 43114]);
 const TESTNET_CHAIN_IDS = new Set([97, 84532, 421614, 43113, 11155111, 560048]);
@@ -10,10 +12,16 @@ const UINT_RE = /^[0-9]+$/;
 const SAFE_TEXT_RE = /^[\x20-\x7E]*$/;
 const ALLOWED_URL_HOSTS = new Set([
   "api.avax.network",
+  "aerodrome.finance",
+  "app.aave.com",
+  "app.benqi.fi",
+  "app.lista.org",
+  "app.staderlabs.com",
   "arbiscan.io",
   "basescan.org",
   "bsc-rpc.publicnode.com",
   "bscscan.com",
+  "curve.fi",
   "data.chain.link",
   "docs.benqi.fi",
   "docs.chain.link",
@@ -23,8 +31,18 @@ const ALLOWED_URL_HOSTS = new Set([
   "ethereum.publicnode.com",
   "etherscan.io",
   "github.com",
+  "hoodi.etherscan.io",
+  "lombard.finance",
+  "pancakeswap.finance",
+  "sepolia.arbiscan.io",
+  "sepolia.basescan.org",
+  "sepolia.etherscan.io",
   "snowscan.xyz",
   "snowtrace.io",
+  "staking.chain.link",
+  "testnet.bscscan.com",
+  "testnet.snowtrace.io",
+  "traderjoexyz.com",
   "www.ankr.com"
 ]);
 
@@ -67,9 +85,30 @@ function requireAllowedUrl(value, path) {
   }
 }
 
+function checksumAddress(value) {
+  const result = spawnSync("cast", ["to-checksum", value], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  if (result.status !== 0) {
+    fail(`cast to-checksum failed for ${value}: ${result.stderr.trim() || "unknown error"}`);
+    return null;
+  }
+  return result.stdout.trim();
+}
+
 function requireAddress(value, path) {
   requireString(value, path);
-  if (typeof value === "string" && !ADDRESS_RE.test(value)) fail(`${path} must be a 20-byte hex address`);
+  if (typeof value === "string") {
+    if (!ADDRESS_RE.test(value)) {
+      fail(`${path} must be a 20-byte hex address`);
+      return;
+    }
+    const checksummed = checksumAddress(value);
+    if (checksummed && value !== checksummed) {
+      fail(`${path} must use EIP-55 checksum case: ${checksummed}`);
+    }
+  }
 }
 
 function requireSelector(value, path) {
@@ -111,6 +150,48 @@ function validateStatus() {
 
   if (broadcast && config.status !== config.requiredStatusForBroadcast) {
     fail(`broadcast blocked: status ${config.status} does not equal ${config.requiredStatusForBroadcast}`);
+  }
+
+  validateFileIntegrity();
+}
+
+function deepSort(value) {
+  if (Array.isArray(value)) return value.map(deepSort);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, deepSort(value[key])]));
+  }
+  return value;
+}
+
+function configDigest() {
+  const clone = JSON.parse(JSON.stringify(config));
+  if (clone.fileIntegrity) {
+    clone.fileIntegrity.gitCommit = null;
+    clone.fileIntegrity.sha256 = null;
+  }
+  return crypto.createHash("sha256").update(JSON.stringify(deepSort(clone))).digest("hex");
+}
+
+function validateFileIntegrity() {
+  if (!config.fileIntegrity || typeof config.fileIntegrity !== "object") {
+    fail("fileIntegrity is required");
+    return;
+  }
+
+  const { gitCommit, sha256 } = config.fileIntegrity;
+  if (gitCommit !== null && (typeof gitCommit !== "string" || !/^[0-9a-f]{7,40}$/.test(gitCommit))) {
+    fail("fileIntegrity.gitCommit must be null or a git commit hash");
+  }
+  if (sha256 !== null) {
+    if (typeof sha256 !== "string" || !/^[0-9a-f]{64}$/.test(sha256)) {
+      fail("fileIntegrity.sha256 must be null or a 64-character lowercase sha256 hex digest");
+    } else {
+      const digest = configDigest();
+      if (sha256 !== digest) fail(`fileIntegrity.sha256 mismatch: expected ${digest}`);
+    }
+  }
+  if (broadcast && (gitCommit === null || sha256 === null)) {
+    fail("broadcast blocked: fileIntegrity.gitCommit and fileIntegrity.sha256 must be populated");
   }
 }
 

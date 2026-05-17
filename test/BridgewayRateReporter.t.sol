@@ -10,18 +10,24 @@ import "../contracts/interfaces/ICCIPRouterClient.sol";
 
 contract MockWstLinkRateSource {
     uint256 public rate = 1.222761515949738428e18;
+    bool public shouldRevert;
 
     function setRate(uint256 rate_) external {
         rate = rate_;
     }
 
+    function setShouldRevert(bool shouldRevert_) external {
+        shouldRevert = shouldRevert_;
+    }
+
     function getUnderlyingByWrapped(uint256 amount) external view returns (uint256) {
+        require(!shouldRevert, "rate source paused");
         return amount * rate / 1e18;
     }
 }
 
 contract MockCCIPRouter is ICCIPRouterClient {
-    uint256 public fee = 0.01 ether;
+    uint256 public fee = 0.005 ether;
     uint64 public lastDestinationChainSelector;
     bytes public lastReceiver;
     bytes public lastData;
@@ -81,7 +87,7 @@ contract BridgewayRateReporterTest is Test {
 
         assertEq(router.lastDestinationChainSelector(), ARB_SELECTOR);
         assertEq(abi.decode(router.lastReceiver(), (address)), address(registry));
-        assertEq(router.lastValue(), 0.01 ether);
+        assertEq(router.lastValue(), 0.005 ether);
         assertEq(reporter.lastReportedTimestamp(), block.timestamp);
 
         (uint8 version, address asset, uint256 rate, uint256 l1Block, uint256 l1Time) =
@@ -113,15 +119,27 @@ contract BridgewayRateReporterTest is Test {
         reporter.setMinUpdateInterval(5 minutes - 1);
 
         vm.warp(1 hours);
-        router.setFee(0.02 ether);
+        router.setFee(0.006 ether);
         vm.expectRevert(
-            abi.encodeWithSelector(BridgewayL1RateReporter.FeeExceedsMaximum.selector, 0.02 ether, 0.01 ether)
+            abi.encodeWithSelector(BridgewayL1RateReporter.FeeExceedsMaximum.selector, 0.006 ether, 0.005 ether)
         );
         reporter.reportRate();
 
         router.setFee(0.01 ether);
         reporter.pause();
         vm.expectRevert();
+        reporter.reportRate();
+    }
+
+    function test_ReportRateFailedReadCountsAgainstCooldown() public {
+        vm.warp(1 hours);
+        source.setShouldRevert(true);
+
+        bytes32 messageId = reporter.reportRate();
+        assertEq(messageId, bytes32(0));
+        assertEq(reporter.lastReportedTimestamp(), block.timestamp);
+
+        vm.expectRevert(BridgewayL1RateReporter.CooldownActive.selector);
         reporter.reportRate();
     }
 
@@ -132,11 +150,13 @@ contract BridgewayRateReporterTest is Test {
         vm.prank(address(router));
         registry.ccipReceive(message);
 
+        uint256 updatedAt = block.timestamp;
+        vm.warp(block.timestamp + registry.minRateSettleTime());
         assertEq(registry.getValidatedRate(wstLinkL2), rate);
         (uint256 storedRate, uint256 lastUpdated, uint256 l1BlockNumber, uint256 l1Timestamp) =
             registry.assetRates(wstLinkL2);
         assertEq(storedRate, rate);
-        assertEq(lastUpdated, block.timestamp);
+        assertEq(lastUpdated, updatedAt);
         assertEq(l1BlockNumber, 123);
         assertEq(l1Timestamp, 456);
     }
@@ -222,9 +242,27 @@ contract BridgewayRateReporterTest is Test {
         registry.getValidatedRate(wstLinkL2);
 
         registry.setAssetPaused(wstLinkL2, false);
+        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.RateStillSettling.selector, wstLinkL2));
+        registry.getValidatedRate(wstLinkL2);
+
+        vm.warp(block.timestamp + registry.minRateSettleTime());
+        assertEq(registry.getValidatedRate(wstLinkL2), rate);
+
         vm.warp(block.timestamp + 24 hours + 1);
         vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.StaleRate.selector, wstLinkL2));
         registry.getValidatedRate(wstLinkL2);
+    }
+
+    function test_RateRegistryCanForceRevokeSourceSender() public {
+        registry.forceRevokeSourceSender();
+        assertEq(registry.expectedSourceSender(), address(0));
+
+        ICCIPReceiver.Any2EVMMessage memory message =
+            _message(address(reporter), abi.encode(uint8(1), wstLinkL2, source.rate(), 123, 456));
+
+        vm.prank(address(router));
+        vm.expectRevert(BridgewayRateRegistry.SourceSenderRevoked.selector);
+        registry.ccipReceive(message);
     }
 
     function _message(address sender, bytes memory data)

@@ -13,6 +13,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     uint8 public constant EXPECTED_VERSION = 1;
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
     uint256 public constant DEFAULT_MAX_STALENESS = 24 hours;
+    uint256 public constant DEFAULT_MIN_RATE_SETTLE_TIME = 60 seconds;
     uint256 public constant DEFAULT_MIN_RATE = 1e18;
     uint256 public constant DEFAULT_MAX_REASONABLE_RATE = 2e18;
 
@@ -37,6 +38,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     address public ccipRouter;
     address public expectedSourceSender;
     uint64 public immutable sourceChainSelector;
+    uint256 public minRateSettleTime = DEFAULT_MIN_RATE_SETTLE_TIME;
     uint256 public minRate = DEFAULT_MIN_RATE;
     uint256 public maxReasonableRate = DEFAULT_MAX_REASONABLE_RATE;
 
@@ -51,9 +53,11 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     event ApprovedAssetStatusChanged(address indexed asset, bool approved);
     event AssetPauseStatusChanged(address indexed asset, bool paused);
     event StalenessThresholdChanged(address indexed asset, uint256 seconds_);
+    event MinRateSettleTimeChanged(uint256 seconds_);
     event AddressChangeProposed(bytes32 indexed changeType, address indexed value, uint256 executeAfter);
     event AddressChangeExecuted(bytes32 indexed changeType, address indexed value);
     event AddressChangeCancelled(bytes32 indexed changeType);
+    event SourceSenderForceRevoked(address indexed oldSender);
     event RateBoundsProposed(uint256 minRate, uint256 maxRate, uint256 executeAfter);
     event RateBoundsExecuted(uint256 minRate, uint256 maxRate);
     event RateBoundsCancelled();
@@ -62,6 +66,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     error InvalidChainSelector();
     error InvalidRouter();
     error InvalidSourceChain();
+    error SourceSenderRevoked();
     error InvalidSourceSender();
     error UnsupportedPayloadVersion(uint8 version);
     error UnapprovedRateAsset(address asset);
@@ -71,6 +76,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     error AssetRatePaused(address asset);
     error NoRateData(address asset);
     error StaleRate(address asset);
+    error RateStillSettling(address asset);
     error InvalidDuration();
     error InvalidRateBounds();
     error NoPendingChange(bytes32 changeType);
@@ -107,6 +113,11 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         emit StalenessThresholdChanged(asset, seconds_);
     }
 
+    function setMinRateSettleTime(uint256 seconds_) external onlyOwner {
+        minRateSettleTime = seconds_;
+        emit MinRateSettleTimeChanged(seconds_);
+    }
+
     function proposeRouterUpdate(address router_) external onlyOwner {
         _proposeAddressChange(CHANGE_ROUTER, router_);
     }
@@ -129,6 +140,13 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
 
     function cancelSourceSenderUpdate() external onlyOwner {
         _cancelAddressChange(CHANGE_SOURCE_SENDER);
+    }
+
+    function forceRevokeSourceSender() external onlyOwner {
+        address oldSender = expectedSourceSender;
+        expectedSourceSender = address(0);
+        delete pendingAddressChanges[CHANGE_SOURCE_SENDER];
+        emit SourceSenderForceRevoked(oldSender);
     }
 
     function proposeRateBounds(uint256 minRate_, uint256 maxRate_) external onlyOwner {
@@ -161,6 +179,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     function ccipReceive(Any2EVMMessage calldata message) external whenNotPaused {
         if (msg.sender != ccipRouter) revert InvalidRouter();
         if (message.sourceChainSelector != sourceChainSelector) revert InvalidSourceChain();
+        if (expectedSourceSender == address(0)) revert SourceSenderRevoked();
         if (abi.decode(message.sender, (address)) != expectedSourceSender) revert InvalidSourceSender();
 
         (uint8 version, address targetL2Asset, uint256 incomingRate, uint256 l1Block, uint256 l1Time) =
@@ -195,6 +214,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         uint256 threshold = maxStalenessThreshold[asset];
         if (threshold == 0) threshold = DEFAULT_MAX_STALENESS;
         if (block.timestamp - data.lastUpdated > threshold) revert StaleRate(asset);
+        if (block.timestamp - data.lastUpdated < minRateSettleTime) revert RateStillSettling(asset);
 
         return data.rate;
     }

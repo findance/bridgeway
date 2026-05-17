@@ -20,6 +20,8 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     uint256 public constant RATE_SAMPLE_INPUT = 1e18;
     uint256 public constant DEFAULT_GAS_LIMIT = 250_000;
     uint256 public constant MIN_UPDATE_INTERVAL = 5 minutes;
+    uint256 public constant FEE_WARNING_BPS = 8_000;
+    uint256 public constant BPS_DENOMINATOR = 10_000;
 
     address public immutable ccipRouter;
     address public immutable wstLinkL1;
@@ -29,7 +31,7 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     address public receiverOnL2;
     uint256 public lastReportedTimestamp;
     uint256 public minUpdateInterval = 1 hours;
-    uint256 public maxFeePerReport = 0.01 ether;
+    uint256 public maxFeePerReport = 0.005 ether;
 
     event ReceiverUpdated(address indexed receiver);
     event MinUpdateIntervalUpdated(uint256 interval);
@@ -44,6 +46,7 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     );
     event ETHWithdrawn(address indexed to, uint256 amount);
     event RateReadFailed(address indexed source);
+    event HighFeeWarning(uint256 fee, uint256 maxFeePerReport);
 
     error ZeroAddress();
     error InvalidChainSelector();
@@ -99,6 +102,7 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
         try IStakeLinkWstLink(wstLinkL1).getUnderlyingByWrapped(RATE_SAMPLE_INPUT) returns (uint256 rate) {
             currentRate = rate;
         } catch {
+            lastReportedTimestamp = block.timestamp;
             emit RateReadFailed(wstLinkL1);
             return bytes32(0);
         }
@@ -119,6 +123,9 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
 
         ICCIPRouterClient router = ICCIPRouterClient(ccipRouter);
         uint256 fee = router.getFee(destinationChainSelector, message);
+        if (fee * BPS_DENOMINATOR >= maxFeePerReport * FEE_WARNING_BPS) {
+            emit HighFeeWarning(fee, maxFeePerReport);
+        }
         if (fee > maxFeePerReport) revert FeeExceedsMaximum(fee, maxFeePerReport);
         if (address(this).balance < fee) revert InsufficientFees();
 

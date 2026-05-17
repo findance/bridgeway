@@ -59,12 +59,14 @@ Save the printed `BridgewayRateRegistry` address.
 
 Run on Ethereum mainnet from the reporter owner or via the owner Safe.
 `RATE_REPORT_VALUE_WEI` is sent into `reportRate()` as a CCIP fee cushion.
-The reporter also enforces `maxFeePerReport`, which defaults to `0.01 ETH`.
+The reporter also enforces `maxFeePerReport`, which defaults to `0.005 ETH`.
+The Arbitrum registry enforces a default 60 second settle window after each
+fresh rate update before `getValidatedRate()` can be used for accounting.
 
 ```bash
 export L1_RATE_REPORTER=<printed reporter address from Step 1>
 export L2_RATE_REGISTRY=<printed registry address from Step 2>
-export RATE_REPORT_VALUE_WEI=50000000000000000
+export RATE_REPORT_VALUE_WEI=1000000000000000
 
 forge script scripts/deploy/12_SetReceiverAndReportWstLINKRate.s.sol \
   --rpc-url $ETH_RPC_URL \
