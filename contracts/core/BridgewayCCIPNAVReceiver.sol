@@ -163,6 +163,10 @@ contract BridgewayCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
         _unpause();
     }
 
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(ICCIPReceiver).interfaceId || interfaceId == 0x01ffc9a7;
+    }
+
     function _validateSourceConfig(
         uint64 ccipSourceChainSelector,
         uint64 spokeChainId,

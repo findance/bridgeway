@@ -314,6 +314,10 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         return EXPECTED_VERSION;
     }
 
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(ICCIPReceiver).interfaceId || interfaceId == 0x01ffc9a7;
+    }
+
     function rateAssetCount() external view returns (uint256) {
         return _rateAssets.length;
     }

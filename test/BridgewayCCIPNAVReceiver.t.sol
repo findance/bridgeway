@@ -75,6 +75,12 @@ contract BridgewayCCIPNAVReceiverTest is Test {
         assertTrue(enabled);
     }
 
+    function test_CcipNavReceiverAdvertisesCcipReceiverInterface() public view {
+        assertTrue(receiver.supportsInterface(type(ICCIPReceiver).interfaceId));
+        assertTrue(receiver.supportsInterface(0x01ffc9a7));
+        assertFalse(receiver.supportsInterface(0xffffffff));
+    }
+
     function test_CcipReceiverRejectsWrongRouter() public {
         spoke.updateLocalNAV(1_000e18);
         ICCIPReceiver.Any2EVMMessage memory message = _message(abi.encode(remoteSender), spoke.buildReport());

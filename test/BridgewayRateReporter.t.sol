@@ -254,6 +254,12 @@ contract BridgewayRateReporterTest is Test {
         assertEq(registry.rateAssetAt(1), secondAsset);
     }
 
+    function test_RateRegistryAdvertisesCcipReceiverInterface() public view {
+        assertTrue(registry.supportsInterface(type(ICCIPReceiver).interfaceId));
+        assertTrue(registry.supportsInterface(0x01ffc9a7));
+        assertFalse(registry.supportsInterface(0xffffffff));
+    }
+
     function test_RateRegistryRejectsBadRouterSenderAssetAndBounds() public {
         uint256 rate = source.rate();
         ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
