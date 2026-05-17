@@ -51,22 +51,34 @@ forge script scripts/deploy/09_DeployWstLINKRateRegistry.s.sol \
 
 Save the printed `BridgewayRateRegistry` address.
 
-## Step 3: Set Reporter Receiver
+## Step 3: Set Receiver and Send First Rate
 
 Run on Ethereum mainnet from the reporter owner or via the owner Safe.
+`RATE_REPORT_VALUE_WEI` is sent into `reportRate()` as a CCIP fee cushion.
 
 ```bash
 export L1_RATE_REPORTER=<printed reporter address from Step 1>
 export L2_RATE_REGISTRY=<printed registry address from Step 2>
+export RATE_REPORT_VALUE_WEI=50000000000000000
 
+forge script scripts/deploy/12_SetReceiverAndReportWstLINKRate.s.sol \
+  --rpc-url $ETH_RPC_URL \
+  --broadcast
+```
+
+Save the printed CCIP message ID.
+
+## Optional Separate Maintenance Calls
+
+If the receiver ever needs to be changed without sending a rate, use:
+
+```bash
 forge script scripts/deploy/10_SetWstLINKRateReporterReceiver.s.sol \
   --rpc-url $ETH_RPC_URL \
   --broadcast
 ```
 
-## Step 4: Fund Reporter and Send First Rate
-
-Run on Ethereum mainnet. `RATE_REPORT_VALUE_WEI` is sent into `reportRate()` as a CCIP fee cushion.
+For future recurring rate updates, use:
 
 ```bash
 export L1_RATE_REPORTER=<printed reporter address from Step 1>
@@ -77,9 +89,7 @@ forge script scripts/deploy/11_ReportWstLINKRate.s.sol \
   --broadcast
 ```
 
-Save the printed CCIP message ID.
-
-## Step 5: Confirm Arbitrum Registry State
+## Step 4: Confirm Arbitrum Registry State
 
 After CCIP delivery, confirm:
 
@@ -92,9 +102,9 @@ cast call $L2_RATE_REGISTRY \
 
 The call should return a rate between `1e18` and `2e18`.
 
-## Step 6: Record Deployment
+## Step 5: Record Deployment
 
-After Step 5 succeeds, update `config/mainnet-addresses.json`:
+After Step 4 succeeds, update `config/mainnet-addresses.json`:
 
 - `chains.42161.stakingWrappers.wstLINK.status` -> `adapter-ready`
 - Add `rateModel.deployment.l1RateReporter`
