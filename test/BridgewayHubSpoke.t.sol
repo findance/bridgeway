@@ -43,6 +43,38 @@ contract BridgewayHubSpokeTest is Test {
         assertEq(hub.totalSpokeNAVUSDC(), 1_000e6);
     }
 
+    function test_SpokeConfigRequiresTimelockAfterBootstrapFinalized() public {
+        BridgewaySpokeReporter replacement = new BridgewaySpokeReporter(owner, BASE_CHAIN_ID);
+
+        vm.expectRevert(BridgewayHubNAV.BootstrapActive.selector);
+        hub.proposeSpokeConfig(BASE_CHAIN_ID, address(replacement), 12 hours, 500, true, true);
+
+        hub.finalizeConfiguration();
+        assertFalse(hub.bootstrapMode());
+
+        vm.expectRevert(BridgewayHubNAV.ConfigurationFinalized.selector);
+        hub.configureSpoke(BASE_CHAIN_ID, address(replacement), 12 hours, 500, true, true);
+
+        uint256 executableAt =
+            hub.proposeSpokeConfig(BASE_CHAIN_ID, address(replacement), 12 hours, 500, true, true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(BridgewayHubNAV.TimelockNotReady.selector, BASE_CHAIN_ID, executableAt)
+        );
+        hub.executeSpokeConfig(BASE_CHAIN_ID);
+
+        vm.warp(executableAt);
+        hub.executeSpokeConfig(BASE_CHAIN_ID);
+
+        (address reporter, uint256 maxReportAge, uint256 maxNavMoveBps, bool enabled, bool material) =
+            hub.spokeConfigs(BASE_CHAIN_ID);
+        assertEq(reporter, address(replacement));
+        assertEq(maxReportAge, 12 hours);
+        assertEq(maxNavMoveBps, 500);
+        assertTrue(enabled);
+        assertTrue(material);
+    }
+
     function test_HubAggregatesMultipleSpokes() public {
         _report(baseSpoke, BASE_CHAIN_ID, 1_000e18);
         _report(avaxSpoke, AVAX_CHAIN_ID, 500e18);

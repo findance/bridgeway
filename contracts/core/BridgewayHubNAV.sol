@@ -16,6 +16,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     uint256 public constant DEFAULT_MAX_REPORT_AGE = 24 hours;
     uint256 public constant DEFAULT_MAX_NAV_MOVE_BPS = 1_000; // 10%
     uint256 public constant BPS_DENOM = 10_000;
+    uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
 
     struct SpokeConfig {
         address reporter;
@@ -32,9 +33,17 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         uint64 nonce;
     }
 
+    struct PendingSpokeConfig {
+        SpokeConfig config;
+        uint256 executableAt;
+        bool exists;
+    }
+
     mapping(uint64 => SpokeConfig) public spokeConfigs;
     mapping(uint64 => SpokeReport) public spokeReports;
+    mapping(uint64 => PendingSpokeConfig) public pendingSpokeConfigs;
     uint64[] private _spokeChainIds;
+    bool public bootstrapMode = true;
 
     event SpokeConfigured(
         uint64 indexed chainId,
@@ -44,6 +53,17 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         bool enabled,
         bool material
     );
+    event SpokeConfigProposed(
+        uint64 indexed chainId,
+        address indexed reporter,
+        uint256 maxReportAge,
+        uint256 maxNavMoveBps,
+        bool enabled,
+        bool material,
+        uint256 executableAt
+    );
+    event SpokeConfigCancelled(uint64 indexed chainId);
+    event BootstrapFinalized(uint256 timestamp);
     event SpokeReportAccepted(
         uint64 indexed chainId,
         address indexed reporter,
@@ -61,6 +81,11 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     error NavMoveTooLarge(uint64 chainId);
     error NonceNotIncreasing(uint64 chainId);
     error SpokeDisabled(uint64 chainId);
+    error BootstrapActive();
+    error ConfigurationFinalized();
+    error BootstrapAlreadyFinalized();
+    error NoPendingConfig(uint64 chainId);
+    error TimelockNotReady(uint64 chainId, uint256 executableAt);
 
     constructor(address owner_) Ownable(owner_) {
         if (owner_ == address(0)) revert ZeroAddress();
@@ -74,24 +99,73 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         bool enabled,
         bool material
     ) external onlyOwner {
-        if (chainId == 0) revert InvalidChainId();
-        if (reporter == address(0)) revert ZeroAddress();
-        if (maxReportAge == 0) maxReportAge = DEFAULT_MAX_REPORT_AGE;
-        if (maxNavMoveBps == 0) maxNavMoveBps = DEFAULT_MAX_NAV_MOVE_BPS;
+        if (!bootstrapMode) revert ConfigurationFinalized();
+        SpokeConfig memory config = _validateSpokeConfig(
+            chainId,
+            reporter,
+            maxReportAge,
+            maxNavMoveBps,
+            enabled,
+            material
+        );
+        _applySpokeConfig(chainId, config);
+    }
 
-        if (spokeConfigs[chainId].reporter == address(0)) {
-            _spokeChainIds.push(chainId);
-        }
+    function finalizeConfiguration() external onlyOwner {
+        if (!bootstrapMode) revert BootstrapAlreadyFinalized();
+        bootstrapMode = false;
+        emit BootstrapFinalized(block.timestamp);
+    }
 
-        spokeConfigs[chainId] = SpokeConfig({
-            reporter: reporter,
-            maxReportAge: maxReportAge,
-            maxNavMoveBps: maxNavMoveBps,
-            enabled: enabled,
-            material: material
+    function proposeSpokeConfig(
+        uint64 chainId,
+        address reporter,
+        uint256 maxReportAge,
+        uint256 maxNavMoveBps,
+        bool enabled,
+        bool material
+    ) external onlyOwner returns (uint256 executableAt) {
+        if (bootstrapMode) revert BootstrapActive();
+        SpokeConfig memory config = _validateSpokeConfig(
+            chainId,
+            reporter,
+            maxReportAge,
+            maxNavMoveBps,
+            enabled,
+            material
+        );
+
+        executableAt = block.timestamp + CONFIG_TIMELOCK_DELAY;
+        pendingSpokeConfigs[chainId] = PendingSpokeConfig({
+            config: config,
+            executableAt: executableAt,
+            exists: true
         });
 
-        emit SpokeConfigured(chainId, reporter, maxReportAge, maxNavMoveBps, enabled, material);
+        emit SpokeConfigProposed(
+            chainId,
+            config.reporter,
+            config.maxReportAge,
+            config.maxNavMoveBps,
+            config.enabled,
+            config.material,
+            executableAt
+        );
+    }
+
+    function executeSpokeConfig(uint64 chainId) external onlyOwner {
+        PendingSpokeConfig memory pending = pendingSpokeConfigs[chainId];
+        if (!pending.exists) revert NoPendingConfig(chainId);
+        if (block.timestamp < pending.executableAt) revert TimelockNotReady(chainId, pending.executableAt);
+
+        delete pendingSpokeConfigs[chainId];
+        _applySpokeConfig(chainId, pending.config);
+    }
+
+    function cancelSpokeConfig(uint64 chainId) external onlyOwner {
+        if (!pendingSpokeConfigs[chainId].exists) revert NoPendingConfig(chainId);
+        delete pendingSpokeConfigs[chainId];
+        emit SpokeConfigCancelled(chainId);
     }
 
     /// @notice Accept confirmed spoke NAV. In production this should be called
@@ -158,5 +232,44 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
 
     function _isStale(SpokeReport memory report, uint256 maxReportAge) internal view returns (bool) {
         return report.reportedAt == 0 || block.timestamp > report.reportedAt + maxReportAge;
+    }
+
+    function _validateSpokeConfig(
+        uint64 chainId,
+        address reporter,
+        uint256 maxReportAge,
+        uint256 maxNavMoveBps,
+        bool enabled,
+        bool material
+    ) internal pure returns (SpokeConfig memory config) {
+        if (chainId == 0) revert InvalidChainId();
+        if (reporter == address(0)) revert ZeroAddress();
+        if (maxReportAge == 0) maxReportAge = DEFAULT_MAX_REPORT_AGE;
+        if (maxNavMoveBps == 0) maxNavMoveBps = DEFAULT_MAX_NAV_MOVE_BPS;
+
+        config = SpokeConfig({
+            reporter: reporter,
+            maxReportAge: maxReportAge,
+            maxNavMoveBps: maxNavMoveBps,
+            enabled: enabled,
+            material: material
+        });
+    }
+
+    function _applySpokeConfig(uint64 chainId, SpokeConfig memory config) internal {
+        if (spokeConfigs[chainId].reporter == address(0)) {
+            _spokeChainIds.push(chainId);
+        }
+
+        spokeConfigs[chainId] = config;
+
+        emit SpokeConfigured(
+            chainId,
+            config.reporter,
+            config.maxReportAge,
+            config.maxNavMoveBps,
+            config.enabled,
+            config.material
+        );
     }
 }

@@ -42,6 +42,39 @@ contract BridgewayCCIPNAVReceiverTest is Test {
         assertEq(hub.totalSpokeNAVUSDC(), 1_000e6);
     }
 
+    function test_SourceConfigRequiresTimelockAfterBootstrapFinalized() public {
+        address replacementSender = makeAddr("replacementSender");
+
+        vm.expectRevert(BridgewayCCIPNAVReceiver.BootstrapActive.selector);
+        receiver.proposeSourceConfig(BASE_CCIP_SELECTOR, BASE_CHAIN_ID, abi.encode(replacementSender), true);
+
+        receiver.finalizeConfiguration();
+        assertFalse(receiver.bootstrapMode());
+
+        vm.expectRevert(BridgewayCCIPNAVReceiver.ConfigurationFinalized.selector);
+        receiver.configureSource(BASE_CCIP_SELECTOR, BASE_CHAIN_ID, abi.encode(replacementSender), true);
+
+        uint256 executableAt =
+            receiver.proposeSourceConfig(BASE_CCIP_SELECTOR, BASE_CHAIN_ID, abi.encode(replacementSender), true);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BridgewayCCIPNAVReceiver.TimelockNotReady.selector,
+                BASE_CCIP_SELECTOR,
+                executableAt
+            )
+        );
+        receiver.executeSourceConfig(BASE_CCIP_SELECTOR);
+
+        vm.warp(executableAt);
+        receiver.executeSourceConfig(BASE_CCIP_SELECTOR);
+
+        (uint64 spokeChainId, bytes32 senderHash, bool enabled) = receiver.sourceConfigs(BASE_CCIP_SELECTOR);
+        assertEq(spokeChainId, BASE_CHAIN_ID);
+        assertEq(senderHash, keccak256(abi.encode(replacementSender)));
+        assertTrue(enabled);
+    }
+
     function test_CcipReceiverRejectsWrongRouter() public {
         spoke.updateLocalNAV(1_000e18);
         ICCIPReceiver.Any2EVMMessage memory message = _message(abi.encode(remoteSender), spoke.buildReport());
