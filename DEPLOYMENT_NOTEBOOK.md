@@ -21,7 +21,7 @@ Do not store private keys, RPC URLs, API keys, Safe signatures, or secrets here.
 | Role | Address | Notes |
 | --- | --- | --- |
 | Deployer EOA | `0x13c142E565d28b1558BecAA2Af4495CB133801f4` | Used for bootstrap deployments. Do not treat as long-term owner. |
-| Bridgeway Protocol Owner Safe | `0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348` | Pending owner on current reporter and registry until Safe accepts ownership. |
+| Bridgeway Protocol Owner Safe | `0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348` | Active owner of current reporter and registry. |
 | Bridgeway Treasury Safe | `0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625` | Treasury recipient placeholder for current one-team setup. |
 
 ## Confirmed CCIP And Asset Inputs
@@ -43,15 +43,15 @@ Do not store private keys, RPC URLs, API keys, Safe signatures, or secrets here.
 
 | Component | Chain | Address | Status |
 | --- | --- | --- | --- |
-| `BridgewayL1RateReporter` | Ethereum | `0xCB8ad5f63084D7eaB4116E3dd27381BD0Ef849bE` | Active bootstrap reporter |
-| `BridgewayRateRegistry` | Arbitrum One | `0x0067a2c413f34A32cA13Da2e013BCfa839DdBAc4` | Active registry |
+| `BridgewayL1RateReporter` | Ethereum | `0xCB8ad5f63084D7eaB4116E3dd27381BD0Ef849bE` | Active reporter; Safe-owned |
+| `BridgewayRateRegistry` | Arbitrum One | `0x0067a2c413f34A32cA13Da2e013BCfa839DdBAc4` | Active registry; Safe-owned |
 
 Ownership state at deployment checkpoint:
 
 | Contract | Active owner | Pending owner | Notes |
 | --- | --- | --- | --- |
-| `BridgewayL1RateReporter` `0xCB8a...49bE` | `0x13c142E565d28b1558BecAA2Af4495CB133801f4` | `0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348` | Keep deployer as active owner until bootstrap/testing is complete. |
-| `BridgewayRateRegistry` `0x0067...BAc4` | `0x13c142E565d28b1558BecAA2Af4495CB133801f4` | `0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348` | Safe should accept only when ready for controlled operations. |
+| `BridgewayL1RateReporter` `0xCB8a...49bE` | `0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348` | none | Ownership accepted by Protocol Owner Safe on Ethereum. |
+| `BridgewayRateRegistry` `0x0067...BAc4` | `0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348` | none | Ownership accepted by Protocol Owner Safe on Arbitrum One. |
 
 ### First Successful wstLINK Rate Report
 
