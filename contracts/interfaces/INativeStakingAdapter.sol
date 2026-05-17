@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 interface INativeStakingAdapter {
-    /// @notice Native-chain asset held by the adapter, e.g. WETH, WAVAX, LINK, LBTC.
+    /// @notice Native-chain asset held by the adapter, e.g. WETH, WAVAX, or LINK.
     function asset() external view returns (address);
 
     /// @notice Current adapter value in the native asset's own decimals.

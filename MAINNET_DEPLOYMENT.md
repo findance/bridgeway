@@ -3,6 +3,11 @@
 The running source-of-truth ledger for live, deprecated, and future deployment
 addresses is `DEPLOYMENT_NOTEBOOK.md`.
 
+Current launch allocation excludes wrapped BTC and exchange-rate/yield wrapper
+tokens. The wstLINK reporter flow below is retained as live infrastructure
+history and optional future plumbing, not as approval to allocate launch capital
+to wstLINK.
+
 ## Deprecated Smoke-Test Deployments
 
 Any wstLINK rate reporter or rate registry deployed from a local checkout before

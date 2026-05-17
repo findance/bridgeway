@@ -210,7 +210,6 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
         // TODO (per protocol):
         //   - Aave: no explicit claim needed (aToken auto-accrues)
         //   - Morpho Blue: call morpho.accrueInterest(marketParams)
-        //   - Lido wstETH: rebases automatically
         //   - Pendle: claim yield
         //   - GMX GLP: call rewardRouter.handleRewards(...)
         //   - Symbiotic/Karak: claim restaking rewards

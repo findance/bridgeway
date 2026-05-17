@@ -13,7 +13,7 @@ Do not store private keys, RPC URLs, API keys, Safe signatures, or secrets here.
 | Branch | `feature/hub-spoke` |
 | Network posture | Mainnet deployment in progress |
 | Hub chain | Arbitrum One |
-| wstLINK rate path status | Live and valid |
+| wstLINK rate path status | Live and valid; excluded from launch allocation |
 | Last updated | 2026-05-17 |
 
 ## Operator And Safe Addresses
@@ -134,15 +134,16 @@ the post-deploy read checks. Leave `TBD` until then.
 | `BridgewayHubNAV` | Arbitrum One | `TBD` | Not deployed in current notebook | Global NAV aggregation. |
 | `BridgewayCCIPNAVReceiver` | Arbitrum One | `TBD` | Not deployed in current notebook | Spoke NAV CCIP receiver. Must support `supportsInterface(0x85572ffb)`. |
 | `BridgewayAutomation` | Arbitrum One | `TBD` | Not deployed in current notebook | Harvest/buyback automation coordinator. |
-| Sleeve A raw/liquid adapter | Arbitrum One | `TBD` | Future | WETH/WBTC/LINK/liquid assets. |
-| Sleeve A LST/LRT adapter | Arbitrum One + spokes | `TBD` | Future | Uses wstETH/LBTC/wstLINK and native-chain staking wrappers. |
+| Sleeve A raw/liquid adapter | Arbitrum One | `TBD` | Future | Launch-approved core: WETH/LINK plus USDC cash only. |
+| Native BTC NAV spoke | Bitcoin / custody layer | `TBD` | Future | Required before native BTC exposure is activated. |
+| Sleeve A LST/LRT adapter | Arbitrum One + spokes | `TBD` | Excluded from launch | wstETH/LBTC/wstLINK/sAVAX/ankrBNB are not approved for launch allocation. |
 | Sleeve A perp synthetic adapter | Arbitrum One | `TBD` | Future | GMX V2 only at first. |
 | Sleeve B stable yield adapter | Arbitrum One | `TBD` | Future | Aave/Morpho stable yield. |
 | Sleeve C alpha adapter | Arbitrum One | `TBD` | Future | ERC-4626 alpha strategies. |
-| Avalanche native staking spoke | Avalanche C-Chain | `TBD` | Future | sAVAX / native AVAX accounting route. |
-| BNB native staking spoke | BNB Chain | `TBD` | Future | Native BNB / ankrBNB route; no BNB USDC redemption settlement. |
-| Base BTC/LINK spoke | Base | `TBD` | Future | Base-native liquidity / LBTC or cbBTC route after final approval. |
-| Ethereum staking/source spoke | Ethereum | `TBD` | Future | wstLINK, wstETH, LBTC source-chain support. |
+| Avalanche native staking spoke | Avalanche C-Chain | `TBD` | Excluded from launch | Native AVAX can be revisited; sAVAX is not approved for launch allocation. |
+| BNB native staking spoke | BNB Chain | `TBD` | Excluded from launch | Native BNB can be revisited; ankrBNB is not approved for launch allocation. |
+| Base LINK spoke | Base | `TBD` | Future | LINK/USDC/WETH only until native BTC policy is implemented. |
+| Ethereum source spoke | Ethereum | `TBD` | Future | Spot WETH/LINK only unless a later governance decision approves wrappers. |
 
 ## Required Post-Deploy Checks
 
@@ -217,7 +218,8 @@ After Safe ownership acceptance:
 - `config/mainnet-addresses.json` still has `status: draft-mainnet-confirmed-inputs`.
 - File integrity fields are intentionally unset until the address book is final.
 - BNB Chain USDC remains rejected for redemption settlement.
-- LBTC on Arbitrum remains non-production until Lombard publishes and explorer
-  verification is independently confirmed.
-- The wstLINK Arbitrum rate-provider path is now live and can be referenced by
-  future adapters after ownership/operational readiness is completed.
+- Wrapped BTC and exchange-rate/yield wrapper tokens are excluded from launch
+  allocation: WBTC, cbBTC, wstETH, wstLINK, LBTC, sAVAX, and ankrBNB.
+- Native BTC exposure requires a separate custody/NAV spoke before activation.
+- The wstLINK Arbitrum rate-provider path is live infrastructure only; it is not
+  approved for allocation under the current launch policy.

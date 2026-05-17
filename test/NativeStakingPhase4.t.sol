@@ -28,7 +28,7 @@ contract NativeStakingPhase4Test is Test {
 
     function setUp() public {
         asset = new MockERC20("Wrapped AVAX", "WAVAX", 18);
-        stakingVault = new MockERC4626Vault(asset, "Staked AVAX", "sAVAX");
+        stakingVault = new MockERC4626Vault(asset, "Staked Native AVAX", "stkAVAX");
         priceFeed = new MockPriceFeed(20e8, 8);
 
         portfolio = new BridgewayNativeSpokePortfolio(owner, AVAX_CHAIN_ID);

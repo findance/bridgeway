@@ -1191,8 +1191,8 @@ contract BGWVaultTest is Test {
         assertTrue(vault.protectedTokens(0x724dc807b04555b71ed48a6896b6F41593b8C637)); // aUSDCn
         assertTrue(vault.protectedTokens(0x6ab707Aca953eDAeFBc4fD23bA73294241490620)); // aUSDT
         assertTrue(vault.protectedTokens(0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8)); // aWETH
-        assertTrue(vault.protectedTokens(0x078f358208685046a11C85e8ad32895DED33A249)); // aWBTC
-        assertTrue(vault.protectedTokens(0x5979D7b546E38E414F7E9822514be443A4800529)); // wstETH
+        assertFalse(vault.protectedTokens(0x078f358208685046a11C85e8ad32895DED33A249)); // aWBTC
+        assertFalse(vault.protectedTokens(0x5979D7b546E38E414F7E9822514be443A4800529)); // wstETH
     }
 
     // ── Sleeve adapters and trusted assets ───────────────────────────────────

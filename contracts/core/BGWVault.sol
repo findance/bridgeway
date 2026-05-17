@@ -428,7 +428,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         lastHWMUpdateTime = block.timestamp;
         lastHarvestTime = block.timestamp;
 
-        // ── Seed protectedTokens with Aave V3 Arbitrum One aTokens + LST wrappers ──
+        // ── Seed protectedTokens with launch-approved Aave V3 Arbitrum One aTokens ──
         // These are the yield-bearing tokens the vault holds on behalf of depositors.
         // Owner must add new entries (Pendle PTs, GMX GLP, etc.) before each deploy
         // and remove them once the position is fully unwound.
@@ -437,11 +437,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         protectedTokens[0x724dc807b04555b71ed48a6896b6F41593b8C637] = true; // aUSDCn
         protectedTokens[0x6ab707Aca953eDAeFBc4fD23bA73294241490620] = true; // aUSDT
         protectedTokens[0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8] = true; // aWETH
-        protectedTokens[0x078f358208685046a11C85e8ad32895DED33A249] = true; // aWBTC
-        protectedTokens[0x513c7E3a9c69cA3e22550eF58AC1C0088e918FFf] = true; // awstETH
-        // Lido wstETH on Arbitrum (underlying of Aave sleeve A)
-        protectedTokens[0x5979D7b546E38E414F7E9822514be443A4800529] = true; // wstETH
-        // Pendle PT tokens, GMX GLP, Morpho shares, sUSDe → add via setProtectedToken
+        // Pendle PT tokens, GMX GLP, Morpho shares, sUSDe -> add via setProtectedToken
         // before each protocol deployment.
     }
 

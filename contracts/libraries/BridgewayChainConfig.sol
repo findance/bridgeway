@@ -6,8 +6,6 @@ pragma solidity 0.8.24;
 library BridgewayChainConfig {
     bytes32 public constant ASSET_USDC = keccak256("USDC");
     bytes32 public constant ASSET_WETH = keccak256("WETH");
-    bytes32 public constant ASSET_WBTC = keccak256("WBTC");
-    bytes32 public constant ASSET_CBBTC = keccak256("cbBTC");
     bytes32 public constant ASSET_LINK = keccak256("LINK");
 
     uint256 public constant ARBITRUM_ONE = 42161;
@@ -31,7 +29,7 @@ library BridgewayChainConfig {
     }
 
     function arbitrumSeeds() internal pure returns (AssetSeed[] memory result) {
-        result = new AssetSeed[](4);
+        result = new AssetSeed[](3);
         result[0] = AssetSeed({
             assetId: ASSET_USDC,
             token: 0xaf88d065e77c8cC2239327C5EDb3A432268e5831,
@@ -49,14 +47,6 @@ library BridgewayChainConfig {
             trusted: true
         });
         result[2] = AssetSeed({
-            assetId: ASSET_WBTC,
-            token: 0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f,
-            priceFeed: 0x6ce185860a4963106506C203335A2910413708e9,
-            tokenDecimals: 8,
-            feedDecimals: 8,
-            trusted: true
-        });
-        result[3] = AssetSeed({
             assetId: ASSET_LINK,
             token: 0xf97f4df75117a78c1A5a0DBb814Af92458539FB4,
             priceFeed: 0x86E53CF1B870786351Da77A57575e79CB55812CB,
@@ -67,7 +57,7 @@ library BridgewayChainConfig {
     }
 
     function baseSeeds() internal pure returns (AssetSeed[] memory result) {
-        result = new AssetSeed[](4);
+        result = new AssetSeed[](3);
         result[0] = AssetSeed({
             assetId: ASSET_USDC,
             token: 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913,
@@ -85,14 +75,6 @@ library BridgewayChainConfig {
             trusted: true
         });
         result[2] = AssetSeed({
-            assetId: ASSET_CBBTC,
-            token: 0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf,
-            priceFeed: 0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F,
-            tokenDecimals: 8,
-            feedDecimals: 8,
-            trusted: true
-        });
-        result[3] = AssetSeed({
             assetId: ASSET_LINK,
             token: 0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196,
             priceFeed: 0x17CAb8FE31E32f08326e5E27412894e49B0f9D65,

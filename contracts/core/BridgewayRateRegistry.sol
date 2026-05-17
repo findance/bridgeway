@@ -8,7 +8,7 @@ import "../interfaces/ICCIPReceiver.sol";
 
 /// @title BridgewayRateRegistry
 /// @notice Arbitrum-side CCIP receiver for cross-chain rate data used by
-///         isolated asset accounting paths such as wstLINK on Arbitrum.
+///         isolated asset accounting paths for optional future wrappers.
 contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     uint8 public constant EXPECTED_VERSION = 1;
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
