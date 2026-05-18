@@ -12,7 +12,7 @@ Do not store private keys, RPC URLs, API keys, Safe signatures, or secrets here.
 | --- | --- |
 | Branch | `feature/hub-spoke` |
 | Network posture | Mainnet deployment in progress |
-| Hub chain | Arbitrum One |
+| Hub chain | Base |
 | wstLINK rate path status | Live and valid; excluded from launch allocation |
 | Last updated | 2026-05-17 |
 
@@ -39,12 +39,18 @@ Do not store private keys, RPC URLs, API keys, Safe signatures, or secrets here.
 
 ## Active Mainnet Deployments
 
+No production Base hub contracts have been deployed yet.
+
 ### wstLINK Rate Reporter Path
 
 | Component | Chain | Address | Status |
 | --- | --- | --- | --- |
 | `BridgewayL1RateReporter` | Ethereum | `0xCB8ad5f63084D7eaB4116E3dd27381BD0Ef849bE` | Active reporter; Safe-owned |
 | `BridgewayRateRegistry` | Arbitrum One | `0x0067a2c413f34A32cA13Da2e013BCfa839DdBAc4` | Active registry; Safe-owned |
+
+This Ethereum-to-Arbitrum wstLINK rate path is live infrastructure and a reference
+deployment. It is not the production hub path and is not approved for launch
+allocation under the current Base-hub policy.
 
 Ownership state at deployment checkpoint:
 
@@ -128,19 +134,20 @@ the post-deploy read checks. Leave `TBD` until then.
 
 | Component | Chain | Address | Status | Notes |
 | --- | --- | --- | --- | --- |
-| `BGWToken` | Arbitrum One | `TBD` | Not deployed in current notebook | Governance/receipt token deployment. |
-| `BridgewayVault` / `BGWVault` | Arbitrum One | `TBD` | Not deployed in current notebook | Hub mint/redeem/accounting vault. |
-| `BridgewayRegistry` | Arbitrum One | `TBD` | Not deployed in current notebook | Chain-local address registry. |
-| `BridgewayHubNAV` | Arbitrum One | `TBD` | Not deployed in current notebook | Global NAV aggregation. |
-| `BridgewayCCIPNAVReceiver` | Arbitrum One | `TBD` | Not deployed in current notebook | Spoke NAV CCIP receiver. Must support `supportsInterface(0x85572ffb)`. |
-| `BridgewayAutomation` | Arbitrum One | `TBD` | Not deployed in current notebook | Harvest/buyback automation coordinator. |
-| Sleeve A raw/liquid adapter | Arbitrum One | `TBD` | Future | Launch-approved core: WETH/LINK plus USDC cash only until the Base BTC spoke is active. |
-| Base cbBTC yield spoke | Base | `TBD` | Future | Approved BTC route: 80% Aave V3 Base cbBTC, 20% Aerodrome USDC/cbBTC LP, exit Aerodrome to Aave if net APY < 4.5%. |
+| `BGWToken` | Base | `TBD` | Not deployed in current notebook | Canonical BGW receipt token deployment. |
+| `BGW-GOV` / governance token | Base | `TBD` | Not deployed in current notebook | Canonical governance token deployment. |
+| `BridgewayVault` / `BGWVault` | Base | `TBD` | Not deployed in current notebook | Hub mint/redeem/accounting vault. |
+| `BridgewayRegistry` | Base | `TBD` | Not deployed in current notebook | Chain-local address registry. |
+| `BridgewayHubNAV` | Base | `TBD` | Not deployed in current notebook | Global NAV aggregation. |
+| `BridgewayCCIPNAVReceiver` | Base | `TBD` | Not deployed in current notebook | Spoke NAV CCIP receiver. Must support `supportsInterface(0x85572ffb)`. |
+| `BridgewayAutomation` | Base | `TBD` | Not deployed in current notebook | Harvest/buyback automation coordinator. |
+| Sleeve A Base core adapter | Base | `TBD` | Future | Launch-approved core: Base USDC, cbBTC, WETH, LINK where safe and liquid. |
+| Base cbBTC yield spoke / adapter | Base | `TBD` | Future | Approved BTC route: 80% Aave V3 Base cbBTC, 20% Aerodrome USDC/cbBTC LP, exit Aerodrome to Aave if net APY < 4.5%. |
+| Sleeve B stable yield adapter | Base | `TBD` | Future | Aave V3 Base first; Morpho only after approval. |
+| Sleeve C alpha adapter | Base or approved spoke | `TBD` | Future | ERC-4626 / alpha strategies capped at 5%; Arbitrum can be a spoke venue. |
 | Native BTC NAV spoke | Bitcoin / custody layer | `TBD` | Future | Deferred; native BTC can be added later if custody/NAV operations are approved. |
 | Sleeve A LST/LRT adapter | Arbitrum One + spokes | `TBD` | Excluded from launch | wstETH/LBTC/wstLINK/sAVAX/ankrBNB are not approved for launch allocation. |
 | Sleeve A perp synthetic adapter | Arbitrum One | `TBD` | Future | GMX V2 only at first. |
-| Sleeve B stable yield adapter | Arbitrum One | `TBD` | Future | Aave/Morpho stable yield. |
-| Sleeve C alpha adapter | Arbitrum One | `TBD` | Future | ERC-4626 alpha strategies. |
 | Avalanche native staking spoke | Avalanche C-Chain | `TBD` | Excluded from launch | Native AVAX can be revisited; sAVAX is not approved for launch allocation. |
 | BNB native staking spoke | BNB Chain | `TBD` | Excluded from launch | Native BNB can be revisited; ankrBNB is not approved for launch allocation. |
 | Base LINK spoke | Base | `TBD` | Future | LINK/USDC/WETH only until native BTC policy is implemented. |
@@ -222,8 +229,11 @@ After Safe ownership acceptance:
 - WBTC and exchange-rate/yield wrapper tokens are excluded from launch
   allocation: WBTC, wstETH, wstLINK, LBTC, sAVAX, and ankrBNB.
 - BTC exposure is approved through a future Base cbBTC yield spoke, not through
-  Arbitrum WBTC. The Base cbBTC spoke must enforce 80% Aave / 20% Aerodrome and
+  Arbitrum WBTC. The Base cbBTC adapter must enforce 80% Aave / 20% Aerodrome and
   move Aerodrome funds back to Aave if net APY falls below 4.5%.
+- Production BGW/BGW-GOV, settlement, Sleeve B, and global hub accounting should
+  be deployed on Base. Existing Arbitrum deployments remain reference/spoke
+  infrastructure unless explicitly re-approved.
 - Native BTC custody exposure remains deferred.
 - The wstLINK Arbitrum rate-provider path is live infrastructure only; it is not
   approved for allocation under the current launch policy.

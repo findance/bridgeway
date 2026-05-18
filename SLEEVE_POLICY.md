@@ -12,13 +12,33 @@ This document is the source of truth for the intended asset policy inside the 70
 
 ## Ingress Rule
 
-External users may enter Bridgeway from any supported chain or asset through frontend routing, but the vault deposit asset remains Arbitrum USDC. Routing should convert or bridge the user's source asset into Arbitrum USDC before calling `deposit()`.
+External users may enter Bridgeway from any supported chain or asset through frontend routing, but the production vault deposit asset is Base USDC. Routing should convert or bridge the user's source asset into Base USDC before calling `deposit()`.
 
 - Preferred routing stack: LI.FI or Socket for route discovery.
 - Preferred USDC rail: Circle CCTP where available.
 - Fallback bridge rails: Across or deBridge where suitable.
-- Once Arbitrum USDC is deposited, BGWVault allocates across Sleeve A, Sleeve B, and Sleeve C according to the approved sleeve policies.
+- Once Base USDC is deposited, BGWVault allocates across Sleeve A, Sleeve B, and Sleeve C according to the approved sleeve policies.
 - The routing layer must not bypass sleeve asset approvals, oracle checks, or adapter controls.
+
+## Hub And Spoke Posture
+
+Bridgeway's production hub is Base. The Base hub owns user-facing settlement, BGW/BGW-GOV minting, local USDC liquidity, Base cbBTC yield, and global NAV accounting. Other chains are spokes that report asset value, execute chain-native yield, or hold cold/native exposure.
+
+Launch hub responsibilities:
+
+- Base USDC settlement and redemption liquidity.
+- BGW and BGW-GOV canonical token issuance.
+- `BridgewayHubNAV`, `BGWVault`, registry, automation, and local Base sleeve adapters.
+- Sleeve B stable yield on Base-first venues such as Aave V3 Base and later approved Morpho vaults.
+- Base cbBTC yield through the approved 80% Aave / 20% Aerodrome policy.
+
+Spoke responsibilities:
+
+- Ethereum: future ETH/LINK or staking source positions.
+- Arbitrum: optional alpha/staking infrastructure and existing wstLINK rate-reporting reference path; not the production accounting hub.
+- BNB Chain, Avalanche, Solana, TRON, Cardano, XRP, Dogecoin, and native BTC custody: future reporting or custody spokes only after their NAV proof, oracle, and redemption delay rules are approved.
+
+The hub may consume spoke NAV only through approved receiver contracts, staleness checks, material-spoke circuit breakers, and emergency pause controls.
 
 ## Rebalance Rule
 
@@ -38,8 +58,8 @@ Sleeve A holds the top 10 crypto assets by market capitalization, excluding stab
 Selection rules:
 
 - Include the top 10 non-stable crypto assets by market cap.
-- Exclude stablecoins, algorithmic stables, bridged duplicates, wrapped duplicates, and assets without a supported Arbitrum execution path.
-- Use the most liquid, canonical Arbitrum-compatible representation for each approved asset.
+- Exclude stablecoins, algorithmic stables, bridged duplicates, wrapped duplicates, and assets without a supported Base hub or approved spoke execution path.
+- Use the most liquid, canonical Base-compatible representation where practical, or an approved spoke representation where Base custody would add unacceptable wrapper or liquidity risk.
 - Founder approves the initial list; later changes require BGW-GOV proposal approval.
 
 Weighting rules:
@@ -90,7 +110,7 @@ BTC launch route:
 
 ## Sleeve B — Stability
 
-Sleeve B holds trusted stablecoins or stablecoin exposures from trusted issuers, optimized for safe yield. Non-yielding stablecoins are excluded unless temporarily needed as a liquidity buffer.
+Sleeve B holds trusted stablecoins or stablecoin exposures from trusted issuers, optimized for safe yield. The production Sleeve B home is Base because Base USDC is the hub settlement asset. Non-yielding stablecoins are excluded unless temporarily needed as a liquidity buffer.
 
 Sleeve B priority order:
 
@@ -150,7 +170,7 @@ Weighting rules:
 
 Yield:
 
-- Aave, Morpho, or other approved lending venues.
+- Aave V3 Base first; Morpho curated Base vaults or other venues only after explicit approval.
 - Adapter should prefer withdrawal reliability and conservative valuation over headline APY.
 - Compounding should happen inside the Sleeve B adapter by harvesting rewards, converting them into approved stable exposure, redeploying into approved venues, and reporting updated `totalAssetsUSDC()`.
 - Realized Sleeve C yield must be converted to USDC, transferred into Sleeve B, and compounded through the approved Sleeve B adapter.
@@ -162,7 +182,7 @@ Review cadence:
 
 ## Sleeve C — Alpha
 
-Sleeve C is capped at 5% of total vault NAV and is reserved for higher-yield strategies.
+Sleeve C is capped at 5% of total vault NAV and is reserved for higher-yield strategies. Sleeve C does not decide the hub chain: Base remains the accounting hub, while Sleeve C strategies may live on Base or approved spokes such as Arbitrum when the strategy-specific risk and reporting path justify it.
 
 Allowed strategy types:
 

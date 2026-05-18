@@ -357,12 +357,38 @@
     "fileIntegrity.gitCommit and fileIntegrity.sha256 after approval"
   ],
   "settlementPolicy": {
+    "hubChainId": 8453,
+    "hubChainName": "Base",
     "redemptionAsset": "USDC",
     "accountingUnit": "USD",
     "neverValueUSDCAboveUSD": true,
     "allowUSDCBelowUSD": true,
     "redemptionMaxUsdPrice": "1.00000000",
-    "notes": "Redemptions use min(Chainlink USDC/USD, 1.00000000). USDC premium never increases payout value; depeg below $1 can mark payouts down."
+    "notes": "Production redemptions settle from Base USDC. Redemptions use min(Chainlink USDC/USD, 1.00000000). USDC premium never increases payout value; depeg below $1 can mark payouts down."
+  },
+  "globalVaultArchitecture": {
+    "hubChainId": 8453,
+    "hubChainName": "Base",
+    "canonicalSettlementAsset": "USDC",
+    "canonicalShareTokenChain": "Base",
+    "canonicalGovernanceTokenChain": "Base",
+    "spokeModel": "Base hub owns mint/redeem/accounting and consumes approved spoke NAV reports only after staleness, materiality, and emergency-pause checks.",
+    "launchSleeveHomes": {
+      "sleeveA": "Base cbBTC/WETH/LINK plus approved spokes as they mature",
+      "sleeveB": "Base USDC yield, Aave V3 first, Morpho only after approval",
+      "sleeveC": "Base or approved spoke alpha strategies capped at 5%"
+    },
+    "futureSpokes": {
+      "ethereum": "ETH/LINK source or staking positions after route approval",
+      "arbitrum": "Optional alpha venue and existing wstLINK rate infrastructure reference path",
+      "bnbChain": "Native BNB staking spoke only after NAV and unwind rules are approved",
+      "solana": "JitoSOL or native SOL custody spoke only after oracle/reporting controls are approved",
+      "tron": "Native TRX staking/resource spoke only after oracle/reporting controls are approved",
+      "cardano": "Native ADA delegation spoke only after oracle/reporting controls are approved",
+      "xrp": "Cold spot NAV only; no yield at launch",
+      "dogecoin": "Cold spot NAV only; no yield at launch",
+      "bitcoin": "Native BTC custody/NAV spoke deferred; cbBTC on Base is the approved launch BTC route"
+    }
   },
   "launchAssetPolicy": {
     "coreSleeveA": [
