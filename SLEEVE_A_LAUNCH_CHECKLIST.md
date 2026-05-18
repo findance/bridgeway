@@ -50,7 +50,7 @@ Do not move a pending candidate into adapter configuration until its Arbiscan to
 ## Practical Asset Notes
 
 - ETH and LINK are the cleanest Arbitrum-local Sleeve A assets for launch because their token, oracle, and route support are straightforward.
-- BTC exposure should use a Base cbBTC spoke rather than Arbitrum WBTC. The approved policy is 80% Aave V3 Base cbBTC supply and 20% Aerodrome USDC/cbBTC LP, with the Aerodrome leg moved back to Aave if net APY after fees and operating expense drops below 2.5%.
+- BTC exposure should use a Base cbBTC spoke rather than Arbitrum WBTC. The approved policy is 80% Aave V3 Base cbBTC supply and 20% Aerodrome USDC/cbBTC LP, with the Aerodrome leg moved back to Aave if net APY after fees and operating expense drops below 4.5%.
 - LINK and AVAX may be practical if the selected Arbitrum token, oracle, and route have enough liquidity.
 - BNB, XRP, SOL, TRX, DOGE, and ADA require extra caution because Arbitrum representations may be bridged, wrapped, synthetic, or route-limited. Do not activate any of them until the approved token and route are verified.
 - If an asset lacks a reliable oracle or safe route, it should remain disabled even if it is in the target list.
@@ -71,7 +71,7 @@ The Base BTC spoke is a separate activation path from the Arbitrum `SleeveABaske
 | Venue | Target | Role | Exit rule |
 | --- | ---: | --- | --- |
 | Aave V3 Base cbBTC | 80% | Conservative cbBTC lending / parking | Primary fallback venue |
-| Aerodrome USDC/cbBTC LP | 20% max | Capped yield engine | Exit to Aave when net APY < 2.5% |
+| Aerodrome USDC/cbBTC LP | 20% max | Capped yield engine | Exit to Aave when net APY < 4.5% |
 
 Before activation, verify:
 

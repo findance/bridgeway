@@ -84,7 +84,7 @@ BTC launch route:
 - BTC exposure is approved through a Base cbBTC spoke adapter once deployed and verified.
 - The default cbBTC deployment policy is 80% Aave V3 Base cbBTC supply and 20% Aerodrome USDC/cbBTC LP.
 - The Aerodrome leg is a capped yield engine, not core BTC custody. Its net APY must be measured after pool fees, slippage, reward conversion, operating gas, and expected rebalance expense.
-- If Aerodrome net APY falls below 2.5%, the keeper should withdraw the Aerodrome leg and move that allocation into Aave V3 Base cbBTC.
+- If Aerodrome net APY falls below 4.5%, the keeper should withdraw the Aerodrome leg and move that allocation into Aave V3 Base cbBTC.
 - Morpho cbBTC vaults are excluded at launch because curated vault performance fees and curator risk are not needed for the first BTC route.
 - LBTC remains a future BTC yield candidate only after the standard 1:1 delayed redemption and instant market-exit flows are implemented.
 

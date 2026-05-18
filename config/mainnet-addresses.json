@@ -380,9 +380,9 @@
         "aaveV3Base": 8000,
         "aerodromeUsdcCbbtcLp": 2000
       },
-      "aerodromeNetApyFloorBps": 250,
+      "aerodromeNetApyFloorBps": 450,
       "belowFloorAction": "withdraw-aerodrome-and-move-to-aave",
-      "notes": "cbBTC is the approved BTC exposure path once the Base spoke adapter is deployed. Aerodrome allocation is capped at 20% and must exit to Aave if net APY after fees, slippage, reward conversion, and operating expense is below 2.5%."
+      "notes": "cbBTC is the approved BTC exposure path once the Base spoke adapter is deployed. Aerodrome allocation is capped at 20% and must exit to Aave if net APY after fees, slippage, reward conversion, and operating expense is below 4.5%."
     },
     "excludedFromLaunch": [
       "WBTC",
