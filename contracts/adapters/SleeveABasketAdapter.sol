@@ -403,9 +403,12 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         uint256 balance = IERC20(asset.token).balanceOf(address(this));
         if (balance == 0) return 0;
 
-        (, int256 answer,, uint256 updatedAt,) = IChainlinkAggregator(asset.priceFeed).latestRoundData();
-        if (answer <= 0) revert InvalidPrice(asset.priceFeed);
-        if (block.timestamp > updatedAt + asset.maxStale) revert StalePrice(asset.priceFeed);
+        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
+            IChainlinkAggregator(asset.priceFeed).latestRoundData();
+        if (answer <= 0 || answeredInRound < roundId) revert InvalidPrice(asset.priceFeed);
+        if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp > updatedAt + asset.maxStale) {
+            revert StalePrice(asset.priceFeed);
+        }
 
         uint8 feedDecimals = IChainlinkAggregator(asset.priceFeed).decimals();
         uint256 numerator = Math.mulDiv(balance, uint256(answer), 10 ** asset.tokenDecimals);
@@ -472,9 +475,12 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     }
 
     function _validatePrice(address feed, uint32 maxStale) internal view {
-        (, int256 answer,, uint256 updatedAt,) = IChainlinkAggregator(feed).latestRoundData();
-        if (answer <= 0) revert InvalidPrice(feed);
-        if (block.timestamp > updatedAt + maxStale) revert StalePrice(feed);
+        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
+            IChainlinkAggregator(feed).latestRoundData();
+        if (answer <= 0 || answeredInRound < roundId) revert InvalidPrice(feed);
+        if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp > updatedAt + maxStale) {
+            revert StalePrice(feed);
+        }
     }
 
     function _adapterHasValue() internal view returns (bool) {

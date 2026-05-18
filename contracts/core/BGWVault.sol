@@ -47,7 +47,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Chainlink price staleness threshold.
-    uint256 public constant ORACLE_STALE_THRESHOLD = 1 hours;
+    uint256 public constant ORACLE_STALE_THRESHOLD = 20 minutes;
 
     /// @dev Chainlink USD feeds are normalized to 8 decimals for pricing guards.
     uint256 public constant USD_PRICE_SCALE = 1e8;
@@ -543,11 +543,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return _decayedHWM();
     }
 
-    /// @notice Fetch ETH/USD price from Chainlink (8 dec). Reverts if stale (>1 hour).
+    /// @notice Fetch ETH/USD price from Chainlink (8 dec). Reverts if stale.
     function getETHPrice() public view returns (uint256 price) {
         (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
             IChainlinkAggregator(ETH_USD_FEED).latestRoundData();
-        if (block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
+        if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
             revert StaleOracle(updatedAt);
         }
         require(answeredInRound >= roundId, "BGWVault: stale round");
@@ -1802,7 +1802,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function _usdPrice8(address feed) internal view returns (uint256 price) {
         (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
             IChainlinkAggregator(feed).latestRoundData();
-        if (block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
+        if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
             revert StaleOracle(updatedAt);
         }
         require(answeredInRound >= roundId, "BGWVault: stale round");

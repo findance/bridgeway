@@ -6,6 +6,7 @@ contract MockPriceFeed {
     int256  private _price;
     uint8   private _decimals;
     bool    private _stale;
+    bool    private _incompleteRound;
 
     constructor(int256 initialPrice, uint8 dec) {
         _price    = initialPrice;
@@ -27,12 +28,12 @@ contract MockPriceFeed {
             uint80 answeredInRound
         )
     {
-        roundId        = 1;
+        roundId        = 2;
         answer         = _price;
         startedAt      = block.timestamp;
         // If stale, return an updatedAt far in the past so the wrapper falls back
         updatedAt      = _stale ? block.timestamp - 2 hours : block.timestamp;
-        answeredInRound = 1;
+        answeredInRound = _incompleteRound ? 1 : roundId;
     }
 
     function setPrice(int256 newPrice) external {
@@ -45,5 +46,9 @@ contract MockPriceFeed {
 
     function clearStale() external {
         _stale = false;
+    }
+
+    function setIncompleteRound(bool incomplete) external {
+        _incompleteRound = incomplete;
     }
 }

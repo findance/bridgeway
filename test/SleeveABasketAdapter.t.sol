@@ -142,6 +142,16 @@ contract SleeveABasketAdapterTest is Test {
         assertGt(usdc.balanceOf(address(adapter)), 0);
     }
 
+    function test_RejectsIncompleteOracleRound() public {
+        usdc.mint(address(adapter), 1_000e6);
+        adapter.deploy(1_000e6);
+
+        feed1.setIncompleteRound(true);
+
+        vm.expectRevert(abi.encodeWithSelector(SleeveABasketAdapter.InvalidPrice.selector, address(feed1)));
+        adapter.totalAssetsUSDC();
+    }
+
     function test_EmergencyUnwindAllConvertsBasketToUSDC() public {
         usdc.mint(address(adapter), 1_000e6);
         adapter.deploy(1_000e6);
