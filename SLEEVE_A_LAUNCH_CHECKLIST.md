@@ -34,7 +34,7 @@ For each asset, the founder/governance process must approve:
 
 | Asset | Target | Proposed Arbitrum token | Source / bridge | Status |
 | --- | ---: | --- | --- | --- |
-| BTC | 25% | `0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f` | WBTC / BitGo-backed bridged WBTC | Approved candidate |
+| BTC | 25% | Base cbBTC spoke, adapter TBD | Coinbase cbBTC on Base | Approved policy, pending adapter |
 | ETH | 25% | `0x82af49447d8a07e3bd95bd0d56f35241523fbab1` | Arbitrum WETH | Approved candidate |
 | BNB | 8% | `0x20359aF6B124F6f0219c21B0D8b769D43509930D` | LayerZero candidate | Pending verification |
 | SOL | 8% | `0x2bcC6D6Cc72634C66bb62615467375176735439a` | Wormhole candidate | Pending verification |
@@ -49,7 +49,8 @@ Do not move a pending candidate into adapter configuration until its Arbiscan to
 
 ## Practical Asset Notes
 
-- BTC and ETH are the cleanest Sleeve A assets because WBTC/WETH-style assets usually have deep liquidity and reliable oracle support.
+- ETH and LINK are the cleanest Arbitrum-local Sleeve A assets for launch because their token, oracle, and route support are straightforward.
+- BTC exposure should use a Base cbBTC spoke rather than Arbitrum WBTC. The approved policy is 80% Aave V3 Base cbBTC supply and 20% Aerodrome USDC/cbBTC LP, with the Aerodrome leg moved back to Aave if net APY after fees and operating expense drops below 2.5%.
 - LINK and AVAX may be practical if the selected Arbitrum token, oracle, and route have enough liquidity.
 - BNB, XRP, SOL, TRX, DOGE, and ADA require extra caution because Arbitrum representations may be bridged, wrapped, synthetic, or route-limited. Do not activate any of them until the approved token and route are verified.
 - If an asset lacks a reliable oracle or safe route, it should remain disabled even if it is in the target list.
@@ -62,6 +63,23 @@ Do not move a pending candidate into adapter configuration until its Arbiscan to
 4. Confirm adapter `totalAssetsUSDC()` equals the current manual Sleeve A value if replacing manual accounting.
 5. Set the adapter as `SLEEVE_A` in `BGWVault`.
 6. Run a small test deposit, withdrawal, rebalance, and emergency unwind on testnet before mainnet.
+
+## Base cbBTC Yield Route
+
+The Base BTC spoke is a separate activation path from the Arbitrum `SleeveABasketAdapter`.
+
+| Venue | Target | Role | Exit rule |
+| --- | ---: | --- | --- |
+| Aave V3 Base cbBTC | 80% | Conservative cbBTC lending / parking | Primary fallback venue |
+| Aerodrome USDC/cbBTC LP | 20% max | Capped yield engine | Exit to Aave when net APY < 2.5% |
+
+Before activation, verify:
+
+1. Coinbase cbBTC address and Chainlink BTC/USD feed for Base.
+2. Aave V3 Base cbBTC reserve status, supply cap, pause/freeze flags, and withdrawal liquidity.
+3. Aerodrome pool address, pool fee, liquidity depth, reward APR, executable exit slippage, and reward-to-cbBTC conversion route.
+4. Keeper logic that calculates net Aerodrome APY after fees, slippage, reward conversion, gas, and rebalance expense.
+5. Emergency unwind path back to cbBTC, then to Arbitrum USDC only if the user chooses instant market exit.
 
 ## Current Adapter Coverage
 

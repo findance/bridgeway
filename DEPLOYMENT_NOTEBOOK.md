@@ -134,8 +134,9 @@ the post-deploy read checks. Leave `TBD` until then.
 | `BridgewayHubNAV` | Arbitrum One | `TBD` | Not deployed in current notebook | Global NAV aggregation. |
 | `BridgewayCCIPNAVReceiver` | Arbitrum One | `TBD` | Not deployed in current notebook | Spoke NAV CCIP receiver. Must support `supportsInterface(0x85572ffb)`. |
 | `BridgewayAutomation` | Arbitrum One | `TBD` | Not deployed in current notebook | Harvest/buyback automation coordinator. |
-| Sleeve A raw/liquid adapter | Arbitrum One | `TBD` | Future | Launch-approved core: WETH/LINK plus USDC cash only. |
-| Native BTC NAV spoke | Bitcoin / custody layer | `TBD` | Future | Required before native BTC exposure is activated. |
+| Sleeve A raw/liquid adapter | Arbitrum One | `TBD` | Future | Launch-approved core: WETH/LINK plus USDC cash only until the Base BTC spoke is active. |
+| Base cbBTC yield spoke | Base | `TBD` | Future | Approved BTC route: 80% Aave V3 Base cbBTC, 20% Aerodrome USDC/cbBTC LP, exit Aerodrome to Aave if net APY < 2.5%. |
+| Native BTC NAV spoke | Bitcoin / custody layer | `TBD` | Future | Deferred; native BTC can be added later if custody/NAV operations are approved. |
 | Sleeve A LST/LRT adapter | Arbitrum One + spokes | `TBD` | Excluded from launch | wstETH/LBTC/wstLINK/sAVAX/ankrBNB are not approved for launch allocation. |
 | Sleeve A perp synthetic adapter | Arbitrum One | `TBD` | Future | GMX V2 only at first. |
 | Sleeve B stable yield adapter | Arbitrum One | `TBD` | Future | Aave/Morpho stable yield. |
@@ -218,8 +219,11 @@ After Safe ownership acceptance:
 - `config/mainnet-addresses.json` still has `status: draft-mainnet-confirmed-inputs`.
 - File integrity fields are intentionally unset until the address book is final.
 - BNB Chain USDC remains rejected for redemption settlement.
-- Wrapped BTC and exchange-rate/yield wrapper tokens are excluded from launch
-  allocation: WBTC, cbBTC, wstETH, wstLINK, LBTC, sAVAX, and ankrBNB.
-- Native BTC exposure requires a separate custody/NAV spoke before activation.
+- WBTC and exchange-rate/yield wrapper tokens are excluded from launch
+  allocation: WBTC, wstETH, wstLINK, LBTC, sAVAX, and ankrBNB.
+- BTC exposure is approved through a future Base cbBTC yield spoke, not through
+  Arbitrum WBTC. The Base cbBTC spoke must enforce 80% Aave / 20% Aerodrome and
+  move Aerodrome funds back to Aave if net APY falls below 2.5%.
+- Native BTC custody exposure remains deferred.
 - The wstLINK Arbitrum rate-provider path is live infrastructure only; it is not
   approved for allocation under the current launch policy.

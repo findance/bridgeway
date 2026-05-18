@@ -367,19 +367,31 @@
   "launchAssetPolicy": {
     "coreSleeveA": [
       "WETH",
-      "LINK"
+      "LINK",
+      "cbBTC"
     ],
     "settlementAsset": "USDC",
-    "nativeBtcStatus": "pending-custody-nav-spoke",
+    "nativeBtcStatus": "deferred",
+    "btcExposurePolicy": {
+      "asset": "cbBTC",
+      "chain": "Base",
+      "status": "approved-pending-base-spoke-adapter",
+      "targetVenueWeightsBps": {
+        "aaveV3Base": 8000,
+        "aerodromeUsdcCbbtcLp": 2000
+      },
+      "aerodromeNetApyFloorBps": 250,
+      "belowFloorAction": "withdraw-aerodrome-and-move-to-aave",
+      "notes": "cbBTC is the approved BTC exposure path once the Base spoke adapter is deployed. Aerodrome allocation is capped at 20% and must exit to Aave if net APY after fees, slippage, reward conversion, and operating expense is below 2.5%."
+    },
     "excludedFromLaunch": [
       "WBTC",
-      "cbBTC",
       "wstETH",
       "wstLINK",
       "LBTC",
       "sAVAX",
       "ankrBNB"
     ],
-    "notes": "Core launch excludes wrapped BTC and exchange-rate/yield wrapper tokens. USDC remains settlement/cash, not growth exposure."
+    "notes": "Core launch uses WETH, LINK, and cbBTC once the Base BTC spoke adapter is deployed. USDC remains settlement/cash, not growth exposure. Other wrapped BTC and exchange-rate/yield wrapper tokens remain excluded."
   }
 }
