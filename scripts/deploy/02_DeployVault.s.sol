@@ -12,7 +12,9 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///
 ///         Required env vars:
 ///           DEPLOYER_PRIVATE_KEY
-///           FOUNDER_ADDRESS
+///           TOKEN_ADMIN        final token admin Safe
+///           VAULT_OWNER        final vault owner Safe
+///           FOUNDER_TREASURY
 ///           BGW_TOKEN          (from script 01 output)
 ///           GOV_TOKEN          (from script 01 output)
 ///           TEAM_WALLET
@@ -25,19 +27,19 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///
 ///         Command:
 ///           forge script scripts/deploy/02_DeployVault.s.sol \
-///             --rpc-url $ARBITRUM_RPC \
+///             --rpc-url $BASE_RPC_URL \
 ///             --broadcast \
 ///             --verify \
 ///             --etherscan-api-key $ARBISCAN_KEY
 contract DeployVault is Script {
-    function _deployVault(address founder) internal returns (BGWVault) {
+    function _deployVault(address temporaryOwner) internal returns (BGWVault) {
         return new BGWVault(
             vm.envAddress("BGW_TOKEN"),
             vm.envAddress("GOV_TOKEN"),
             vm.envAddress("TEAM_WALLET"),
             vm.envAddress("HOLDBACK_WALLET"),
             vm.envAddress("RESERVE_WALLET"),
-            founder,
+            temporaryOwner,
             vm.envAddress("USDC_ADDRESS"),
             vm.envAddress("CAMELOT_ROUTER"),
             vm.envAddress("ETH_USD_FEED"),
@@ -47,14 +49,19 @@ contract DeployVault is Script {
 
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address founderAddr = vm.envAddress("FOUNDER_ADDRESS");
+        address deployer = vm.addr(deployerKey);
+        address tokenAdmin = vm.envAddress("TOKEN_ADMIN");
+        address vaultOwner = vm.envAddress("VAULT_OWNER");
+        address founderTreasury = vm.envAddress("FOUNDER_TREASURY");
+        require(tokenAdmin != deployer, "TOKEN_ADMIN must not be deployer");
+        require(vaultOwner != deployer, "VAULT_OWNER must not be deployer");
 
         BGWToken bgwToken = BGWToken(vm.envAddress("BGW_TOKEN"));
         BGWGovToken govToken = BGWGovToken(vm.envAddress("GOV_TOKEN"));
 
         vm.startBroadcast(deployerKey);
 
-        BGWVault vault = _deployVault(founderAddr);
+        BGWVault vault = _deployVault(deployer);
         console.log("BGWVault:", address(vault));
 
         bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
@@ -72,13 +79,31 @@ contract DeployVault is Script {
         govToken.initVault(address(vault));
         console.log("Initialized vault in BGWGovToken (vault can mint deposit GOV)");
 
-        vault.setWhitelisted(founderAddr, true);
-        console.log("Whitelisted founder:", founderAddr);
+        vault.setWhitelisted(founderTreasury, true);
+        console.log("Whitelisted founder treasury:", founderTreasury);
+
+        // Hand final token administration to the Safe and remove deployer token powers.
+        bgwToken.grantRole(bgwToken.DEFAULT_ADMIN_ROLE(), tokenAdmin);
+        bgwToken.grantRole(bgwToken.PAUSER_ROLE(), tokenAdmin);
+        bgwToken.grantRole(bgwToken.BLACKLIST_ADMIN_ROLE(), tokenAdmin);
+        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), tokenAdmin);
+        govToken.grantRole(govToken.DEFAULT_ADMIN_ROLE(), tokenAdmin);
+
+        bgwToken.revokeRole(bgwToken.PAUSER_ROLE(), deployer);
+        bgwToken.revokeRole(bgwToken.BLACKLIST_ADMIN_ROLE(), deployer);
+        bgwToken.revokeRole(bgwToken.WHITELIST_ADMIN_ROLE(), deployer);
+        bgwToken.revokeRole(bgwToken.DEFAULT_ADMIN_ROLE(), deployer);
+        govToken.revokeRole(govToken.DEFAULT_ADMIN_ROLE(), deployer);
+        console.log("Token admin handed to:", tokenAdmin);
+
+        vault.transferOwnership(vaultOwner);
+        console.log("Vault ownership transfer started. Pending owner:", vaultOwner);
 
         vm.stopBroadcast();
 
         console.log("\n=== Save these for script 03 ===");
         console.log("VAULT=", address(vault));
+        console.log("Vault owner must accept ownership from Safe before owner-only configuration.");
         console.log("\n=== Optional liquidity step ===");
         console.log("After seeding Camelot BGW/USDC liquidity for secondary-market trading, call:");
         console.log("  vault.bootstrapPair(<camelot_pair_address>)");

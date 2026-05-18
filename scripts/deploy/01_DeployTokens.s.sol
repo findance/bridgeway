@@ -14,33 +14,34 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///           BGWGovToken:    $GOV_TOKEN
 ///
 /// @dev    Set env vars before running:
-///           DEPLOYER_PRIVATE_KEY   = founder wallet private key
-///           FOUNDER_ADDRESS        = founder EOA / multisig / treasury
-///           ARBITRUM_RPC           = https://arb1.arbitrum.io/rpc  (or Alchemy)
+///           DEPLOYER_PRIVATE_KEY   = temporary deployer/admin key
+///           FOUNDER_TREASURY       = founder treasury receiving founder BGW-GOV
+///           BASE_RPC_URL           = Base RPC URL
 ///
 ///         Command:
 ///           forge script scripts/deploy/01_DeployTokens.s.sol \
-///             --rpc-url $ARBITRUM_RPC \
+///             --rpc-url $BASE_RPC_URL \
 ///             --broadcast \
 ///             --verify \
 ///             --etherscan-api-key $ARBISCAN_KEY
 contract DeployTokens is Script {
 
     function run() external {
-        uint256 deployerKey   = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address founderAddr   = vm.envAddress("FOUNDER_ADDRESS");
+        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        address deployer = vm.addr(deployerKey);
+        address founderTreasury = vm.envAddress("FOUNDER_TREASURY");
 
         vm.startBroadcast(deployerKey);
 
-        // 1. Deploy BGWToken (admin = founder)
-        BGWToken bgwToken = new BGWToken(founderAddr);
+        // 1. Deploy BGWToken with deployer as temporary admin so script 02 can wire roles.
+        BGWToken bgwToken = new BGWToken(deployer);
         console.log("BGWToken:      ", address(bgwToken));
 
         // 2. Deploy BGWGovToken (inflationary, minted by the vault on deposit).
         BGWGovToken govToken = new BGWGovToken(
-            founderAddr,
+            founderTreasury,
             address(bgwToken),
-            founderAddr
+            deployer
         );
         console.log("BGWGovToken:   ", address(govToken));
 
@@ -53,5 +54,8 @@ contract DeployTokens is Script {
         console.log("\n=== Save these for script 02 ===");
         console.log("BGW_TOKEN=",      address(bgwToken));
         console.log("GOV_TOKEN=",      address(govToken));
+        console.log("Temporary token admin:", deployer);
+        console.log("Founder treasury:", founderTreasury);
+        console.log("Run script 02 next to wire the vault and hand token admin to TOKEN_ADMIN.");
     }
 }
