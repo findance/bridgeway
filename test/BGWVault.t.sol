@@ -1252,6 +1252,61 @@ contract BGWVaultTest is Test {
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(adapterA)), adapterA.totalAssetsUSDC());
     }
 
+    function test_LiveVaultCannotInstantlyChangeSingleSleeveAdapter() public {
+        MockSleeveAdapter adapterA1 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterA2 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        vm.prank(founder);
+        vault.setSleeveAdapter(sleeveA, address(adapterA1));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        vm.prank(founder);
+        vm.expectRevert("BGWVault: adapter timelock required");
+        vault.setSleeveAdapter(sleeveA, address(adapterA2));
+    }
+
+    function test_FundedSingleSleeveAdapterCannotBeClearedThroughGovernance() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        vm.prank(founder);
+        vault.setSleeveAdapter(sleeveA, address(adapterA));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        govToken.delegate(alice);
+        vm.stopPrank();
+
+        vm.roll(block.number + 1);
+
+        vm.prank(founder);
+        vault.activateSleeveGovernance();
+
+        vm.prank(founder);
+        uint256 proposalId = vault.proposeSleeveAdapter(sleeveA, address(0));
+
+        vm.prank(alice);
+        vault.voteSleeveProposal(proposalId, true);
+
+        vm.warp(block.timestamp + vault.SLEEVE_VOTING_PERIOD());
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BGWVault.FundedAdapterRemovalBlocked.selector,
+                sleeveA,
+                address(adapterA),
+                700e6
+            )
+        );
+        vault.executeSleeveProposal(proposalId);
+    }
+
     function test_MultipleSleeveAdapterRoutesCanBeAddedWithoutMovingExistingFunds() public {
         MockSleeveAdapter adapterA1 = new MockSleeveAdapter(address(vault), USDC_ADDR);
         MockSleeveAdapter adapterA2 = new MockSleeveAdapter(address(vault), USDC_ADDR);

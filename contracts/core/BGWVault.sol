@@ -1099,9 +1099,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Set or clear the strategy adapter for one sleeve.
-    ///         Use address(0) to return a sleeve to manual accounting.
+    ///         Use address(0) to return a sleeve to manual accounting. Direct
+    ///         single-adapter changes are only allowed before live deposits; use
+    ///         timelocked route changes once BGW supply exists.
     function setSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner {
         require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
+        require(bgwToken.totalSupply() == 0, "BGWVault: adapter timelock required");
         _setSleeveAdapter(sleeve, adapter);
     }
 
@@ -1623,6 +1626,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _validateSleeve(sleeve);
         require(_sleeveAdapterRoutes[sleeve].length == 0, "BGWVault: routes configured");
         if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
+
+        address currentAdapter = sleeveAdapters[sleeve];
+        if (currentAdapter != address(0) && currentAdapter != adapter) {
+            uint256 currentAssets = ISleeveAdapter(currentAdapter).totalAssetsUSDC();
+            if (currentAssets > 0) revert FundedAdapterRemovalBlocked(sleeve, currentAdapter, currentAssets);
+        }
+
         if (adapter != address(0)) {
             require(
                 ISleeveAdapter(adapter).totalAssetsUSDC() == _manualSleeveValue(sleeve),
