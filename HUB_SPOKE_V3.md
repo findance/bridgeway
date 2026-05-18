@@ -63,7 +63,7 @@ Native staking adapters and queued redemption routing are still future phases.
 7. Configure `BridgewayHubNAV` so each spoke reporter is the CCIP receiver.
 8. Wire the deployed hub NAV into `BGWVault` with `proposeHubNAVUpdate()`, wait
    the vault timelock, then call `executeHubNAVUpdate()`.
-9. Keep enough Arbitrum USDC/local sleeve liquidity for normal redemptions until
+9. Keep enough Base USDC/local sleeve liquidity for normal redemptions until
    Phase 5 queued redemption routing is implemented.
 10. For queued redemptions, unwind spoke liquidity, update/confirm the spoke NAV
     drop, call `acknowledgeQueuedRedemptionLiquidity()`, then let the claimant
@@ -81,14 +81,14 @@ Phase 1 completion notes:
 
 - `SleeveABasketAdapter` can now resolve token, oracle, decimals, and trust
   status from `BridgewayRegistry`.
-- Arbitrum seed config includes USDC, WETH, WBTC, and LINK.
+- Arbitrum seed config remains available for legacy/reference spoke paths.
 - Base seed config includes USDC, WETH, cbBTC, and Chainlink-documented LINK.
 - `04_DeployAndConfigureRegistry.s.sol` deploys and seeds a chain-local
   registry based on `block.chainid`.
 
 ### Phase 2: Hub-and-Spoke Accounting - Complete
 
-- Arbitrum Hub remains the BGW mint, redeem, and accounting chain.
+- Base Hub remains the BGW mint, redeem, and accounting chain.
 - Spokes hold assets on native chains.
 - Spokes expose `totalAssets()`.
 - Hub stores confirmed NAV reports from each spoke.
@@ -164,12 +164,12 @@ Phase 4 completion notes:
 
 ### Phase 5: Redemption Routing - Complete
 
-- Normal redemptions paid from the Arbitrum USDC buffer.
+- Normal redemptions paid from the Base USDC buffer.
 - Large redemptions become queued.
-- Spokes unwind and route liquidity back to Arbitrum.
+- Spokes unwind and route liquidity back to Base.
 - BNB Chain is not an approved USDC settlement chain. BNB exposure must be held
   as native BNB in a spoke, reported to the hub as USD NAV, then unstaked and
-  routed back to Arbitrum USDC before any queued redemption is claimable.
+  routed back to Base USDC before any queued redemption is claimable.
 
 Phase 5 completion notes:
 
@@ -185,7 +185,7 @@ Phase 5 completion notes:
   `acknowledgeQueuedRedemptionLiquidity()` for that redemption. This should only
   happen after the corresponding spoke NAV has dropped or matching liquidity is
   otherwise no longer counted in active NAV.
-- `claimQueuedRedemption()` pays the claimant from Arbitrum USDC liquidity and
+- `claimQueuedRedemption()` pays the claimant from Base USDC liquidity and
   routes exit/performance fees through the existing fee logic.
 - Tests cover automatic queuing, NAV liability accounting, not-ready claim
   rejection, spoke NAV drop relay, acknowledgement, and final claimant payout.

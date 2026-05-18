@@ -12,7 +12,7 @@ import "../contracts/mocks/MockPriceFeed.sol";
 import "../contracts/mocks/MockSleeveAdapter.sol";
 import "../contracts/libraries/FeeLib.sol";
 
-/// @notice Minimal mock USDC (6 decimals) etched at the Arbitrum USDC address.
+/// @notice Minimal mock USDC (6 decimals) etched at the configured USDC address.
 contract MockUSDC {
     string public name = "USD Coin";
     string public symbol = "USDC";
@@ -206,7 +206,10 @@ contract BGWVaultTest is Test {
     ) internal {
         (uint256 currentNav18,,,) = hub.spokeReports(BASE_CHAIN_ID);
         while (currentNav18 > targetNav18) {
-            uint256 maxDrop = (currentNav18 * hub.MAX_NAV_MOVE_BPS()) / hub.BPS_DENOM();
+            uint256 moveBps = hub.maxGlobalNavMoveBps();
+            if (moveBps > hub.MAX_NAV_MOVE_BPS()) moveBps = hub.MAX_NAV_MOVE_BPS();
+            uint256 maxDrop = (currentNav18 * moveBps) / hub.BPS_DENOM();
+            if (maxDrop > 1) maxDrop -= 1;
             uint256 nextNav18 = currentNav18 - maxDrop;
             if (nextNav18 < targetNav18) nextNav18 = targetNav18;
 
@@ -491,6 +494,26 @@ contract BGWVaultTest is Test {
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.StaleReport.selector, BASE_CHAIN_ID));
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_GlobalNAVCircuitBreakerBlocksGlobalNAVPricing() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) = _wireHubNAVWithMoveLimit(1_000e18, 3_000);
+        vm.prank(founder);
+        spoke.updateLocalNAV(1_060e18);
+        _relaySpokeReport(hub, spoke);
+
+        assertTrue(hub.circuitBreakerActive());
+
+        vm.startPrank(bob);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vm.expectRevert(BridgewayHubNAV.CircuitBreakerActive.selector);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
     }
@@ -1187,7 +1210,7 @@ contract BGWVaultTest is Test {
     }
 
     function test_KnownAaveATokensProtectedAtDeploy() public view {
-        // Aave V3 Arbitrum aTokens seeded in constructor
+        // Legacy Aave V3 aTokens seeded in constructor.
         assertTrue(vault.protectedTokens(0x724dc807b04555b71ed48a6896b6F41593b8C637)); // aUSDCn
         assertTrue(vault.protectedTokens(0x6ab707Aca953eDAeFBc4fD23bA73294241490620)); // aUSDT
         assertTrue(vault.protectedTokens(0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8)); // aWETH
@@ -1227,6 +1250,103 @@ contract BGWVaultTest is Test {
         assertLt(adapterB.totalAssetsUSDC(), 250e6);
         assertLt(adapterC.totalAssetsUSDC(), 50e6);
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(adapterA)), adapterA.totalAssetsUSDC());
+    }
+
+    function test_MultipleSleeveAdapterRoutesCanBeAddedWithoutMovingExistingFunds() public {
+        MockSleeveAdapter adapterA1 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterA2 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        address[] memory firstAdapters = new address[](1);
+        firstAdapters[0] = address(adapterA1);
+        uint16[] memory firstBps = new uint16[](1);
+        firstBps[0] = 10_000;
+        bool[] memory firstActive = new bool[](1);
+        firstActive[0] = true;
+
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(sleeveA, firstAdapters, firstBps, firstActive);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(adapterA1.totalAssetsUSDC(), 700e6);
+
+        address[] memory nextAdapters = new address[](2);
+        nextAdapters[0] = address(adapterA1);
+        nextAdapters[1] = address(adapterA2);
+        uint16[] memory nextBps = new uint16[](2);
+        nextBps[0] = 5_000;
+        nextBps[1] = 5_000;
+        bool[] memory nextActive = new bool[](2);
+        nextActive[0] = true;
+        nextActive[1] = true;
+
+        vm.prank(founder);
+        vm.expectRevert("BGWVault: route timelock required");
+        vault.configureSleeveAdapterRoutes(sleeveA, nextAdapters, nextBps, nextActive);
+
+        vm.prank(founder);
+        vault.proposeSleeveAdapterRoutes(sleeveA, nextAdapters, nextBps, nextActive);
+        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY() + 1);
+        vm.prank(founder);
+        vault.executeSleeveAdapterRoutes(sleeveA);
+
+        assertEq(adapterA1.totalAssetsUSDC(), 700e6);
+        assertEq(adapterA2.totalAssetsUSDC(), 0);
+        assertEq(vault.sleeveAdapterRouteCount(sleeveA), 2);
+        assertEq(vault.sleeveAdapterActiveDepositBps(sleeveA), 10_000);
+
+        vm.startPrank(bob);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(adapterA1.totalAssetsUSDC(), 1_050e6);
+        assertEq(adapterA2.totalAssetsUSDC(), 350e6);
+        assertEq(vault.sleeveValue(sleeveA), 1_400e6);
+        assertEq(vault.totalNAV(), 2_000e6);
+    }
+
+    function test_FundedSleeveAdapterRouteCannotBeDroppedFromNAV() public {
+        MockSleeveAdapter adapterA1 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterA2 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        address[] memory firstAdapters = new address[](1);
+        firstAdapters[0] = address(adapterA1);
+        uint16[] memory firstBps = new uint16[](1);
+        firstBps[0] = 10_000;
+        bool[] memory firstActive = new bool[](1);
+        firstActive[0] = true;
+
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(sleeveA, firstAdapters, firstBps, firstActive);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        address[] memory unsafeAdapters = new address[](1);
+        unsafeAdapters[0] = address(adapterA2);
+        uint16[] memory unsafeBps = new uint16[](1);
+        unsafeBps[0] = 10_000;
+        bool[] memory unsafeActive = new bool[](1);
+        unsafeActive[0] = true;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                BGWVault.FundedAdapterRemovalBlocked.selector,
+                sleeveA,
+                address(adapterA1),
+                700e6
+            )
+        );
+        vm.prank(founder);
+        vault.proposeSleeveAdapterRoutes(sleeveA, unsafeAdapters, unsafeBps, unsafeActive);
     }
 
     function test_TrustedSleeveAssetsAreProtectedFromRecovery() public {

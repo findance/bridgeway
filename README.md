@@ -1,6 +1,6 @@
 # Bridgeway Protocol (BGW) — v1.22
 
-A whitelist-only, founder-operated crypto index vault on Arbitrum One.  
+A whitelist-only, founder-operated crypto index vault with a Base hub.
 Standalone smart contracts — no Enzyme Finance, no third-party vault infrastructure.
 
 ---
@@ -12,7 +12,7 @@ Whitelisted depositor
         │  any supported frontend-routed asset
         ▼
 LI.FI / Socket / CCTP / Across / deBridge
-        │  settles as Arbitrum USDC
+        │  settles as Base USDC
         ▼
     BGWVault  ──────────────────────────────────────────────────┐
     │  Mints BGW (share token) 1:1 at first deposit            │
@@ -34,7 +34,7 @@ BGWGovToken   — Inflationary governance token minted with BGW deposits:
 ```
 
 Bridgeway may support omnichain user ingress through frontend routing, but the
-vault contract itself accepts and accounts in Arbitrum USDC. After USDC reaches
+vault contract itself accepts and accounts in Base USDC. After USDC reaches
 the vault, the 70/25/5 allocation applies across all sleeves.
 
 ---

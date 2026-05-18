@@ -17,9 +17,12 @@ remappings = [
 [rpc_endpoints]
 arbitrum      = "${ARBITRUM_RPC}"
 arbitrum_fork = "${ARBITRUM_RPC}"
+base          = "${BASE_RPC_URL}"
+base_fork     = "${BASE_RPC_URL}"
 
 [etherscan]
 arbitrum = { key = "${ARBISCAN_KEY}", chain = 42161, url = "https://api.arbiscan.io/api" }
+base = { key = "${BASESCAN_KEY}", chain = 8453, url = "https://api.basescan.org/api" }
 
 [fuzz]
 runs = 256

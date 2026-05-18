@@ -22,7 +22,7 @@ contract SleeveBStableYieldAdapterTest is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        aUsdc = new MockAToken("Aave Arbitrum USDC", "aArbUSDC", 6);
+        aUsdc = new MockAToken("Aave USDC", "aUSDC", 6);
         aavePool = new MockAaveV3Pool(address(usdc), address(aUsdc));
         aUsdc.setMinter(address(aavePool));
         morphoVault = new MockERC4626Vault(usdc, "Morpho USDC", "mUSDC");

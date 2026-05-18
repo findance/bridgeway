@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/ICCIPReceiver.sol";
 
 /// @title BridgewayRateRegistry
-/// @notice Arbitrum-side CCIP receiver for cross-chain rate data used by
+/// @notice CCIP receiver for cross-chain rate data used by
 ///         isolated asset accounting paths for optional future wrappers.
 contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     uint8 public constant EXPECTED_VERSION = 1;

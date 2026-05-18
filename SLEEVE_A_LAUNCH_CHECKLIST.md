@@ -80,7 +80,7 @@ Before activation, verify:
 2. Aave V3 Base cbBTC reserve status, supply cap, pause/freeze flags, and withdrawal liquidity.
 3. Aerodrome pool address, pool fee, liquidity depth, reward APR, executable exit slippage, and reward-to-cbBTC conversion route.
 4. Keeper logic that calculates net Aerodrome APY after fees, slippage, reward conversion, gas, and rebalance expense.
-5. Emergency unwind path back to cbBTC, then to Arbitrum USDC only if the user chooses instant market exit.
+5. Emergency unwind path back to cbBTC, then to Base USDC only if the user chooses instant market exit.
 
 Production contracts:
 

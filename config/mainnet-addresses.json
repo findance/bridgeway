@@ -117,7 +117,7 @@
       "settlementPolicy": {
         "status": "rejected-for-redemption-settlement",
         "asset": "USDC",
-        "reason": "Bridgeway does not approve Binance-peg USDC as a vault settlement asset. BNB Chain can hold and stake native BNB as a spoke, but redemptions must settle from Arbitrum USDC after unwind/routing.",
+        "reason": "Bridgeway does not approve Binance-peg USDC as a vault settlement asset. BNB Chain can hold and stake native BNB as a spoke, but redemptions must settle from Base USDC after unwind/routing.",
         "allowedUses": [
           "native-bnb-spoke-nav-reporting",
           "temporary-operator-approved-routing-only"
@@ -127,7 +127,7 @@
           "hub-accounting-collateral",
           "persistent-usdc-sleeve-balance"
         ],
-        "redemptionRoute": "unstake native BNB -> swap/route via approved router -> Arbitrum USDC buffer -> claim queued redemption"
+        "redemptionRoute": "unstake native BNB -> swap/route via approved router -> Base USDC buffer -> claim queued redemption"
       }
     },
     "8453": {

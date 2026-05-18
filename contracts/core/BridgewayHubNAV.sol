@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @title BridgewayHubNAV
-/// @notice Arbitrum-side global NAV cache for future hub-and-spoke accounting.
+/// @notice Hub-chain global NAV cache for future hub-and-spoke accounting.
 ///         CCIP receivers or approved reporters update confirmed spoke NAV.
 contract BridgewayHubNAV is Ownable2Step, Pausable {
     using Math for uint256;
@@ -16,6 +16,8 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     uint256 public constant DEFAULT_MAX_REPORT_AGE = 24 hours;
     uint256 public constant DEFAULT_MAX_NAV_MOVE_BPS = 1_000; // 10%
     uint256 public constant MAX_NAV_MOVE_BPS = 3_000; // 30%
+    uint256 public constant DEFAULT_MAX_GLOBAL_NAV_MOVE_BPS = 500; // 5%
+    uint256 public constant MAX_GLOBAL_NAV_MOVE_BPS = 3_000; // 30%
     uint256 public constant BPS_DENOM = 10_000;
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
 
@@ -45,6 +47,8 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     mapping(uint64 => PendingSpokeConfig) public pendingSpokeConfigs;
     uint64[] private _spokeChainIds;
     bool public bootstrapMode = true;
+    bool public circuitBreakerActive;
+    uint256 public maxGlobalNavMoveBps = DEFAULT_MAX_GLOBAL_NAV_MOVE_BPS;
 
     event SpokeConfigured(
         uint64 indexed chainId,
@@ -65,6 +69,10 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     );
     event SpokeConfigCancelled(uint64 indexed chainId);
     event BootstrapFinalized(uint256 timestamp);
+    event GlobalNAVVarianceBreached(uint256 oldNavUsd18, uint256 newNavUsd18, uint256 varianceBps);
+    event CircuitBreakerTriggered(bytes32 indexed reason);
+    event CircuitBreakerReset(uint256 timestamp);
+    event MaxGlobalNavMoveBpsSet(uint256 maxGlobalNavMoveBps);
     event SpokeReportAccepted(
         uint64 indexed chainId,
         address indexed reporter,
@@ -82,6 +90,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     error NavMoveTooLarge(uint64 chainId);
     error NonceNotIncreasing(uint64 chainId);
     error SpokeDisabled(uint64 chainId);
+    error CircuitBreakerActive();
     error BootstrapActive();
     error ConfigurationFinalized();
     error BootstrapAlreadyFinalized();
@@ -117,6 +126,23 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         if (!bootstrapMode) revert BootstrapAlreadyFinalized();
         bootstrapMode = false;
         emit BootstrapFinalized(block.timestamp);
+    }
+
+    function setMaxGlobalNavMoveBps(uint256 maxGlobalNavMoveBps_) external onlyOwner {
+        if (maxGlobalNavMoveBps_ == 0) maxGlobalNavMoveBps_ = DEFAULT_MAX_GLOBAL_NAV_MOVE_BPS;
+        if (maxGlobalNavMoveBps_ > MAX_GLOBAL_NAV_MOVE_BPS) revert InvalidNavMoveBps(maxGlobalNavMoveBps_);
+        maxGlobalNavMoveBps = maxGlobalNavMoveBps_;
+        emit MaxGlobalNavMoveBpsSet(maxGlobalNavMoveBps_);
+    }
+
+    function triggerCircuitBreaker(bytes32 reason) external onlyOwner {
+        circuitBreakerActive = true;
+        emit CircuitBreakerTriggered(reason);
+    }
+
+    function resetCircuitBreaker() external onlyOwner {
+        circuitBreakerActive = false;
+        emit CircuitBreakerReset(block.timestamp);
     }
 
     function proposeSpokeConfig(
@@ -179,6 +205,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         uint256 sourceBlockNumber,
         uint64 nonce
     ) external whenNotPaused {
+        if (circuitBreakerActive) revert CircuitBreakerActive();
         SpokeConfig memory config = spokeConfigs[chainId];
         if (!config.enabled) revert SpokeDisabled(chainId);
         if (msg.sender != config.reporter) revert InvalidReporter();
@@ -193,12 +220,25 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
             if (delta > maxMove) revert NavMoveTooLarge(chainId);
         }
 
+        uint256 oldGlobalNav18 = _totalSpokeNAV18(false);
         spokeReports[chainId] = SpokeReport({
             navUsd18: navUsd18,
             reportedAt: reportedAt,
             sourceBlockNumber: sourceBlockNumber,
             nonce: nonce
         });
+
+        if (oldGlobalNav18 > 0 && previous.reportedAt != 0) {
+            uint256 newGlobalNav18 = _totalSpokeNAV18(false);
+            uint256 globalDelta =
+                newGlobalNav18 > oldGlobalNav18 ? newGlobalNav18 - oldGlobalNav18 : oldGlobalNav18 - newGlobalNav18;
+            uint256 varianceBps = Math.mulDiv(globalDelta, BPS_DENOM, oldGlobalNav18);
+            if (varianceBps > maxGlobalNavMoveBps) {
+                circuitBreakerActive = true;
+                emit GlobalNAVVarianceBreached(oldGlobalNav18, newGlobalNav18, varianceBps);
+                emit CircuitBreakerTriggered(bytes32("GLOBAL_NAV_VARIANCE"));
+            }
+        }
 
         emit SpokeReportAccepted(chainId, msg.sender, navUsd18, reportedAt, sourceBlockNumber, nonce);
     }
@@ -208,16 +248,8 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     }
 
     function totalSpokeNAV18() public view returns (uint256 totalNav18) {
-        uint256 count = _spokeChainIds.length;
-        for (uint256 i; i < count; ++i) {
-            uint64 chainId = _spokeChainIds[i];
-            SpokeConfig memory config = spokeConfigs[chainId];
-            if (!config.enabled) continue;
-
-            SpokeReport memory report = spokeReports[chainId];
-            if (config.material && _isStale(report, config.maxReportAge)) revert StaleReport(chainId);
-            totalNav18 += report.navUsd18;
-        }
+        if (circuitBreakerActive) revert CircuitBreakerActive();
+        return _totalSpokeNAV18(true);
     }
 
     function spokeChainIds() external view returns (uint64[] memory) {
@@ -230,6 +262,21 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
 
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    function _totalSpokeNAV18(bool enforceMaterialStaleness) internal view returns (uint256 totalNav18) {
+        uint256 count = _spokeChainIds.length;
+        for (uint256 i; i < count; ++i) {
+            uint64 chainId = _spokeChainIds[i];
+            SpokeConfig memory config = spokeConfigs[chainId];
+            if (!config.enabled) continue;
+
+            SpokeReport memory report = spokeReports[chainId];
+            if (enforceMaterialStaleness && config.material && _isStale(report, config.maxReportAge)) {
+                revert StaleReport(chainId);
+            }
+            totalNav18 += report.navUsd18;
+        }
     }
 
     function _isStale(SpokeReport memory report, uint256 maxReportAge) internal view returns (bool) {

@@ -11,6 +11,8 @@ contract BridgewayHubSpokeTest is Test {
     BridgewaySpokeReporter baseSpoke;
     BridgewaySpokeReporter avaxSpoke;
 
+    event GlobalNAVVarianceBreached(uint256 oldNavUsd18, uint256 newNavUsd18, uint256 varianceBps);
+
     uint64 constant BASE_CHAIN_ID = 8453;
     uint64 constant AVAX_CHAIN_ID = 43114;
 
@@ -118,6 +120,42 @@ contract BridgewayHubSpokeTest is Test {
         vm.prank(address(baseSpoke));
         vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.NavMoveTooLarge.selector, BASE_CHAIN_ID));
         hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
+    }
+
+    function test_GlobalNAVVarianceTripsCircuitBreaker() public {
+        hub.configureSpoke(BASE_CHAIN_ID, address(baseSpoke), 24 hours, 3_000, true, true);
+        _report(baseSpoke, BASE_CHAIN_ID, 1_000e18);
+        _report(avaxSpoke, AVAX_CHAIN_ID, 500e18);
+
+        baseSpoke.updateLocalNAV(1_100e18);
+        (, uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
+            abi.decode(baseSpoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
+
+        vm.expectEmit(false, false, false, true);
+        emit GlobalNAVVarianceBreached(1_500e18, 1_600e18, 666);
+        vm.prank(address(baseSpoke));
+        hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
+
+        assertTrue(hub.circuitBreakerActive());
+        vm.expectRevert(BridgewayHubNAV.CircuitBreakerActive.selector);
+        hub.totalSpokeNAV18();
+
+        hub.resetCircuitBreaker();
+        assertEq(hub.totalSpokeNAV18(), 1_600e18);
+    }
+
+    function test_FirstSpokeReportDoesNotTripGlobalCircuitBreaker() public {
+        hub.configureSpoke(AVAX_CHAIN_ID, address(avaxSpoke), 24 hours, 1_000, true, false);
+        _report(baseSpoke, BASE_CHAIN_ID, 1_000e18);
+
+        assertFalse(hub.circuitBreakerActive());
+        assertEq(hub.totalSpokeNAV18(), 1_000e18);
+    }
+
+    function test_GlobalNavMoveCapHasUpperBound() public {
+        uint256 tooHigh = hub.MAX_GLOBAL_NAV_MOVE_BPS() + 1;
+        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.InvalidNavMoveBps.selector, tooHigh));
+        hub.setMaxGlobalNavMoveBps(tooHigh);
     }
 
     function test_MaterialStaleSpokeBlocksAggregateNAV() public {

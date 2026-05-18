@@ -98,7 +98,7 @@ These inputs are intentionally not hardcoded as confirmed deployment values yet.
 | Owner and operator addresses | Replace all EOAs with approved multisigs for owner, automation, treasury, and pause roles. |
 | Native staking wrappers | Confirm exchange-rate adapters, pricing methods, and unwind routes for each approved wrapper. |
 | Arbitrum LBTC | Keep blocked/redundant until Lombard adds the official Arbitrum row and Arbiscan probe confirms the exact address plus verified contract. |
-| BNB USDC | Rejected for redemption settlement. BNB Chain may only be used as a native BNB spoke; redemptions unwind/route value back to Arbitrum USDC before claim. |
+| BNB USDC | Rejected for redemption settlement. BNB Chain may only be used as a native BNB spoke; redemptions unwind/route value back to Base USDC before claim. |
 | cbBTC outside Base/Ethereum | Treat any Arbitrum cbBTC address as unapproved until Coinbase documentation and liquidity are verified. |
 | CCIP infrastructure metadata | Optional `ccip_infra` rows are documentation and monitoring only. Deploy scripts must not read RMN or registry-module addresses as deployment inputs. |
 

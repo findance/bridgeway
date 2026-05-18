@@ -6,7 +6,7 @@ import "forge-std/Script.sol";
 import "../../contracts/core/BridgewayHubNAV.sol";
 
 /// @title 05_DeployHubNAV
-/// @notice Deploys the Arbitrum-side confirmed spoke NAV cache.
+/// @notice Deploys the hub-chain confirmed spoke NAV cache.
 ///
 /// Required env vars:
 ///   DEPLOYER_PRIVATE_KEY

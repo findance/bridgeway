@@ -110,7 +110,27 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         If unset, the sleeve uses manual vault accounting.
     address[3] public sleeveAdapters;
 
-    /// @notice Optional Arbitrum-side global NAV cache for confirmed native-chain spokes.
+    struct SleeveAdapterRoute {
+        address adapter;
+        uint16 depositBps;
+        bool active;
+    }
+
+    /// @notice Optional multi-adapter routes per sleeve. Once configured for a
+    ///         sleeve, these routes supersede the legacy single adapter slot.
+    ///         Registered adapters are always counted in NAV until removed empty.
+    mapping(uint8 => SleeveAdapterRoute[]) private _sleeveAdapterRoutes;
+
+    struct PendingSleeveAdapterRoutes {
+        address[] adapters;
+        uint16[] depositBps;
+        bool[] active;
+        uint256 executeAfter; // 0 = no pending change
+    }
+
+    mapping(uint8 => PendingSleeveAdapterRoutes) private _pendingSleeveAdapterRoutes;
+
+    /// @notice Optional hub-chain global NAV cache for confirmed spoke reports.
     ///         When set, totalNAV() includes confirmed spoke NAV in addition to local sleeves.
     address public hubNAV;
 
@@ -311,6 +331,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
     event SleeveAdapterSet(uint8 indexed sleeve, address indexed adapter);
+    event SleeveAdapterRoutesConfigured(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps);
+    event SleeveAdapterRoutesProposed(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps, uint256 executeAfter);
+    event SleeveAdapterRoutesCancelled(uint8 indexed sleeve);
     event TrustedSleeveAssetUpdated(uint8 indexed sleeve, address indexed asset, bool trusted);
     event SleeveGovernanceActivated();
     event SleeveProposalCreated(
@@ -373,6 +396,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error QueuedRedemptionAlreadyClaimed(uint256 redemptionId);
     error QueuedRedemptionNotReady(uint256 redemptionId, uint256 navLiabilityRemaining);
     error InsufficientLocalLiquidity(uint256 available, uint256 required);
+    error FundedAdapterRemovalBlocked(uint8 sleeve, address adapter, uint256 assetsUsdc);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
@@ -428,12 +452,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         lastHWMUpdateTime = block.timestamp;
         lastHarvestTime = block.timestamp;
 
-        // ── Seed protectedTokens with launch-approved Aave V3 Arbitrum One aTokens ──
+        // ── Seed protectedTokens with legacy launch-approved Aave V3 aTokens ──
         // These are the yield-bearing tokens the vault holds on behalf of depositors.
         // Owner must add new entries (Pendle PTs, GMX GLP, etc.) before each deploy
         // and remove them once the position is fully unwound.
         //
-        // Aave V3 Arbitrum One — verify at https://aave.com/docs before mainnet deploy.
+        // Legacy Aave V3 Arbitrum One entries. Base deployments must add Base
+        // aTokens through setProtectedToken before moving funds.
         protectedTokens[0x724dc807b04555b71ed48a6896b6F41593b8C637] = true; // aUSDCn
         protectedTokens[0x6ab707Aca953eDAeFBc4fD23bA73294241490620] = true; // aUSDT
         protectedTokens[0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8] = true; // aWETH
@@ -526,8 +551,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Deposit USDC into the vault and mint BGW/BGW-GOV to `recipient`.
-    ///         This supports external zaps/aggregators that deliver Arbitrum USDC.
-    /// @param  recipient   Address receiving BGW and BGW-GOV on Arbitrum.
+    ///         This supports external zaps/aggregators that deliver hub-chain USDC.
+    /// @param  recipient   Address receiving BGW and BGW-GOV on the hub chain.
     /// @param  usdcAmount  Amount of USDC (6 dec) to deposit.
     /// @param  minBgwOut   Minimum BGW to receive (slippage guard, 18 dec). Pass 0 to skip.
     function depositFor(address recipient, uint256 usdcAmount, uint256 minBgwOut)
@@ -625,7 +650,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit Redeemed(msg.sender, bgwAmount, netUsdc, exitFeeUsdc, perfFeeUsdc);
     }
 
-    /// @notice Claim a queued redemption once Arbitrum liquidity has arrived
+    /// @notice Claim a queued redemption once hub-chain liquidity has arrived
     ///         from spoke unwinds or treasury buffering.
     function claimQueuedRedemption(uint256 redemptionId) external nonReentrant whenNotPaused {
         QueuedRedemption storage redemption = queuedRedemptions[redemptionId];
@@ -1048,7 +1073,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit AddressChangeCancelled(CHANGE_ROUTER);
     }
 
-    /// @notice Propose wiring the vault to an Arbitrum-side confirmed spoke NAV cache.
+    /// @notice Propose wiring the vault to a hub-chain confirmed spoke NAV cache.
     ///         Use address(0) to disconnect hub-spoke accounting.
     function proposeHubNAVUpdate(address newHubNAV) external onlyOwner {
         if (newHubNAV != address(0)) require(newHubNAV.code.length > 0, "BGWVault: hub NAV not contract");
@@ -1078,6 +1103,93 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function setSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner {
         require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
         _setSleeveAdapter(sleeve, adapter);
+    }
+
+    /// @notice Configure multiple strategy routes for one sleeve without moving
+    ///         existing funds. Any funded adapter that is currently counted must
+    ///         remain present in the new route set. Direct configuration is only
+    ///         allowed before the vault has live deposits; use the propose/execute
+    ///         route flow once BGW supply exists.
+    function configureSleeveAdapterRoutes(
+        uint8 sleeve,
+        address[] calldata adapters,
+        uint16[] calldata depositBps,
+        bool[] calldata active
+    ) external onlyOwner {
+        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
+        require(bgwToken.totalSupply() == 0, "BGWVault: route timelock required");
+        _configureSleeveAdapterRoutes(sleeve, adapters, depositBps, active);
+    }
+
+    /// @notice Queue a live route change behind the vault's 48-hour config
+    ///         timelock. This lets depositors react before future deposits are
+    ///         redirected while still preventing funded routes from disappearing
+    ///         from NAV.
+    function proposeSleeveAdapterRoutes(
+        uint8 sleeve,
+        address[] calldata adapters,
+        uint16[] calldata depositBps,
+        bool[] calldata active
+    ) external onlyOwner {
+        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
+        uint256 activeBps = _validateSleeveAdapterRouteConfig(sleeve, adapters, depositBps, active);
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        _storePendingSleeveAdapterRoutes(sleeve, adapters, depositBps, active, eta);
+        emit SleeveAdapterRoutesProposed(sleeve, adapters.length, activeBps, eta);
+    }
+
+    function executeSleeveAdapterRoutes(uint8 sleeve) external onlyOwner {
+        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
+        _validateSleeve(sleeve);
+        PendingSleeveAdapterRoutes storage pending = _pendingSleeveAdapterRoutes[sleeve];
+        if (pending.executeAfter == 0) revert NoPendingChange(bytes32("SLEEVE_ROUTES"));
+        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
+
+        address[] memory adapters = pending.adapters;
+        uint16[] memory depositBps = pending.depositBps;
+        bool[] memory active = pending.active;
+        delete _pendingSleeveAdapterRoutes[sleeve];
+
+        _configureSleeveAdapterRoutes(sleeve, adapters, depositBps, active);
+    }
+
+    function cancelSleeveAdapterRoutes(uint8 sleeve) external onlyOwner {
+        _validateSleeve(sleeve);
+        if (_pendingSleeveAdapterRoutes[sleeve].executeAfter == 0) {
+            revert NoPendingChange(bytes32("SLEEVE_ROUTES"));
+        }
+        delete _pendingSleeveAdapterRoutes[sleeve];
+        emit SleeveAdapterRoutesCancelled(sleeve);
+    }
+
+    function sleeveAdapterRouteCount(uint8 sleeve) external view returns (uint256) {
+        _validateSleeve(sleeve);
+        return _sleeveAdapterRoutes[sleeve].length;
+    }
+
+    function sleeveAdapterRouteAt(uint8 sleeve, uint256 index)
+        external
+        view
+        returns (address adapter, uint16 depositBps, bool active)
+    {
+        _validateSleeve(sleeve);
+        SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][index];
+        return (route.adapter, route.depositBps, route.active);
+    }
+
+    function sleeveAdapterActiveDepositBps(uint8 sleeve) external view returns (uint256) {
+        _validateSleeve(sleeve);
+        return _activeRouteDepositBps(sleeve);
+    }
+
+    function pendingSleeveAdapterRoutes(uint8 sleeve)
+        external
+        view
+        returns (address[] memory adapters, uint16[] memory depositBps, bool[] memory active, uint256 executeAfter)
+    {
+        _validateSleeve(sleeve);
+        PendingSleeveAdapterRoutes storage pending = _pendingSleeveAdapterRoutes[sleeve];
+        return (pending.adapters, pending.depositBps, pending.active, pending.executeAfter);
     }
 
     /// @notice Mark an asset as approved for a sleeve strategy.
@@ -1297,6 +1409,26 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function _deployToSleeve(uint8 sleeve, uint256 usdcAmount) internal {
         if (usdcAmount == 0) return;
+        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        if (routeCount > 0) {
+            uint256 allocated;
+            for (uint256 i; i < routeCount; ++i) {
+                SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][i];
+                if (!route.active || route.depositBps == 0) continue;
+
+                uint256 routeAmount = (usdcAmount * route.depositBps) / FeeLib.BPS_DENOM;
+                if (routeAmount == 0) continue;
+
+                allocated += routeAmount;
+                IERC20(USDC).safeTransfer(route.adapter, routeAmount);
+                ISleeveAdapter(route.adapter).deploy(routeAmount);
+            }
+
+            uint256 remainder = usdcAmount - allocated;
+            if (remainder > 0) _setSleeveValue(sleeve, _manualSleeveValue(sleeve) + remainder);
+            return;
+        }
+
         address adapter = sleeveAdapters[sleeve];
         if (adapter == address(0)) {
             _setSleeveValue(sleeve, _manualSleeveValue(sleeve) + usdcAmount);
@@ -1310,6 +1442,28 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function _withdrawFromSleeve(uint8 sleeve, uint256 usdcAmount) internal {
         if (usdcAmount == 0) return;
+        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        if (routeCount > 0) {
+            uint256 remaining = usdcAmount;
+            uint256 manual = _manualSleeveValue(sleeve);
+            uint256 fromManual = manual > remaining ? remaining : manual;
+            if (fromManual > 0) {
+                _setSleeveValue(sleeve, manual - fromManual);
+                remaining -= fromManual;
+            }
+
+            for (uint256 i; i < routeCount && remaining > 0; ++i) {
+                address routeAdapter = _sleeveAdapterRoutes[sleeve][i].adapter;
+                uint256 routeAssets = ISleeveAdapter(routeAdapter).totalAssetsUSDC();
+                if (routeAssets == 0) continue;
+
+                uint256 request = routeAssets > remaining ? remaining : routeAssets;
+                uint256 returned = ISleeveAdapter(routeAdapter).withdraw(request);
+                remaining = returned >= remaining ? 0 : remaining - returned;
+            }
+            return;
+        }
+
         address adapter = sleeveAdapters[sleeve];
         if (adapter == address(0)) {
             uint256 current = _manualSleeveValue(sleeve);
@@ -1322,6 +1476,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     function _syncSleeveFromAdapter(uint8 sleeve) internal {
+        if (_sleeveAdapterRoutes[sleeve].length > 0) return;
         address adapter = sleeveAdapters[sleeve];
         if (adapter != address(0)) {
             _setSleeveValue(sleeve, ISleeveAdapter(adapter).totalAssetsUSDC());
@@ -1329,12 +1484,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     function _reportedOrAdapterValue(uint8 sleeve, uint256 reportedValue) internal view returns (uint256) {
+        if (_sleeveAdapterRoutes[sleeve].length > 0) return _sleeveValue(sleeve);
         address adapter = sleeveAdapters[sleeve];
         if (adapter == address(0)) return reportedValue;
         return ISleeveAdapter(adapter).totalAssetsUSDC();
     }
 
     function _sleeveValue(uint8 sleeve) internal view returns (uint256) {
+        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        if (routeCount > 0) return _manualSleeveValue(sleeve) + _routeAssetsUSDC(sleeve);
+
         address adapter = sleeveAdapters[sleeve];
         if (adapter != address(0)) return ISleeveAdapter(adapter).totalAssetsUSDC();
         return _manualSleeveValue(sleeve);
@@ -1359,8 +1518,110 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         }
     }
 
+    function _configureSleeveAdapterRoutes(
+        uint8 sleeve,
+        address[] memory adapters,
+        uint16[] memory depositBps,
+        bool[] memory active
+    ) internal {
+        uint256 activeBps = _validateSleeveAdapterRouteConfig(sleeve, adapters, depositBps, active);
+
+        delete _sleeveAdapterRoutes[sleeve];
+        for (uint256 i; i < adapters.length; ++i) {
+            _sleeveAdapterRoutes[sleeve].push(
+                SleeveAdapterRoute({adapter: adapters[i], depositBps: depositBps[i], active: active[i]})
+            );
+        }
+
+        emit SleeveAdapterRoutesConfigured(sleeve, adapters.length, activeBps);
+    }
+
+    function _validateSleeveAdapterRouteConfig(
+        uint8 sleeve,
+        address[] memory adapters,
+        uint16[] memory depositBps,
+        bool[] memory active
+    ) internal view returns (uint256 activeBps) {
+        _validateSleeve(sleeve);
+        require(
+            adapters.length == depositBps.length && adapters.length == active.length,
+            "BGWVault: route length mismatch"
+        );
+        require(adapters.length <= 10, "BGWVault: too many routes");
+
+        for (uint256 i; i < adapters.length; ++i) {
+            address adapter = adapters[i];
+            if (adapter == address(0)) revert ZeroAddress();
+            require(adapter.code.length > 0, "BGWVault: adapter not contract");
+
+            for (uint256 j = i + 1; j < adapters.length; ++j) {
+                require(adapter != adapters[j], "BGWVault: duplicate route");
+            }
+
+            if (active[i]) activeBps += depositBps[i];
+        }
+        require(activeBps <= FeeLib.BPS_DENOM, "BGWVault: route bps too high");
+
+        address legacyAdapter = sleeveAdapters[sleeve];
+        if (legacyAdapter != address(0) && !_containsAdapter(adapters, legacyAdapter)) {
+            uint256 legacyAssets = ISleeveAdapter(legacyAdapter).totalAssetsUSDC();
+            if (legacyAssets > 0) revert FundedAdapterRemovalBlocked(sleeve, legacyAdapter, legacyAssets);
+        }
+
+        SleeveAdapterRoute[] storage existingRoutes = _sleeveAdapterRoutes[sleeve];
+        uint256 existingCount = existingRoutes.length;
+        for (uint256 i; i < existingCount; ++i) {
+            address existing = existingRoutes[i].adapter;
+            if (_containsAdapter(adapters, existing)) continue;
+
+            uint256 existingAssets = ISleeveAdapter(existing).totalAssetsUSDC();
+            if (existingAssets > 0) revert FundedAdapterRemovalBlocked(sleeve, existing, existingAssets);
+        }
+    }
+
+    function _storePendingSleeveAdapterRoutes(
+        uint8 sleeve,
+        address[] memory adapters,
+        uint16[] memory depositBps,
+        bool[] memory active,
+        uint256 executeAfter
+    ) internal {
+        delete _pendingSleeveAdapterRoutes[sleeve];
+        PendingSleeveAdapterRoutes storage pending = _pendingSleeveAdapterRoutes[sleeve];
+        pending.executeAfter = executeAfter;
+        for (uint256 i; i < adapters.length; ++i) {
+            pending.adapters.push(adapters[i]);
+            pending.depositBps.push(depositBps[i]);
+            pending.active.push(active[i]);
+        }
+    }
+
+    function _containsAdapter(address[] memory adapters, address adapter) internal pure returns (bool) {
+        uint256 count = adapters.length;
+        for (uint256 i; i < count; ++i) {
+            if (adapters[i] == adapter) return true;
+        }
+        return false;
+    }
+
+    function _activeRouteDepositBps(uint8 sleeve) internal view returns (uint256 totalBps) {
+        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        for (uint256 i; i < routeCount; ++i) {
+            SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][i];
+            if (route.active) totalBps += route.depositBps;
+        }
+    }
+
+    function _routeAssetsUSDC(uint8 sleeve) internal view returns (uint256 totalUsdc) {
+        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        for (uint256 i; i < routeCount; ++i) {
+            totalUsdc += ISleeveAdapter(_sleeveAdapterRoutes[sleeve][i].adapter).totalAssetsUSDC();
+        }
+    }
+
     function _setSleeveAdapter(uint8 sleeve, address adapter) internal {
         _validateSleeve(sleeve);
+        require(_sleeveAdapterRoutes[sleeve].length == 0, "BGWVault: routes configured");
         if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
         if (adapter != address(0)) {
             require(
