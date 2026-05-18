@@ -81,6 +81,22 @@ Before activation, verify:
 4. Keeper logic that calculates net Aerodrome APY after fees, slippage, reward conversion, gas, and rebalance expense.
 5. Emergency unwind path back to cbBTC, then to Arbitrum USDC only if the user chooses instant market exit.
 
+Production contracts:
+
+- `AerodromeCbbtcStrategy` wraps one Aerodrome Slipstream concentrated-liquidity NFT, optionally stakes it in the matching CL gauge, and exposes a conservative cbBTC-denominated interface to `BaseCBBTCYieldAdapter`.
+- `BaseCBBTCYieldAdapter` enforces the 80% Aave / 20% Aerodrome policy and exits the Aerodrome leg to Aave when `netApyBps < 450`.
+- `AerodromeCbbtcStrategy.totalAssetsCbbtc()` uses a keeper mark-to-market value instead of pretending the LP NFT is always worth principal. The keeper mark must be refreshed before `maxMarkStale` expires.
+- The Aerodrome AERO reward conversion path is configured separately with `setAeroToCbbtcPath(bytes)`. If unset, AERO rewards stay idle in the strategy and are not counted in cbBTC NAV until converted and marked.
+
+Deploy with `scripts/deploy/13_DeployBaseCBBTCYieldSpoke.s.sol` after filling:
+
+- `CBBTC`, `USDC`, `AERO`
+- `AAVE_POOL`, `A_CBBTC`
+- `AERODROME_POSITION_MANAGER`, `AERODROME_SWAP_ROUTER`, optional `AERODROME_GAUGE`
+- `BTC_USD_PRICE_FEED`
+- `AERODROME_TICK_SPACING`, `AERODROME_TICK_LOWER`, `AERODROME_TICK_UPPER`
+- `STRATEGY_KEEPER`
+
 ## Current Adapter Coverage
 
 - Deploys USDC into the configured basket.
