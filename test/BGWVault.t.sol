@@ -51,7 +51,7 @@ contract MockUSDC {
     }
 }
 
-/// @dev Minimal contract so proposeAutomation's code-length check passes.
+/// @dev Minimal contract so setAutomation's code-length check passes.
 contract MockAutomationStub {}
 
 contract BGWVaultTest is Test {
@@ -83,9 +83,8 @@ contract BGWVaultTest is Test {
         govToken = new BGWGovToken(founder, address(bgwToken), founder);
 
         // ── Mock Camelot router ────────────────────────────────────────────────
-        // Etch MockCamelotRouter bytecode (with bgwToken + rate baked in as
-        // immutables) at CAMELOT_ADDR so the vault's camelotRouter immutable
-        // resolves to the mock without changing the test address constants.
+        // Etch MockCamelotRouter bytecode at CAMELOT_ADDR for tests that model
+        // secondary-market transfers around a pair-like address.
         MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
         usdcUsdFeed = new MockPriceFeed(1e8, 8);
@@ -99,8 +98,6 @@ contract BGWVaultTest is Test {
             reserve,
             founder,
             USDC_ADDR, // _usdc    (M-06: constructor-injected, not bytecode-hardcoded)
-            CAMELOT_ADDR, // _camelotRouter
-            address(1), // _ethUsdFeed (not exercised in unit tests; any non-zero address)
             address(usdcUsdFeed)
         );
 
@@ -139,10 +136,7 @@ contract BGWVaultTest is Test {
         MockAutomationStub stub = new MockAutomationStub();
         automationAddr = address(stub);
         vm.prank(founder);
-        vault.proposeAutomation(automationAddr);
-        vm.warp(block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY + 1);
-        vm.prank(founder);
-        vault.executeAutomation();
+        vault.setAutomation(automationAddr);
         vm.warp(block.timestamp + 180 days);
     }
 
@@ -163,10 +157,7 @@ contract BGWVaultTest is Test {
         hub.reportSpokeNAV(chainId, navUsd18, reportedAt, sourceBlockNumber, nonce);
 
         vm.prank(founder);
-        vault.proposeHubNAVUpdate(address(hub));
-        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY());
-        vm.prank(founder);
-        vault.executeHubNAVUpdate();
+        vault.setHubNAV(address(hub));
     }
 
     function _wireHubNAVWithMoveLimit(uint256 spokeNav18, uint256 maxNavMoveBps)
@@ -185,10 +176,7 @@ contract BGWVaultTest is Test {
         _relaySpokeReport(hub, spoke);
 
         vm.prank(founder);
-        vault.proposeHubNAVUpdate(address(hub));
-        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY());
-        vm.prank(founder);
-        vault.executeHubNAVUpdate();
+        vault.setHubNAV(address(hub));
     }
 
     function _relaySpokeReport(BridgewayHubNAV hub, BridgewaySpokeReporter spoke) internal {
@@ -450,26 +438,14 @@ contract BGWVaultTest is Test {
         assertEq(vault.sleeveCValue(), 50e6);
     }
 
-    function test_LiveSleeveDepositWeightsRequireTimelock() public {
+    function test_LiveSleeveDepositWeightsAffectFutureDepositsOnly() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         vm.prank(founder);
-        vm.expectRevert("BGWVault: weights timelock required");
         vault.setSleeveDepositWeights(6_500, 3_000, 500);
-
-        vm.prank(founder);
-        vault.proposeSleeveDepositWeights(6_500, 3_000, 500);
-
-        vm.prank(founder);
-        vm.expectRevert();
-        vault.executeSleeveDepositWeights();
-
-        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY() + 1);
-        vm.prank(founder);
-        vault.executeSleeveDepositWeights();
 
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -823,104 +799,45 @@ contract BGWVaultTest is Test {
         assertApproxEqAbs(received, expected, 1);
     }
 
-    // ── Fee-change timelock (M-03) ────────────────────────────────────────────
+    // ── Owner configuration ──────────────────────────────────────────────────
 
-    function test_ExitFeeTimelockPreventsImmediateExecution() public {
+    function test_ExitFeeCanBeSetByOwner() public {
         vm.prank(founder);
-        vault.proposeExitFeeBps(20);
-
-        vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours));
-        vault.executeExitFeeBps();
-    }
-
-    function test_ExitFeeTimelockAppliableAfterDelay() public {
-        vm.prank(founder);
-        vault.proposeExitFeeBps(20);
-
-        vm.warp(block.timestamp + 48 hours);
-
-        vm.prank(founder);
-        vault.executeExitFeeBps();
+        vault.setExitFeeBps(20);
 
         assertEq(vault.exitFeeBps(), 20);
     }
 
-    function test_ExitFeeTimelockCancelClearsProposal() public {
+    function test_ExitFeeRejectsInvalidBps() public {
         vm.prank(founder);
-        vault.proposeExitFeeBps(20);
-
-        vm.prank(founder);
-        vault.cancelExitFeeBps();
-
-        // Capture key before prank — staticcall inside expectRevert would otherwise consume it
-        bytes32 key = vault.CHANGE_EXIT_FEE();
-        vm.warp(block.timestamp + 48 hours);
-        vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.NoPendingChange.selector, key));
-        vault.executeExitFeeBps();
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.InvalidFeeBps.selector, 101));
+        vault.setExitFeeBps(101);
     }
 
-    function test_ManagementFeeTimelockAppliableAfterDelay() public {
+    function test_ManagementFeeCanBeSetByOwner() public {
         vm.prank(founder);
-        vault.proposeManagementFeeBps(30);
-
-        vm.warp(block.timestamp + 48 hours);
-
-        vm.prank(founder);
-        vault.executeManagementFeeBps();
+        vault.setManagementFeeBps(30);
 
         assertEq(vault.managementFeeBps(), 30);
     }
 
-    function test_FeeWalletsTimelockAppliableAfterDelay() public {
+    function test_FeeWalletsCanBeSetByOwner() public {
         address newTeam = makeAddr("newTeam");
         address newHoldback = makeAddr("newHoldback");
         address newReserve = makeAddr("newReserve");
 
         vm.prank(founder);
-        vault.proposeFeeWallets(newTeam, newHoldback, newReserve);
-
-        vm.warp(block.timestamp + 48 hours);
-
-        vm.prank(founder);
-        vault.executeFeeWallets();
+        vault.setFeeWallets(newTeam, newHoldback, newReserve);
 
         assertEq(vault.teamWallet(), newTeam);
         assertEq(vault.holdbackWallet(), newHoldback);
         assertEq(vault.reserveFundWallet(), newReserve);
     }
 
-    function test_RouterUpdateTimelockAppliableAfterDelay() public {
-        address newRouter = makeAddr("newRouter");
-
-        vm.prank(founder);
-        vault.proposeRouterUpdate(newRouter);
-
-        // Before delay: execute reverts
-        vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.TimelockNotElapsed.selector, block.timestamp + 48 hours));
-        vault.executeRouterUpdate();
-
-        vm.warp(block.timestamp + 48 hours);
-        vm.prank(founder);
-        vault.executeRouterUpdate();
-
-        assertEq(vault.camelotRouter(), newRouter);
-    }
-
-    function test_OnlyOwnerCanProposeFeeChange() public {
+    function test_OnlyOwnerCanSetFeeChange() public {
         vm.prank(alice);
         vm.expectRevert();
-        vault.proposeExitFeeBps(20);
-    }
-
-    function test_FeeChangeRevertsWithNoPendingChange() public {
-        // Capture key before prank — staticcall inside expectRevert would otherwise consume it
-        bytes32 key = vault.CHANGE_EXIT_FEE();
-        vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.NoPendingChange.selector, key));
-        vault.executeExitFeeBps();
+        vault.setExitFeeBps(20);
     }
 
     // ── Buyback ───────────────────────────────────────────────────────────────
@@ -1221,7 +1138,7 @@ contract BGWVaultTest is Test {
         assertTrue(vault.protectedTokens(dummyToken));
 
         vm.prank(founder);
-        vm.expectRevert("BGWVault: token is a vault position");
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.ProtectedTokenRecovery.selector, dummyToken));
         vault.recoverToken(dummyToken, 1e18, founder);
     }
 
@@ -1320,45 +1237,8 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(founder);
-        vm.expectRevert("BGWVault: adapter timelock required");
+        vm.expectRevert(BGWVault.AdapterChangeAfterDeposits.selector);
         vault.setSleeveAdapter(sleeveA, address(adapterA2));
-    }
-
-    function test_FundedSingleSleeveAdapterCannotBeClearedThroughGovernance() public {
-        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        uint8 sleeveA = vault.SLEEVE_A();
-
-        vm.prank(founder);
-        vault.setSleeveAdapter(sleeveA, address(adapterA));
-
-        vm.startPrank(alice);
-        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6, 0);
-        govToken.delegate(alice);
-        vm.stopPrank();
-
-        vm.roll(block.number + 1);
-
-        vm.prank(founder);
-        vault.activateSleeveGovernance();
-
-        vm.prank(founder);
-        uint256 proposalId = vault.proposeSleeveAdapter(sleeveA, address(0));
-
-        vm.prank(alice);
-        vault.voteSleeveProposal(proposalId, true);
-
-        vm.warp(block.timestamp + vault.SLEEVE_VOTING_PERIOD());
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                BGWVault.FundedAdapterRemovalBlocked.selector,
-                sleeveA,
-                address(adapterA),
-                650e6
-            )
-        );
-        vault.executeSleeveProposal(proposalId);
     }
 
     function test_MultipleSleeveAdapterRoutesCanBeAddedWithoutMovingExistingFunds() public {
@@ -1394,14 +1274,7 @@ contract BGWVaultTest is Test {
         nextActive[1] = true;
 
         vm.prank(founder);
-        vm.expectRevert("BGWVault: route timelock required");
         vault.configureSleeveAdapterRoutes(sleeveA, nextAdapters, nextBps, nextActive);
-
-        vm.prank(founder);
-        vault.proposeSleeveAdapterRoutes(sleeveA, nextAdapters, nextBps, nextActive);
-        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY() + 1);
-        vm.prank(founder);
-        vault.executeSleeveAdapterRoutes(sleeveA);
 
         assertEq(adapterA1.totalAssetsUSDC(), 650e6);
         assertEq(adapterA2.totalAssetsUSDC(), 0);
@@ -1455,7 +1328,7 @@ contract BGWVaultTest is Test {
             )
         );
         vm.prank(founder);
-        vault.proposeSleeveAdapterRoutes(sleeveA, unsafeAdapters, unsafeBps, unsafeActive);
+        vault.configureSleeveAdapterRoutes(sleeveA, unsafeAdapters, unsafeBps, unsafeActive);
     }
 
     function test_TrustedSleeveAssetsAreProtectedFromRecovery() public {
@@ -1478,82 +1351,6 @@ contract BGWVaultTest is Test {
         vault.setProtectedToken(wbtc, false);
 
         assertFalse(vault.protectedTokens(wbtc));
-    }
-
-    function test_SleeveGovernanceApprovesTrustedAssetByMajority() public {
-        address wbtc = makeAddr("vote-wbtc");
-        uint8 sleeveA = vault.SLEEVE_A();
-
-        vm.startPrank(alice);
-        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6, 0);
-        govToken.delegate(alice);
-        vm.stopPrank();
-
-        vm.prank(founder);
-        govToken.delegate(founder);
-
-        vm.roll(block.number + 1);
-
-        vm.prank(founder);
-        vault.activateSleeveGovernance();
-
-        vm.prank(founder);
-        uint256 proposalId = vault.proposeTrustedSleeveAsset(sleeveA, wbtc, true);
-
-        assertFalse(vault.trustedSleeveAssets(sleeveA, wbtc));
-
-        vm.prank(alice);
-        vault.voteSleeveProposal(proposalId, true);
-
-        vm.warp(block.timestamp + vault.SLEEVE_VOTING_PERIOD());
-
-        vault.executeSleeveProposal(proposalId);
-
-        assertTrue(vault.trustedSleeveAssets(sleeveA, wbtc));
-        assertTrue(vault.protectedTokens(wbtc));
-    }
-
-    function test_SleeveGovernanceRejectsWithoutMajorityAndPolicyContinues() public {
-        address wbtc = makeAddr("rejected-wbtc");
-        uint8 sleeveA = vault.SLEEVE_A();
-
-        vm.startPrank(alice);
-        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6, 0);
-        govToken.delegate(alice);
-        vm.stopPrank();
-
-        vm.roll(block.number + 1);
-
-        vm.prank(founder);
-        vault.activateSleeveGovernance();
-
-        vm.prank(founder);
-        uint256 proposalId = vault.proposeTrustedSleeveAsset(sleeveA, wbtc, true);
-
-        vm.prank(alice);
-        vault.voteSleeveProposal(proposalId, false);
-
-        vm.warp(block.timestamp + vault.SLEEVE_VOTING_PERIOD());
-
-        vm.expectRevert("BGWVault: proposal rejected");
-        vault.executeSleeveProposal(proposalId);
-
-        assertFalse(vault.trustedSleeveAssets(sleeveA, wbtc));
-        assertFalse(vault.protectedTokens(wbtc));
-    }
-
-    function test_FounderCannotDirectlyChangeSleevesAfterGovernanceActivation() public {
-        address wbtc = makeAddr("post-governance-wbtc");
-        uint8 sleeveA = vault.SLEEVE_A();
-
-        vm.prank(founder);
-        vault.activateSleeveGovernance();
-
-        vm.prank(founder);
-        vm.expectRevert("BGWVault: use sleeve governance");
-        vault.setTrustedSleeveAsset(sleeveA, wbtc, true);
     }
 
     // ── C-03: totalPendingFees excluded from holder NAV ───────────────────────
@@ -1780,29 +1577,29 @@ contract BGWVaultTest is Test {
         govToken.executeVaultReference();
     }
 
-    // ── H-07: bootstrapPair whitelists pair on BGWToken ──────────────────────
+    // ── H-07: owner whitelist can enable pair transfers ──────────────────────
 
-    function test_BootstrapPairWhitelistsPair() public {
+    function test_OwnerCanWhitelistPair() public {
         address pair = makeAddr("camelotPair");
         assertFalse(bgwToken.whitelist(pair));
 
         vm.prank(founder);
-        vault.bootstrapPair(pair);
+        vault.setWhitelisted(pair, true);
 
         assertTrue(bgwToken.whitelist(pair));
         assertTrue(vault.whitelist(pair));
     }
 
-    function test_BootstrapPairRevertsZeroAddress() public {
+    function test_SetWhitelistedRevertsZeroAddress() public {
         vm.prank(founder);
         vm.expectRevert(BGWVault.ZeroAddress.selector);
-        vault.bootstrapPair(address(0));
+        vault.setWhitelisted(address(0), true);
     }
 
-    function test_OnlyOwnerCanBootstrapPair() public {
+    function test_OnlyOwnerCanWhitelistPair() public {
         vm.prank(alice);
         vm.expectRevert();
-        vault.bootstrapPair(makeAddr("pair"));
+        vault.setWhitelisted(makeAddr("pair"), true);
     }
 
     // ── H-13: sweepStaleFees ──────────────────────────────────────────────────
@@ -1815,7 +1612,7 @@ contract BGWVaultTest is Test {
         // that isn't available externally. Instead, check that sweepStaleFees
         // reverts when there are no pending fees.
         vm.prank(founder);
-        vm.expectRevert("BGWVault: no pending fees");
+        vm.expectRevert(BGWVault.NoPendingFees.selector);
         vault.sweepStaleFees(team, founder);
     }
 
@@ -1846,7 +1643,7 @@ contract BGWVaultTest is Test {
 
         // Attempt sweep on a wallet with no fees → reverts.
         vm.prank(founder);
-        vm.expectRevert("BGWVault: no pending fees");
+        vm.expectRevert(BGWVault.NoPendingFees.selector);
         vault.sweepStaleFees(team, founder);
     }
 

@@ -53,7 +53,7 @@ library FeeLib {
     //   (stETH 3-4%, Aave 2-8%, GMX GLP 8-15%, Pendle PT 15-30%, restaking 10-20%).
     // Sleeve growth: 10 %/day  — BTC's worst week was ~50% in 7d (2013); 70% room.
     // Sleeve shrink: 25 %/day  — asymmetric; sudden real losses can exceed 10%.
-    //   Larger write-downs require owner to call proposeRealisedLoss (48h timelock).
+    //   Larger write-downs require governance to acknowledge realised loss.
     uint256 internal constant MAX_YIELD_APR_BPS         = 5_000; // 50 %/yr
     uint256 internal constant MAX_SLEEVE_GROWTH_BPS_DAY = 1_000; // 10 %/day
     uint256 internal constant MAX_SLEEVE_SHRINK_BPS_DAY = 2_500; // 25 %/day

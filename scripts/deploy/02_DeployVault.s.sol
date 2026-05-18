@@ -21,8 +21,6 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///           HOLDBACK_WALLET
 ///           RESERVE_WALLET
 ///           USDC_ADDRESS
-///           CAMELOT_ROUTER
-///           ETH_USD_FEED
 ///           USDC_USD_FEED
 ///
 ///         Command:
@@ -30,7 +28,7 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///             --rpc-url $BASE_RPC_URL \
 ///             --broadcast \
 ///             --verify \
-///             --etherscan-api-key $ARBISCAN_KEY
+///             --etherscan-api-key $BASESCAN_API_KEY
 contract DeployVault is Script {
     function _deployVault(address temporaryOwner) internal returns (BGWVault) {
         return new BGWVault(
@@ -41,8 +39,6 @@ contract DeployVault is Script {
             vm.envAddress("RESERVE_WALLET"),
             temporaryOwner,
             vm.envAddress("USDC_ADDRESS"),
-            vm.envAddress("CAMELOT_ROUTER"),
-            vm.envAddress("ETH_USD_FEED"),
             vm.envAddress("USDC_USD_FEED")
         );
     }
@@ -105,8 +101,8 @@ contract DeployVault is Script {
         console.log("VAULT=", address(vault));
         console.log("Vault owner must accept ownership from Safe before owner-only configuration.");
         console.log("\n=== Optional liquidity step ===");
-        console.log("After seeding Camelot BGW/USDC liquidity for secondary-market trading, call:");
-        console.log("  vault.bootstrapPair(<camelot_pair_address>)");
+        console.log("After seeding BGW/USDC liquidity for secondary-market trading, call:");
+        console.log("  vault.setWhitelisted(<pair_address>, true)");
         console.log("This whitelists the pair for BGW transfers; buybacks do not require LP liquidity.");
     }
 }

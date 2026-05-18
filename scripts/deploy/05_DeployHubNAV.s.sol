@@ -14,8 +14,8 @@ import "../../contracts/core/BridgewayHubNAV.sol";
 ///
 /// Optional next step:
 ///   Configure each spoke with BridgewayHubNAV.configureSpoke(), then wire the
-///   resulting Hub NAV address into BGWVault through proposeHubNAVUpdate() and
-///   executeHubNAVUpdate() after the vault timelock.
+///   resulting Hub NAV address into BGWVault through setHubNAV() from the
+///   vault owner Safe/controller.
 contract DeployHubNAV is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");

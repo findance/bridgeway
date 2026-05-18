@@ -95,8 +95,6 @@ contract DeployTest is Test {
             reserve,
             founder,
             USDC_ADDR,
-            CAMELOT_ADDR,
-            ethFeed,
             usdcFeed
         );
 
@@ -128,9 +126,7 @@ contract DeployTest is Test {
         _deployVault();
         // Verify all immutables resolve correctly
         assertEq(vault.USDC(), USDC_ADDR);
-        assertEq(vault.ETH_USD_FEED(), ethFeed);
         assertEq(vault.USDC_USD_FEED(), usdcFeed);
-        assertEq(vault.camelotRouter(), CAMELOT_ADDR);
         assertEq(vault.teamWallet(), team);
         assertEq(vault.holdbackWallet(), holdback);
         assertEq(vault.reserveFundWallet(), reserve);
@@ -138,31 +134,16 @@ contract DeployTest is Test {
 
     // ── Script 03: SetupAutomation ────────────────────────────────────────────
 
-    function test_Script03_AutomationTimelockSequence() public {
+    function test_Script03_AutomationCanBeWired() public {
         _deployVault();
 
         // Deploy automation (script 03 step 1)
         automation = new BridgewayAutomation(address(vault), founder, USDC_ADDR);
 
-        // Propose with 48-hour timelock (script 03 step 2)
         vm.prank(founder);
-        vault.proposeAutomation(address(automation));
-
-        assertEq(vault.pendingAutomation(), address(automation));
-        assertEq(vault.automation(), address(0)); // not live yet
-
-        // Executing before timelock must revert
-        vm.prank(founder);
-        vm.expectRevert("BGWVault: timelock not elapsed");
-        vault.executeAutomation();
-
-        // Advance past 48 hours and execute
-        vm.warp(block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY + 1);
-        vm.prank(founder);
-        vault.executeAutomation();
+        vault.setAutomation(address(automation));
 
         assertEq(vault.automation(), address(automation));
-        assertEq(vault.pendingAutomation(), address(0));
     }
 
     function test_Script03_AutomationConstructorArgsMatchABI() public {

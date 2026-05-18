@@ -81,8 +81,6 @@ contract AutomationTest is Test {
             reserve,
             founder,
             USDC_ADDR,
-            CAMELOT_ADDR,
-            address(1),
             address(2)
         );
 
@@ -100,13 +98,11 @@ contract AutomationTest is Test {
         vault.setWhitelisted(alice, true);
         vm.stopPrank();
 
-        // Deploy automation and wire to vault via 48-hour timelock (C-01).
+        // Deploy automation and wire to vault.
         automation = new BridgewayAutomation(address(vault), founder, USDC_ADDR);
         vm.prank(founder);
-        vault.proposeAutomation(address(automation));
-        vm.warp(block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY + 1);
-        vm.prank(founder);
-        vault.executeAutomation();
+        vault.setAutomation(address(automation));
+        vm.warp(block.timestamp + FeeLib.MIN_HARVEST_GAP + 1);
 
         // Seed alice with USDC
         MockUSDCAutomation(USDC_ADDR).mint(alice, 10_000e6);

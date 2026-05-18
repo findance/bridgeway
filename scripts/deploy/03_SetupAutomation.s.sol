@@ -16,7 +16,7 @@ import "../../contracts/core/BGWVault.sol";
 ///           USDC_ADDRESS
 ///
 ///         Optional env vars:
-///           PROPOSE_AUTOMATION  true only when the vault owner should start the 48h timer
+///           WIRE_AUTOMATION  true only when the vault owner should wire automation
 ///
 ///         Command:
 ///           forge script scripts/deploy/03_SetupAutomation.s.sol \
@@ -38,7 +38,7 @@ contract SetupAutomation is Script {
         address automationOwner = vm.envAddress("AUTOMATION_OWNER");
         address vaultAddr   = vm.envAddress("VAULT");
         address usdcAddr    = vm.envAddress("USDC_ADDRESS");
-        bool proposeAutomation = vm.envOr("PROPOSE_AUTOMATION", false);
+        bool wireAutomation = vm.envOr("WIRE_AUTOMATION", false);
 
         BGWVault vault = BGWVault(vaultAddr);
 
@@ -48,22 +48,21 @@ contract SetupAutomation is Script {
         BridgewayAutomation automation = new BridgewayAutomation(vaultAddr, automationOwner, usdcAddr);
         console.log("BridgewayAutomation:", address(automation));
 
-        // 2. Optionally propose automation -> vault (48-hour timelock).
-        //    Keep PROPOSE_AUTOMATION=false during dry-run and integration testing.
-        if (proposeAutomation) {
-            vault.proposeAutomation(address(automation));
-            console.log("Automation proposed - call executeAutomation() after 48 hours");
+        // 2. Optionally wire automation -> vault.
+        //    Keep WIRE_AUTOMATION=false during dry-run and integration testing.
+        if (wireAutomation) {
+            vault.setAutomation(address(automation));
+            console.log("Automation wired on vault");
         } else {
-            console.log("Automation not proposed. Set PROPOSE_AUTOMATION=true when ready to start the 48h timer.");
+            console.log("Automation not wired. Set WIRE_AUTOMATION=true when ready.");
         }
 
         vm.stopBroadcast();
 
         console.log("\n=== Next steps ===");
-        console.log("1. When testing is complete, propose automation from the vault owner Safe");
-        console.log("2. Wait 48 hours, then call vault.executeAutomation() from the vault owner Safe");
-        console.log("3. Go to https://automation.chain.link");
-        console.log("4. Register upkeep:");
+        console.log("1. When testing is complete, wire automation from the vault owner Safe/controller");
+        console.log("2. Go to https://automation.chain.link");
+        console.log("3. Register upkeep:");
         console.log("   Network:  Base");
         console.log("   Trigger:  Custom logic");
         console.log("   Address: ", address(automation));

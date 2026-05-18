@@ -52,9 +52,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @dev Chainlink USD feeds are normalized to 8 decimals for pricing guards.
     uint256 public constant USD_PRICE_SCALE = 1e8;
 
-    /// @dev Legacy slippage constant retained for router compatibility.
-    uint256 public constant MAX_SLIPPAGE_BPS = 100;
-
     uint8 public constant SLEEVE_A = 0;
     uint8 public constant SLEEVE_B = 1;
     uint8 public constant SLEEVE_C = 2;
@@ -65,9 +62,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice USDC token address (6 dec). Passed at deploy — no bytecode hardcoding.
     address public immutable USDC;
-
-    /// @notice Chainlink ETH/USD price feed. Passed at deploy for testnet flexibility.
-    address public immutable ETH_USD_FEED;
 
     /// @notice Chainlink USDC/USD price feed used to cap redemption settlement value.
     address public immutable USDC_USD_FEED;
@@ -86,14 +80,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     address public teamWallet;
     address public holdbackWallet;
     address public reserveFundWallet;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // State — DEX router (M-06: settable so router upgrades don't force redeploy)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Legacy Camelot DEX router reference.
-    ///         Owner can propose a new address via proposeRouterUpdate() + 48h timelock.
-    address public camelotRouter;
 
     // ─────────────────────────────────────────────────────────────────────────
     // State — automation
@@ -125,29 +111,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Registered adapters are always counted in NAV until removed empty.
     mapping(uint8 => SleeveAdapterRoute[]) private _sleeveAdapterRoutes;
 
-    struct PendingSleeveAdapterRoutes {
-        address[] adapters;
-        uint16[] depositBps;
-        bool[] active;
-        uint256 executeAfter; // 0 = no pending change
-    }
-
-    mapping(uint8 => PendingSleeveAdapterRoutes) private _pendingSleeveAdapterRoutes;
-
     /// @notice Vault-level deposit weights. Launch config sends Sleeve C's 5%
     ///         allocation to Sleeve B until the alpha sleeve is deliberately enabled.
     uint16 public sleeveADepositBps = 6_500;
     uint16 public sleeveBDepositBps = 3_500;
     uint16 public sleeveCDepositBps = 0;
-
-    struct PendingSleeveDepositWeights {
-        uint16 sleeveA;
-        uint16 sleeveB;
-        uint16 sleeveC;
-        uint256 executeAfter; // 0 = no pending change
-    }
-
-    PendingSleeveDepositWeights public pendingSleeveDepositWeights;
 
     /// @notice Optional hub-chain global NAV cache for confirmed spoke reports.
     ///         When set, totalNAV() includes confirmed spoke NAV in addition to local sleeves.
@@ -158,30 +126,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @dev Number of sleeves that currently trust a token.
     mapping(address => uint256) public trustedAssetUseCount;
-
-    bool public sleeveGovernanceActive;
-    uint256 public sleeveProposalCount;
-    uint256 public constant SLEEVE_VOTING_PERIOD = 5 days;
-
-    uint8 public constant SLEEVE_ACTION_ASSET = 0;
-    uint8 public constant SLEEVE_ACTION_ADAPTER = 1;
-
-    struct SleeveProposal {
-        uint8 action;
-        uint8 sleeve;
-        address target;
-        bool trusted;
-        uint256 snapshotBlock;
-        uint256 voteStart;
-        uint256 voteEnd;
-        uint256 forVotes;
-        uint256 againstVotes;
-        bool executed;
-        bool canceled;
-    }
-
-    mapping(uint256 => SleeveProposal) public sleeveProposals;
-    mapping(uint256 => mapping(address => bool)) public sleeveProposalVoted;
 
     /// @notice High-water mark — NAV per BGW at last fee crystallisation (18 dec scale).
     uint256 public highWaterMark;
@@ -211,25 +155,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Running total of all USDC deposited minus proportional redemptions.
     uint256 public cumulativePrincipal;
 
-    /// @notice Realised losses formally acknowledged by the owner via proposeRealisedLoss.
+    /// @notice Realised losses formally acknowledged by governance.
     uint256 public authorisedLosses;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // State — automation timelock (C-01)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    address public pendingAutomation;
-    uint256 public automationProposalEta;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // State — realised-loss timelock (C-01)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    struct PendingLossMark {
-        uint256 amount;
-        uint256 executeAfter;
-    }
-    PendingLossMark public pendingLossMark;
 
     // ─────────────────────────────────────────────────────────────────────────
     // State — whitelist
@@ -287,42 +214,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     mapping(address => uint256) public lastFeeAccrual;
 
     // ─────────────────────────────────────────────────────────────────────────
-    // State — fee-change timelock (M-03)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Minimum delay between proposing and executing a fee-level change.
-    ///         Gives depositors time to exit before a higher fee takes effect.
-    uint256 public constant FEE_CHANGE_DELAY = 48 hours;
-
-    bytes32 public constant CHANGE_EXIT_FEE = keccak256("EXIT_FEE");
-    bytes32 public constant CHANGE_STRESS_FEE = keccak256("STRESS_EXIT_FEE");
-    bytes32 public constant CHANGE_MGMT_FEE = keccak256("MANAGEMENT_FEE");
-
-    struct PendingFeeChange {
-        uint256 value;
-        uint256 executeAfter; // 0 = no pending change
-    }
-    mapping(bytes32 => PendingFeeChange) public pendingFeeChanges;
-
-    struct PendingWalletsChange {
-        address team;
-        address holdback;
-        address reserve;
-        uint256 executeAfter; // 0 = no pending change
-    }
-    PendingWalletsChange public pendingWalletsChange;
-
-    // Router / oracle address changes share the same timelock discipline.
-    bytes32 public constant CHANGE_ROUTER = keccak256("CAMELOT_ROUTER");
-    bytes32 public constant CHANGE_HUB_NAV = keccak256("HUB_NAV");
-
-    struct PendingAddressChange {
-        address value;
-        uint256 executeAfter; // 0 = no pending change
-    }
-    mapping(bytes32 => PendingAddressChange) public pendingAddressChanges;
-
-    // ─────────────────────────────────────────────────────────────────────────
     // Events
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -346,30 +237,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     );
     event HarvestRecorded(uint256 netYieldUsdc, uint256 perfFeeUsdc, uint256 newHighWaterMark);
     event BuybackExecuted(uint256 usdcInjected, uint256 bgwMintedAndBurned);
-    event PairBootstrapped(address indexed pair); // H-07
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
     event SleeveAdapterSet(uint8 indexed sleeve, address indexed adapter);
     event SleeveAdapterRoutesConfigured(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps);
-    event SleeveAdapterRoutesProposed(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps, uint256 executeAfter);
-    event SleeveAdapterRoutesCancelled(uint8 indexed sleeve);
     event SleeveDepositWeightsUpdated(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC);
-    event SleeveDepositWeightsProposed(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC, uint256 executeAfter);
-    event SleeveDepositWeightsCancelled();
     event TrustedSleeveAssetUpdated(uint8 indexed sleeve, address indexed asset, bool trusted);
-    event SleeveGovernanceActivated();
-    event SleeveProposalCreated(
-        uint256 indexed proposalId,
-        uint8 indexed action,
-        uint8 indexed sleeve,
-        address target,
-        bool trusted,
-        uint256 snapshotBlock,
-        uint256 voteEnd
-    );
-    event SleeveProposalVoted(uint256 indexed proposalId, address indexed voter, bool support, uint256 weight);
-    event SleeveProposalExecuted(uint256 indexed proposalId);
-    event SleeveProposalCancelled(uint256 indexed proposalId);
     event ManagementFeeCharged(uint256 feeUsdc, uint256 elapsed);
     event ManagementFeeBpsUpdated(uint256 newBps);
     event ExitFeeBpsUpdated(uint256 newBps);
@@ -378,24 +251,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event StressModeToggled(bool active);
     event AutomationSet(address indexed automation);
     event AutomationRevoked(address indexed old);
-    // C-01 — automation timelock
-    event AutomationProposed(address indexed candidate, uint256 executeAfter);
-    event AutomationCancelled(address indexed candidate);
-    // C-01 — realised loss governance
-    event LossMarkProposed(uint256 amount, uint256 executeAfter);
     event LossMarkExecuted(uint256 amount);
-    event LossMarkCancelled();
     event FeeWalletsUpdated(address team, address holdback, address reserve);
     event ProtectedTokenUpdated(address indexed token, bool protected);
-    // Timelock events (M-03)
-    event FeeChangeProposed(bytes32 indexed changeType, uint256 newValue, uint256 executeAfter);
-    event FeeChangeExecuted(bytes32 indexed changeType, uint256 newValue);
-    event FeeChangeCancelled(bytes32 indexed changeType);
-    event FeeWalletsProposed(address team, address holdback, address reserve, uint256 executeAfter);
-    event FeeWalletsCancelled();
-    event AddressChangeProposed(bytes32 indexed changeType, address newValue, uint256 executeAfter);
-    event AddressChangeExecuted(bytes32 indexed changeType, address newValue);
-    event AddressChangeCancelled(bytes32 indexed changeType);
     event HubNAVSet(address indexed hubNAV);
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -410,8 +268,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error InsufficientBGW(uint256 have, uint256 need);
     error InvalidFeeBps(uint256 bps);
     error ZeroAddress();
-    error NoPendingChange(bytes32 changeType);
-    error TimelockNotElapsed(uint256 executeAfter);
     error DepositExceedsCap(uint256 amount, uint256 cap);
     error UnknownQueuedRedemption(uint256 redemptionId);
     error NotQueuedRedemptionClaimant(uint256 redemptionId, address caller);
@@ -420,6 +276,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error InsufficientLocalLiquidity(uint256 available, uint256 required);
     error FundedAdapterRemovalBlocked(uint8 sleeve, address adapter, uint256 assetsUsdc);
     error InvalidSleeveDepositWeights(uint256 totalBps);
+    error NoPendingFees();
+    error ProtectedTokenRecovery(address token);
+    error AdapterChangeAfterDeposits();
+    error InvalidOracleRound(uint80 roundId, uint80 answeredInRound);
+    error InvalidOraclePrice(int256 answer);
+    error BatchTooLarge(uint256 count, uint256 max);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
@@ -447,8 +309,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         address _reserveFundWallet,
         address _admin,
         address _usdc,
-        address _camelotRouter,
-        address _ethUsdFeed,
         address _usdcUsdFeed
     ) Ownable(_admin) {
         if (_bgwToken == address(0)) revert ZeroAddress();
@@ -457,8 +317,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (_holdbackWallet == address(0)) revert ZeroAddress();
         if (_reserveFundWallet == address(0)) revert ZeroAddress();
         if (_usdc == address(0)) revert ZeroAddress();
-        if (_camelotRouter == address(0)) revert ZeroAddress();
-        if (_ethUsdFeed == address(0)) revert ZeroAddress();
         if (_usdcUsdFeed == address(0)) revert ZeroAddress();
 
         bgwToken = BGWToken(_bgwToken);
@@ -467,8 +325,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         holdbackWallet = _holdbackWallet;
         reserveFundWallet = _reserveFundWallet;
         USDC = _usdc;
-        camelotRouter = _camelotRouter;
-        ETH_USD_FEED = _ethUsdFeed;
         USDC_USD_FEED = _usdcUsdFeed;
 
         highWaterMark = 1e18;
@@ -541,18 +397,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Effective HWM after time-based decay.
     function effectiveHighWaterMark() public view returns (uint256) {
         return _decayedHWM();
-    }
-
-    /// @notice Fetch ETH/USD price from Chainlink (8 dec). Reverts if stale.
-    function getETHPrice() public view returns (uint256 price) {
-        (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
-            IChainlinkAggregator(ETH_USD_FEED).latestRoundData();
-        if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
-            revert StaleOracle(updatedAt);
-        }
-        require(answeredInRound >= roundId, "BGWVault: stale round");
-        require(answer > 0, "BGWVault: negative oracle price");
-        price = uint256(answer);
     }
 
     /// @notice USDC/USD redemption value, capped at $1.00 and allowed to mark down below peg.
@@ -847,33 +691,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Admin functions
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Propose replacing the automation contract (48-hour timelock, C-01).
-    ///         Only contract addresses accepted — EOAs cannot call vault functions.
-    function proposeAutomation(address _automation) external onlyOwner {
+    /// @notice Set the automation contract. Only contract addresses accepted.
+    ///         In production the vault owner should be a timelock/controller.
+    function setAutomation(address _automation) external onlyOwner {
         if (_automation == address(0)) revert ZeroAddress();
         require(_automation.code.length > 0, "BGWVault: not a contract");
-        uint256 eta = block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY;
-        pendingAutomation = _automation;
-        automationProposalEta = eta;
-        emit AutomationProposed(_automation, eta);
-    }
-
-    function executeAutomation() external onlyOwner {
-        address candidate = pendingAutomation;
-        require(candidate != address(0), "BGWVault: no pending automation");
-        require(block.timestamp >= automationProposalEta, "BGWVault: timelock not elapsed");
-        pendingAutomation = address(0);
-        automationProposalEta = 0;
-        automation = candidate;
-        emit AutomationSet(candidate);
-    }
-
-    function cancelAutomation() external onlyOwner {
-        address candidate = pendingAutomation;
-        require(candidate != address(0), "BGWVault: no pending automation");
-        pendingAutomation = address(0);
-        automationProposalEta = 0;
-        emit AutomationCancelled(candidate);
+        automation = _automation;
+        emit AutomationSet(_automation);
     }
 
     /// @notice Instantly revoke the current automation contract.
@@ -884,40 +708,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit AutomationRevoked(old);
     }
 
-    /// @notice Whitelist a BGW/USDC pair address for secondary-market liquidity.
-    ///         Buybacks no longer depend on this pair.
-    function bootstrapPair(address pair) external onlyOwner {
-        if (pair == address(0)) revert ZeroAddress();
-        whitelist[pair] = true;
-        bgwToken.setWhitelisted(pair, true);
-        emit PairBootstrapped(pair);
-    }
-
-    // ── Realised-loss governance (C-01) ──────────────────────────────────────────
-    // Large genuine losses (exploit, liquidation) that exceed the automation shrink
-    // cap require owner acknowledgement with a 48-hour timelock so depositors can
-    // observe and react before the loss is recorded as authorised.
-
-    function proposeRealisedLoss(uint256 amount) external onlyOwner {
+    /// @notice Record a genuine realised loss acknowledged by governance.
+    ///         In production the vault owner should be a timelock/controller.
+    function markRealisedLoss(uint256 amount) external onlyOwner {
         require(amount > 0, "BGWVault: zero loss");
-        uint256 eta = block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY;
-        pendingLossMark = PendingLossMark(amount, eta);
-        emit LossMarkProposed(amount, eta);
-    }
-
-    function executeRealisedLoss() external onlyOwner {
-        PendingLossMark memory p = pendingLossMark;
-        require(p.executeAfter > 0, "BGWVault: no pending loss");
-        require(block.timestamp >= p.executeAfter, "BGWVault: timelock not elapsed");
-        delete pendingLossMark;
-        authorisedLosses += p.amount;
-        emit LossMarkExecuted(p.amount);
-    }
-
-    function cancelRealisedLoss() external onlyOwner {
-        require(pendingLossMark.executeAfter > 0, "BGWVault: no pending loss");
-        delete pendingLossMark;
-        emit LossMarkCancelled();
+        authorisedLosses += amount;
+        emit LossMarkExecuted(amount);
     }
 
     /// @notice Fee recipients pull any USDC that failed to push automatically.
@@ -934,7 +730,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function sweepStaleFees(address staleWallet, address newRecipient) external onlyOwner nonReentrant {
         require(newRecipient != address(0), "BGWVault: zero recipient");
         uint256 amount = pendingFees[staleWallet];
-        require(amount > 0, "BGWVault: no pending fees");
+        if (amount == 0) revert NoPendingFees();
         require(
             lastFeeAccrual[staleWallet] > 0 && block.timestamp >= lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY,
             "BGWVault: fees not stale"
@@ -955,7 +751,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice Batch whitelist update (max 200 accounts per call).
     function setWhitelistedBatch(address[] calldata accounts, bool status) external onlyOwner {
-        require(accounts.length <= 200, "BGWVault: batch too large");
+        if (accounts.length > 200) revert BatchTooLarge(accounts.length, 200);
         for (uint256 i; i < accounts.length; ++i) {
             whitelist[accounts[i]] = status;
             bgwToken.setWhitelisted(accounts[i], status);
@@ -964,57 +760,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Set normal exit fee (max 100 bps = 1 %).
-    // ── Fee-change timelock (M-03) ────────────────────────────────────────────
-    // Fee-level changes (BPS) and wallet updates follow a two-step pattern:
-    //   1. propose*  — queues the new value; emits a propose event for off-chain monitoring
-    //   2. execute*  — applies the change once FEE_CHANGE_DELAY (48 h) has elapsed
-    //   3. cancel*   — discards the pending change before it executes
-    // setStressMode remains instant — it is an emergency circuit-breaker, not a fee increase.
-
-    function proposeExitFeeBps(uint256 feeBps) external onlyOwner {
+    function setExitFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 100) revert InvalidFeeBps(feeBps);
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingFeeChanges[CHANGE_EXIT_FEE] = PendingFeeChange(feeBps, eta);
-        emit FeeChangeProposed(CHANGE_EXIT_FEE, feeBps, eta);
+        exitFeeBps = feeBps;
+        emit ExitFeeBpsUpdated(feeBps);
     }
 
-    function executeExitFeeBps() external onlyOwner {
-        PendingFeeChange memory p = pendingFeeChanges[CHANGE_EXIT_FEE];
-        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_EXIT_FEE);
-        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
-        delete pendingFeeChanges[CHANGE_EXIT_FEE];
-        exitFeeBps = p.value;
-        emit FeeChangeExecuted(CHANGE_EXIT_FEE, p.value);
-        emit ExitFeeBpsUpdated(p.value);
-    }
-
-    function cancelExitFeeBps() external onlyOwner {
-        if (pendingFeeChanges[CHANGE_EXIT_FEE].executeAfter == 0) revert NoPendingChange(CHANGE_EXIT_FEE);
-        delete pendingFeeChanges[CHANGE_EXIT_FEE];
-        emit FeeChangeCancelled(CHANGE_EXIT_FEE);
-    }
-
-    function proposeStressExitFeeBps(uint256 feeBps) external onlyOwner {
+    function setStressExitFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 200) revert InvalidFeeBps(feeBps);
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingFeeChanges[CHANGE_STRESS_FEE] = PendingFeeChange(feeBps, eta);
-        emit FeeChangeProposed(CHANGE_STRESS_FEE, feeBps, eta);
-    }
-
-    function executeStressExitFeeBps() external onlyOwner {
-        PendingFeeChange memory p = pendingFeeChanges[CHANGE_STRESS_FEE];
-        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_STRESS_FEE);
-        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
-        delete pendingFeeChanges[CHANGE_STRESS_FEE];
-        stressExitFeeBps = p.value;
-        emit FeeChangeExecuted(CHANGE_STRESS_FEE, p.value);
-        emit StressExitFeeBpsUpdated(p.value);
-    }
-
-    function cancelStressExitFeeBps() external onlyOwner {
-        if (pendingFeeChanges[CHANGE_STRESS_FEE].executeAfter == 0) revert NoPendingChange(CHANGE_STRESS_FEE);
-        delete pendingFeeChanges[CHANGE_STRESS_FEE];
-        emit FeeChangeCancelled(CHANGE_STRESS_FEE);
+        stressExitFeeBps = feeBps;
+        emit StressExitFeeBpsUpdated(feeBps);
     }
 
     /// @notice Activate or deactivate stress mode (higher exit fee). Instant — emergency use.
@@ -1023,169 +778,48 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit StressModeToggled(active);
     }
 
-    function proposeManagementFeeBps(uint256 feeBps) external onlyOwner {
+    function setManagementFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 100) revert InvalidFeeBps(feeBps);
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingFeeChanges[CHANGE_MGMT_FEE] = PendingFeeChange(feeBps, eta);
-        emit FeeChangeProposed(CHANGE_MGMT_FEE, feeBps, eta);
+        managementFeeBps = feeBps;
+        emit ManagementFeeBpsUpdated(feeBps);
     }
 
-    function executeManagementFeeBps() external onlyOwner {
-        PendingFeeChange memory p = pendingFeeChanges[CHANGE_MGMT_FEE];
-        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_MGMT_FEE);
-        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
-        delete pendingFeeChanges[CHANGE_MGMT_FEE];
-        managementFeeBps = p.value;
-        emit FeeChangeExecuted(CHANGE_MGMT_FEE, p.value);
-        emit ManagementFeeBpsUpdated(p.value);
-    }
-
-    function cancelManagementFeeBps() external onlyOwner {
-        if (pendingFeeChanges[CHANGE_MGMT_FEE].executeAfter == 0) revert NoPendingChange(CHANGE_MGMT_FEE);
-        delete pendingFeeChanges[CHANGE_MGMT_FEE];
-        emit FeeChangeCancelled(CHANGE_MGMT_FEE);
-    }
-
-    function proposeFeeWallets(address _team, address _holdback, address _reserve) external onlyOwner {
+    function setFeeWallets(address _team, address _holdback, address _reserve) external onlyOwner {
         if (_team == address(0)) revert ZeroAddress();
         if (_holdback == address(0)) revert ZeroAddress();
         if (_reserve == address(0)) revert ZeroAddress();
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingWalletsChange = PendingWalletsChange(_team, _holdback, _reserve, eta);
-        emit FeeWalletsProposed(_team, _holdback, _reserve, eta);
+        teamWallet = _team;
+        holdbackWallet = _holdback;
+        reserveFundWallet = _reserve;
+        emit FeeWalletsUpdated(_team, _holdback, _reserve);
     }
 
-    function executeFeeWallets() external onlyOwner {
-        PendingWalletsChange memory p = pendingWalletsChange;
-        if (p.executeAfter == 0) revert NoPendingChange(bytes32("FEE_WALLETS"));
-        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
-        delete pendingWalletsChange;
-        teamWallet = p.team;
-        holdbackWallet = p.holdback;
-        reserveFundWallet = p.reserve;
-        emit FeeWalletsUpdated(p.team, p.holdback, p.reserve);
-    }
-
-    function cancelFeeWallets() external onlyOwner {
-        if (pendingWalletsChange.executeAfter == 0) revert NoPendingChange(bytes32("FEE_WALLETS"));
-        delete pendingWalletsChange;
-        emit FeeWalletsCancelled();
-    }
-
-    /// @notice Propose replacing the Camelot DEX router (e.g., after a protocol upgrade).
-    ///         48-hour timelock gives depositors time to react to an unexpected change.
-    function proposeRouterUpdate(address newRouter) external onlyOwner {
-        if (newRouter == address(0)) revert ZeroAddress();
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingAddressChanges[CHANGE_ROUTER] = PendingAddressChange(newRouter, eta);
-        emit AddressChangeProposed(CHANGE_ROUTER, newRouter, eta);
-    }
-
-    function executeRouterUpdate() external onlyOwner {
-        PendingAddressChange memory p = pendingAddressChanges[CHANGE_ROUTER];
-        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_ROUTER);
-        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
-        delete pendingAddressChanges[CHANGE_ROUTER];
-        camelotRouter = p.value;
-        emit AddressChangeExecuted(CHANGE_ROUTER, p.value);
-    }
-
-    function cancelRouterUpdate() external onlyOwner {
-        if (pendingAddressChanges[CHANGE_ROUTER].executeAfter == 0) revert NoPendingChange(CHANGE_ROUTER);
-        delete pendingAddressChanges[CHANGE_ROUTER];
-        emit AddressChangeCancelled(CHANGE_ROUTER);
-    }
-
-    /// @notice Propose wiring the vault to a hub-chain confirmed spoke NAV cache.
+    /// @notice Wire the vault to a hub-chain confirmed spoke NAV cache.
     ///         Use address(0) to disconnect hub-spoke accounting.
-    function proposeHubNAVUpdate(address newHubNAV) external onlyOwner {
+    function setHubNAV(address newHubNAV) external onlyOwner {
         if (newHubNAV != address(0)) require(newHubNAV.code.length > 0, "BGWVault: hub NAV not contract");
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingAddressChanges[CHANGE_HUB_NAV] = PendingAddressChange(newHubNAV, eta);
-        emit AddressChangeProposed(CHANGE_HUB_NAV, newHubNAV, eta);
-    }
-
-    function executeHubNAVUpdate() external onlyOwner {
-        PendingAddressChange memory p = pendingAddressChanges[CHANGE_HUB_NAV];
-        if (p.executeAfter == 0) revert NoPendingChange(CHANGE_HUB_NAV);
-        if (block.timestamp < p.executeAfter) revert TimelockNotElapsed(p.executeAfter);
-        delete pendingAddressChanges[CHANGE_HUB_NAV];
-        hubNAV = p.value;
-        emit AddressChangeExecuted(CHANGE_HUB_NAV, p.value);
-        emit HubNAVSet(p.value);
-    }
-
-    function cancelHubNAVUpdate() external onlyOwner {
-        if (pendingAddressChanges[CHANGE_HUB_NAV].executeAfter == 0) revert NoPendingChange(CHANGE_HUB_NAV);
-        delete pendingAddressChanges[CHANGE_HUB_NAV];
-        emit AddressChangeCancelled(CHANGE_HUB_NAV);
+        hubNAV = newHubNAV;
+        emit HubNAVSet(newHubNAV);
     }
 
     /// @notice Set or clear the strategy adapter for one sleeve.
     ///         Use address(0) to return a sleeve to manual accounting. Direct
-    ///         single-adapter changes are only allowed before live deposits; use
-    ///         timelocked route changes once BGW supply exists.
+    ///         single-adapter changes are only allowed before live deposits.
     function setSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner {
-        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
-        require(bgwToken.totalSupply() == 0, "BGWVault: adapter timelock required");
+        if (bgwToken.totalSupply() != 0) revert AdapterChangeAfterDeposits();
         _setSleeveAdapter(sleeve, adapter);
     }
 
     /// @notice Configure multiple strategy routes for one sleeve without moving
     ///         existing funds. Any funded adapter that is currently counted must
-    ///         remain present in the new route set. Direct configuration is only
-    ///         allowed before the vault has live deposits; use the propose/execute
-    ///         route flow once BGW supply exists.
+    ///         remain present in the new route set.
     function configureSleeveAdapterRoutes(
         uint8 sleeve,
         address[] calldata adapters,
         uint16[] calldata depositBps,
         bool[] calldata active
     ) external onlyOwner {
-        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
-        require(bgwToken.totalSupply() == 0, "BGWVault: route timelock required");
         _configureSleeveAdapterRoutes(sleeve, adapters, depositBps, active);
-    }
-
-    /// @notice Queue a live route change behind the vault's 48-hour config
-    ///         timelock. This lets depositors react before future deposits are
-    ///         redirected while still preventing funded routes from disappearing
-    ///         from NAV.
-    function proposeSleeveAdapterRoutes(
-        uint8 sleeve,
-        address[] calldata adapters,
-        uint16[] calldata depositBps,
-        bool[] calldata active
-    ) external onlyOwner {
-        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
-        uint256 activeBps = _validateSleeveAdapterRouteConfig(sleeve, adapters, depositBps, active);
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        _storePendingSleeveAdapterRoutes(sleeve, adapters, depositBps, active, eta);
-        emit SleeveAdapterRoutesProposed(sleeve, adapters.length, activeBps, eta);
-    }
-
-    function executeSleeveAdapterRoutes(uint8 sleeve) external onlyOwner {
-        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
-        _validateSleeve(sleeve);
-        PendingSleeveAdapterRoutes storage pending = _pendingSleeveAdapterRoutes[sleeve];
-        if (pending.executeAfter == 0) revert NoPendingChange(bytes32("SLEEVE_ROUTES"));
-        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
-
-        address[] memory adapters = pending.adapters;
-        uint16[] memory depositBps = pending.depositBps;
-        bool[] memory active = pending.active;
-        delete _pendingSleeveAdapterRoutes[sleeve];
-
-        _configureSleeveAdapterRoutes(sleeve, adapters, depositBps, active);
-    }
-
-    function cancelSleeveAdapterRoutes(uint8 sleeve) external onlyOwner {
-        _validateSleeve(sleeve);
-        if (_pendingSleeveAdapterRoutes[sleeve].executeAfter == 0) {
-            revert NoPendingChange(bytes32("SLEEVE_ROUTES"));
-        }
-        delete _pendingSleeveAdapterRoutes[sleeve];
-        emit SleeveAdapterRoutesCancelled(sleeve);
     }
 
     function sleeveAdapterRouteCount(uint8 sleeve) external view returns (uint256) {
@@ -1208,149 +842,23 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return _activeRouteDepositBps(sleeve);
     }
 
-    function pendingSleeveAdapterRoutes(uint8 sleeve)
-        external
-        view
-        returns (address[] memory adapters, uint16[] memory depositBps, bool[] memory active, uint256 executeAfter)
-    {
-        _validateSleeve(sleeve);
-        PendingSleeveAdapterRoutes storage pending = _pendingSleeveAdapterRoutes[sleeve];
-        return (pending.adapters, pending.depositBps, pending.active, pending.executeAfter);
-    }
-
-    /// @notice Set vault-level sleeve deposit weights before live deposits exist.
-    ///         Use this for launch setup only; live changes use the timelocked flow.
+    /// @notice Set vault-level sleeve deposit weights for future deposits.
     function setSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) external onlyOwner {
-        require(bgwToken.totalSupply() == 0, "BGWVault: weights timelock required");
         _setSleeveDepositWeights(sleeveA, sleeveB, sleeveC);
-    }
-
-    /// @notice Queue a live change to future deposit weights. This does not move
-    ///         existing funds; it only controls routing for new deposits.
-    function proposeSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) external onlyOwner {
-        _validateSleeveDepositWeights(sleeveA, sleeveB, sleeveC);
-        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
-        pendingSleeveDepositWeights = PendingSleeveDepositWeights({
-            sleeveA: sleeveA,
-            sleeveB: sleeveB,
-            sleeveC: sleeveC,
-            executeAfter: eta
-        });
-        emit SleeveDepositWeightsProposed(sleeveA, sleeveB, sleeveC, eta);
-    }
-
-    function executeSleeveDepositWeights() external onlyOwner {
-        PendingSleeveDepositWeights memory pending = pendingSleeveDepositWeights;
-        if (pending.executeAfter == 0) revert NoPendingChange(bytes32("SLEEVE_DEPOSIT_WEIGHTS"));
-        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
-        delete pendingSleeveDepositWeights;
-        _setSleeveDepositWeights(pending.sleeveA, pending.sleeveB, pending.sleeveC);
-    }
-
-    function cancelSleeveDepositWeights() external onlyOwner {
-        if (pendingSleeveDepositWeights.executeAfter == 0) {
-            revert NoPendingChange(bytes32("SLEEVE_DEPOSIT_WEIGHTS"));
-        }
-        delete pendingSleeveDepositWeights;
-        emit SleeveDepositWeightsCancelled();
     }
 
     /// @notice Mark an asset as approved for a sleeve strategy.
     ///         Trusted assets are automatically protected from recoverToken().
     function setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) external onlyOwner {
-        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
         _setTrustedSleeveAsset(sleeve, asset, trusted);
     }
 
     /// @notice Batch version of setTrustedSleeveAsset.
     function setTrustedSleeveAssetBatch(uint8 sleeve, address[] calldata assets, bool trusted) external onlyOwner {
-        require(!sleeveGovernanceActive, "BGWVault: use sleeve governance");
-        require(assets.length <= 50, "BGWVault: batch too large");
+        if (assets.length > 50) revert BatchTooLarge(assets.length, 50);
         for (uint256 i; i < assets.length; ++i) {
             _setTrustedSleeveAsset(sleeve, assets[i], trusted);
         }
-    }
-
-    /// @notice Permanently switch sleeve policy changes from founder-only to
-    ///         BGW-GOV proposal voting. Existing sleeve settings continue until
-    ///         a proposal is approved and executed.
-    function activateSleeveGovernance() external onlyOwner {
-        require(!sleeveGovernanceActive, "BGWVault: sleeve governance active");
-        sleeveGovernanceActive = true;
-        emit SleeveGovernanceActivated();
-    }
-
-    /// @notice Founder proposes adding/removing a trusted sleeve asset.
-    function proposeTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted)
-        external
-        onlyOwner
-        returns (uint256 proposalId)
-    {
-        require(sleeveGovernanceActive, "BGWVault: sleeve governance inactive");
-        _validateSleeve(sleeve);
-        if (asset == address(0)) revert ZeroAddress();
-        proposalId = _createSleeveProposal(SLEEVE_ACTION_ASSET, sleeve, asset, trusted);
-    }
-
-    /// @notice Founder proposes setting/clearing a sleeve adapter.
-    function proposeSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner returns (uint256 proposalId) {
-        require(sleeveGovernanceActive, "BGWVault: sleeve governance inactive");
-        _validateSleeve(sleeve);
-        if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
-        proposalId = _createSleeveProposal(SLEEVE_ACTION_ADAPTER, sleeve, adapter, true);
-    }
-
-    /// @notice Vote with BGW-GOV snapshot weight. Majority of votes cast decides.
-    function voteSleeveProposal(uint256 proposalId, bool support) external {
-        SleeveProposal storage proposal = sleeveProposals[proposalId];
-        require(proposal.voteEnd != 0, "BGWVault: unknown proposal");
-        require(!proposal.canceled, "BGWVault: proposal canceled");
-        require(block.timestamp >= proposal.voteStart, "BGWVault: voting not started");
-        require(block.timestamp < proposal.voteEnd, "BGWVault: voting ended");
-        require(!sleeveProposalVoted[proposalId][msg.sender], "BGWVault: already voted");
-
-        uint256 weight = govToken.getPastVotes(msg.sender, proposal.snapshotBlock);
-        require(weight > 0, "BGWVault: no voting weight");
-        sleeveProposalVoted[proposalId][msg.sender] = true;
-
-        if (support) {
-            proposal.forVotes += weight;
-        } else {
-            proposal.againstVotes += weight;
-        }
-
-        emit SleeveProposalVoted(proposalId, msg.sender, support, weight);
-    }
-
-    /// @notice Execute an approved sleeve policy proposal.
-    function executeSleeveProposal(uint256 proposalId) external {
-        SleeveProposal storage proposal = sleeveProposals[proposalId];
-        require(proposal.voteEnd != 0, "BGWVault: unknown proposal");
-        require(!proposal.executed, "BGWVault: proposal executed");
-        require(!proposal.canceled, "BGWVault: proposal canceled");
-        require(block.timestamp >= proposal.voteEnd, "BGWVault: voting active");
-        require(proposal.forVotes > proposal.againstVotes, "BGWVault: proposal rejected");
-
-        proposal.executed = true;
-
-        if (proposal.action == SLEEVE_ACTION_ASSET) {
-            _setTrustedSleeveAsset(proposal.sleeve, proposal.target, proposal.trusted);
-        } else if (proposal.action == SLEEVE_ACTION_ADAPTER) {
-            _setSleeveAdapter(proposal.sleeve, proposal.target);
-        } else {
-            revert("BGWVault: invalid proposal action");
-        }
-
-        emit SleeveProposalExecuted(proposalId);
-    }
-
-    function cancelSleeveProposal(uint256 proposalId) external onlyOwner {
-        SleeveProposal storage proposal = sleeveProposals[proposalId];
-        require(proposal.voteEnd != 0, "BGWVault: unknown proposal");
-        require(!proposal.executed, "BGWVault: proposal executed");
-        require(!proposal.canceled, "BGWVault: proposal canceled");
-        proposal.canceled = true;
-        emit SleeveProposalCancelled(proposalId);
     }
 
     /// @notice Set a per-deposit USDC cap. Set to 0 to remove the cap entirely.
@@ -1378,7 +886,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice Batch version of setProtectedToken for initial setup.
     function setProtectedTokenBatch(address[] calldata tokens, bool _protected) external onlyOwner {
-        require(tokens.length <= 50, "BGWVault: batch too large");
+        if (tokens.length > 50) revert BatchTooLarge(tokens.length, 50);
         for (uint256 i; i < tokens.length; ++i) {
             if (tokens[i] == address(0)) revert ZeroAddress();
             protectedTokens[tokens[i]] = _protected;
@@ -1394,7 +902,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         require(token != USDC, "BGWVault: cannot recover vault USDC");
         require(token != address(bgwToken), "BGWVault: cannot recover BGW");
         require(token != address(govToken), "BGWVault: cannot recover BGW-GOV");
-        require(!protectedTokens[token], "BGWVault: token is a vault position");
+        if (protectedTokens[token]) revert ProtectedTokenRecovery(token);
         IERC20(token).safeTransfer(to, amount);
     }
 
@@ -1655,23 +1163,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         }
     }
 
-    function _storePendingSleeveAdapterRoutes(
-        uint8 sleeve,
-        address[] memory adapters,
-        uint16[] memory depositBps,
-        bool[] memory active,
-        uint256 executeAfter
-    ) internal {
-        delete _pendingSleeveAdapterRoutes[sleeve];
-        PendingSleeveAdapterRoutes storage pending = _pendingSleeveAdapterRoutes[sleeve];
-        pending.executeAfter = executeAfter;
-        for (uint256 i; i < adapters.length; ++i) {
-            pending.adapters.push(adapters[i]);
-            pending.depositBps.push(depositBps[i]);
-            pending.active.push(active[i]);
-        }
-    }
-
     function _containsAdapter(address[] memory adapters, address adapter) internal pure returns (bool) {
         uint256 count = adapters.length;
         for (uint256 i; i < count; ++i) {
@@ -1740,30 +1231,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         require(sleeve <= SLEEVE_C, "BGWVault: invalid sleeve");
     }
 
-    function _createSleeveProposal(uint8 action, uint8 sleeve, address target, bool trusted)
-        internal
-        returns (uint256 proposalId)
-    {
-        proposalId = ++sleeveProposalCount;
-        uint256 snapshotBlock = block.number > 0 ? block.number - 1 : 0;
-        uint256 voteEnd = block.timestamp + SLEEVE_VOTING_PERIOD;
-        sleeveProposals[proposalId] = SleeveProposal({
-            action: action,
-            sleeve: sleeve,
-            target: target,
-            trusted: trusted,
-            snapshotBlock: snapshotBlock,
-            voteStart: block.timestamp,
-            voteEnd: voteEnd,
-            forVotes: 0,
-            againstVotes: 0,
-            executed: false,
-            canceled: false
-        });
-
-        emit SleeveProposalCreated(proposalId, action, sleeve, target, trusted, snapshotBlock, voteEnd);
-    }
-
     /// @dev Distribute performance fee across 6 recipients.
     ///      Uses try-transfer with pendingFees fallback so one bad wallet
     ///      cannot block the entire fee distribution (H-02).
@@ -1805,8 +1272,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
             revert StaleOracle(updatedAt);
         }
-        require(answeredInRound >= roundId, "BGWVault: stale round");
-        require(answer > 0, "BGWVault: negative oracle price");
+        if (answeredInRound < roundId) revert InvalidOracleRound(roundId, answeredInRound);
+        if (answer <= 0) revert InvalidOraclePrice(answer);
 
         uint8 decimals = IChainlinkAggregator(feed).decimals();
         if (decimals == 8) return uint256(answer);
