@@ -20,9 +20,13 @@ import "../libraries/FeeLib.sol";
 /// @notice Bridgeway Protocol — standalone vault (no Enzyme).
 ///
 ///         Holds all assets across three sleeves:
-///           A  70 %  Growth     — top-10 non-stable cryptos, market-cap weighted
-///           B  25 %  Stability  — top-5 trusted stablecoin exposures
+///           A  65 %  Growth     — top non-stable cryptos through approved routes
+///           B  30 %  Stability  — trusted stablecoin exposures
 ///           C   5 %  Alpha      — capped higher-yield strategies
+///
+///         Launch weights are 65/35/0 while Sleeve C is intentionally deferred.
+///         The owner can move to 65/30/5 through the config timelock once Sleeve C
+///         routes are ready.
 ///
 ///         BGW share price  = totalNAV / BGW.totalSupply()
 ///         BGW-GOV issued   = (bgwMinted / newTotalBGW) × communityPool
@@ -129,6 +133,21 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     mapping(uint8 => PendingSleeveAdapterRoutes) private _pendingSleeveAdapterRoutes;
+
+    /// @notice Vault-level deposit weights. Launch config sends Sleeve C's 5%
+    ///         allocation to Sleeve B until the alpha sleeve is deliberately enabled.
+    uint16 public sleeveADepositBps = 6_500;
+    uint16 public sleeveBDepositBps = 3_500;
+    uint16 public sleeveCDepositBps = 0;
+
+    struct PendingSleeveDepositWeights {
+        uint16 sleeveA;
+        uint16 sleeveB;
+        uint16 sleeveC;
+        uint256 executeAfter; // 0 = no pending change
+    }
+
+    PendingSleeveDepositWeights public pendingSleeveDepositWeights;
 
     /// @notice Optional hub-chain global NAV cache for confirmed spoke reports.
     ///         When set, totalNAV() includes confirmed spoke NAV in addition to local sleeves.
@@ -334,6 +353,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event SleeveAdapterRoutesConfigured(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps);
     event SleeveAdapterRoutesProposed(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps, uint256 executeAfter);
     event SleeveAdapterRoutesCancelled(uint8 indexed sleeve);
+    event SleeveDepositWeightsUpdated(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC);
+    event SleeveDepositWeightsProposed(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC, uint256 executeAfter);
+    event SleeveDepositWeightsCancelled();
     event TrustedSleeveAssetUpdated(uint8 indexed sleeve, address indexed asset, bool trusted);
     event SleeveGovernanceActivated();
     event SleeveProposalCreated(
@@ -397,6 +419,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error QueuedRedemptionNotReady(uint256 redemptionId, uint256 navLiabilityRemaining);
     error InsufficientLocalLiquidity(uint256 available, uint256 required);
     error FundedAdapterRemovalBlocked(uint8 sleeve, address adapter, uint256 assetsUsdc);
+    error InvalidSleeveDepositWeights(uint256 totalBps);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
@@ -1195,6 +1218,43 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return (pending.adapters, pending.depositBps, pending.active, pending.executeAfter);
     }
 
+    /// @notice Set vault-level sleeve deposit weights before live deposits exist.
+    ///         Use this for launch setup only; live changes use the timelocked flow.
+    function setSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) external onlyOwner {
+        require(bgwToken.totalSupply() == 0, "BGWVault: weights timelock required");
+        _setSleeveDepositWeights(sleeveA, sleeveB, sleeveC);
+    }
+
+    /// @notice Queue a live change to future deposit weights. This does not move
+    ///         existing funds; it only controls routing for new deposits.
+    function proposeSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) external onlyOwner {
+        _validateSleeveDepositWeights(sleeveA, sleeveB, sleeveC);
+        uint256 eta = block.timestamp + FEE_CHANGE_DELAY;
+        pendingSleeveDepositWeights = PendingSleeveDepositWeights({
+            sleeveA: sleeveA,
+            sleeveB: sleeveB,
+            sleeveC: sleeveC,
+            executeAfter: eta
+        });
+        emit SleeveDepositWeightsProposed(sleeveA, sleeveB, sleeveC, eta);
+    }
+
+    function executeSleeveDepositWeights() external onlyOwner {
+        PendingSleeveDepositWeights memory pending = pendingSleeveDepositWeights;
+        if (pending.executeAfter == 0) revert NoPendingChange(bytes32("SLEEVE_DEPOSIT_WEIGHTS"));
+        if (block.timestamp < pending.executeAfter) revert TimelockNotElapsed(pending.executeAfter);
+        delete pendingSleeveDepositWeights;
+        _setSleeveDepositWeights(pending.sleeveA, pending.sleeveB, pending.sleeveC);
+    }
+
+    function cancelSleeveDepositWeights() external onlyOwner {
+        if (pendingSleeveDepositWeights.executeAfter == 0) {
+            revert NoPendingChange(bytes32("SLEEVE_DEPOSIT_WEIGHTS"));
+        }
+        delete pendingSleeveDepositWeights;
+        emit SleeveDepositWeightsCancelled();
+    }
+
     /// @notice Mark an asset as approved for a sleeve strategy.
     ///         Trusted assets are automatically protected from recoverToken().
     function setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) external onlyOwner {
@@ -1342,10 +1402,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Internal helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Deploy new USDC deposit into sleeves at target weights (70/25/5).
+    /// @dev Deploy new USDC deposit into sleeves at configured target weights.
     function _deployToSleeves(uint256 usdcAmount) internal {
-        uint256 toA = (usdcAmount * FeeLib.SLEEVE_A_BPS) / FeeLib.BPS_DENOM;
-        uint256 toB = (usdcAmount * FeeLib.SLEEVE_B_BPS) / FeeLib.BPS_DENOM;
+        uint256 toA = (usdcAmount * sleeveADepositBps) / FeeLib.BPS_DENOM;
+        uint256 toB = (usdcAmount * sleeveBDepositBps) / FeeLib.BPS_DENOM;
         uint256 toC = usdcAmount - toA - toB;
 
         _deployToSleeve(SLEEVE_A, toA);
@@ -1363,6 +1423,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _withdrawFromSleeve(SLEEVE_A, (_sleeveValue(SLEEVE_A) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_B, (_sleeveValue(SLEEVE_B) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_C, (_sleeveValue(SLEEVE_C) * grossUsdc) / nav);
+    }
+
+    function _setSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) internal {
+        _validateSleeveDepositWeights(sleeveA, sleeveB, sleeveC);
+        sleeveADepositBps = sleeveA;
+        sleeveBDepositBps = sleeveB;
+        sleeveCDepositBps = sleeveC;
+        emit SleeveDepositWeightsUpdated(sleeveA, sleeveB, sleeveC);
+    }
+
+    function _validateSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) internal pure {
+        uint256 totalBps = uint256(sleeveA) + uint256(sleeveB) + uint256(sleeveC);
+        if (totalBps != FeeLib.BPS_DENOM) revert InvalidSleeveDepositWeights(totalBps);
     }
 
     function _queueRedemption(

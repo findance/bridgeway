@@ -9,7 +9,7 @@ The v10 `BridgewayAutomationWrapper.sol` from the earlier iteration was built ag
 - Top 10 non-stable cryptos, market-cap weighted with 30% max / 3% min per asset
 - Annual management fee + entry fee (now removed — performance fee only)
 - Single token, no separate BGWToken (now requires immutable BGWToken with MINTER_ROLE)
-- No sleeve allocation (now 70/25/5 with strategy adapters)
+- No sleeve allocation (now configurable strategy sleeves; launch 65/35/0, final target 65/30/5)
 - No harvest-and-compound flow (now monthly, automated)
 
 The v1.3 spec is a substantial redesign. The v10 file is a useful reference for patterns (UUPS, Chainlink Automation wiring, Camelot integration, fee splitter logic) but the actual implementation must be written fresh.
@@ -19,7 +19,7 @@ The v1.3 spec is a substantial redesign. The v10 file is a useful reference for 
 | File | Purpose |
 |---|---|
 | `BGWToken.sol` | Immutable ERC-20, 18 decimals, MINTER_ROLE (granted to wrapper only), public `burn()`, pausable, blacklist |
-| `BridgewayAutomationWrapper.sol` | UUPS upgradeable wrapper — deposit/redeem entry points, 70/25/5 allocation, monthly harvest+compound, 6-way fee split, buyback engine, Chainlink Automation hooks |
+| `BridgewayAutomationWrapper.sol` | UUPS upgradeable wrapper — deposit/redeem entry points, configurable sleeve allocation, monthly harvest+compound, 6-way fee split, buyback engine, Chainlink Automation hooks |
 | `adapters/PendlePTAdapter.sol` | Pendle PT-stETH deposit/withdraw/value-read |
 | `adapters/GMXGLPAdapter.sol` | GLP mint/burn + reward claim |
 | `adapters/MorphoBlueAdapter.sol` | Morpho Blue isolated market deposit/withdraw |
@@ -44,5 +44,5 @@ Open VSCode in this folder and start with:
 - **Genesis bootstrap rule** (§4): first deposit mints BGW 1:1 with USDC value (NAV per BGW starts at $1.00). All later deposits use the pro-rata formula. Handle the `totalSupply == 0` case in deposit logic.
 - **`recordStakingYield`**: for testnet, owner-trusted is acceptable. Spec §8.1 requires on-chain derivation before mainnet — design the interface so the verification path can be added later without breaking ABI compatibility.
 - **UUPS upgrade**: spec §8.1 requires a 48h timelock on `upgradeTo()` for mainnet. For testnet a single owner is fine, but write the contract so the owner address can be swapped to a `TimelockController` later without storage layout changes.
-- **Monthly rebalance**: run automatically on the 15th. Sleeve A/B rebalance around 70% / 25%; Sleeve C is one-way during automatic rebalancing and must not be topped up from A/B.
+- **Monthly rebalance**: run automatically on the 15th. Sleeve A/B rebalance around configured targets; Sleeve C is one-way during automatic rebalancing and must not be topped up from A/B until its routes are enabled.
 - **In-kind redemption**: Sleeve C tokens must be transferable to redeemer. Symbiotic/Karak unbonding periods may complicate this — document the behavior in the redeem function.

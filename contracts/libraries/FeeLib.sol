@@ -31,9 +31,11 @@ library FeeLib {
     uint256 internal constant BUYBACK_BPS      = 1_500;   // 15 %
     uint256 internal constant RESERVE_BPS      = 1_000;   // 10 %
 
-    // ── Sleeve targets (must sum to BPS_DENOM) ───────────────────────────────
-    uint256 internal constant SLEEVE_A_BPS     = 7_000;   // 70 %
-    uint256 internal constant SLEEVE_B_BPS     = 2_500;   // 25 %
+    // ── Final sleeve targets (must sum to BPS_DENOM) ─────────────────────────
+    // BGWVault has configurable deposit weights. Launch defaults route Sleeve C's
+    // 5% allocation to Sleeve B (65/35/0) until alpha routes are enabled.
+    uint256 internal constant SLEEVE_A_BPS     = 6_500;   // 65 %
+    uint256 internal constant SLEEVE_B_BPS     = 3_000;   // 30 %
     uint256 internal constant SLEEVE_C_BPS     = 500;     //  5 %
 
     // ── Drift triggers ───────────────────────────────────────────────────────

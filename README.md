@@ -18,8 +18,8 @@ LI.FI / Socket / CCTP / Across / deBridge
     │  Mints BGW (share token) 1:1 at first deposit            │
     │  Distributes BGW-GOV governance tokens to depositors      │
     │  Tracks three portfolio sleeves:                          │
-    │    A — 70%  Growth     (BTC, ETH, SOL … via Aave/LSTs)   │
-    │    B — 25%  Stability  (USDC, USDT, DAI … via Aave/Morpho│
+    │    A — 65%  Growth     (BTC, ETH, SOL … via approved routes)│
+    │    B — 30%  Stability  (USDC, USDT, DAI … via Aave/Morpho)  │
     │    C —  5%  Alpha      (Pendle, GMX, Morpho, restaking)   │
     │                                                           │
     │  Monthly harvest  ◄── BridgewayAutomation (Chainlink)    │
@@ -35,7 +35,10 @@ BGWGovToken   — Inflationary governance token minted with BGW deposits:
 
 Bridgeway may support omnichain user ingress through frontend routing, but the
 vault contract itself accepts and accounts in Base USDC. After USDC reaches
-the vault, the 70/25/5 allocation applies across all sleeves.
+the vault, launch deposits route 65/35/0 across Growth/Stability/Alpha so the
+deferred Sleeve C allocation stays in Sleeve B. Once Sleeve C routes are ready,
+the owner can move future deposits to the final 65/30/5 target through the
+vault's 48-hour config timelock.
 
 ---
 

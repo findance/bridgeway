@@ -27,9 +27,9 @@ interface AutomationCompatibleInterface {
 ///              protocol rewards, swap to USDC, call vault.recordHarvest().
 ///           2. Buyback check    — any call, if accumulator >= threshold,
 ///              call vault.executeBuyback().
-///           3. Rebalance policy — A/B rebalance toward 70/25. Sleeve C is a
-///              one-way sleeve during automatic rebalancing: value may leave C,
-///              but automatic rebalancing must not fund C from A or B.
+///           3. Rebalance policy — A/B rebalance toward configured vault targets.
+///              Sleeve C is a one-way sleeve during automatic rebalancing: value
+///              may leave C, but automatic rebalancing must not fund C from A or B.
 ///
 /// @dev    This contract is intentionally thin — it reads Aave/Morpho balances
 ///         and instructs the vault. It does NOT hold user funds.

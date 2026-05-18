@@ -428,9 +428,63 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(vault.sleeveAValue(), 700e6);
-        assertEq(vault.sleeveBValue(), 250e6);
+        assertEq(vault.sleeveAValue(), 650e6);
+        assertEq(vault.sleeveBValue(), 350e6);
+        assertEq(vault.sleeveCValue(), 0);
+    }
+
+    function test_PreLaunchSleeveDepositWeightsCanMoveToFinalTarget() public {
+        vm.prank(founder);
+        vault.setSleeveDepositWeights(6_500, 3_000, 500);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(vault.sleeveADepositBps(), 6_500);
+        assertEq(vault.sleeveBDepositBps(), 3_000);
+        assertEq(vault.sleeveCDepositBps(), 500);
+        assertEq(vault.sleeveAValue(), 650e6);
+        assertEq(vault.sleeveBValue(), 300e6);
         assertEq(vault.sleeveCValue(), 50e6);
+    }
+
+    function test_LiveSleeveDepositWeightsRequireTimelock() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        vm.prank(founder);
+        vm.expectRevert("BGWVault: weights timelock required");
+        vault.setSleeveDepositWeights(6_500, 3_000, 500);
+
+        vm.prank(founder);
+        vault.proposeSleeveDepositWeights(6_500, 3_000, 500);
+
+        vm.prank(founder);
+        vm.expectRevert();
+        vault.executeSleeveDepositWeights();
+
+        vm.warp(block.timestamp + vault.FEE_CHANGE_DELAY() + 1);
+        vm.prank(founder);
+        vault.executeSleeveDepositWeights();
+
+        vm.startPrank(bob);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(vault.sleeveAValue(), 1_300e6);
+        assertEq(vault.sleeveBValue(), 650e6);
+        assertEq(vault.sleeveCValue(), 50e6);
+    }
+
+    function test_SleeveDepositWeightsMustSumToOneHundredPercent() public {
+        vm.prank(founder);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.InvalidSleeveDepositWeights.selector, 9_999));
+        vault.setSleeveDepositWeights(6_500, 2_999, 500);
     }
 
     // ── Hub-and-spoke accounting ─────────────────────────────────────────────
@@ -1236,19 +1290,19 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(adapterA.totalAssetsUSDC(), 700e6);
-        assertEq(adapterB.totalAssetsUSDC(), 250e6);
-        assertEq(adapterC.totalAssetsUSDC(), 50e6);
-        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 700e6);
+        assertEq(adapterA.totalAssetsUSDC(), 650e6);
+        assertEq(adapterB.totalAssetsUSDC(), 350e6);
+        assertEq(adapterC.totalAssetsUSDC(), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 650e6);
         assertEq(vault.totalNAV(), 1_000e6);
 
         uint256 aliceBgw = bgwToken.balanceOf(alice);
         vm.prank(alice);
         vault.redeem(aliceBgw / 2, 0);
 
-        assertLt(adapterA.totalAssetsUSDC(), 700e6);
-        assertLt(adapterB.totalAssetsUSDC(), 250e6);
-        assertLt(adapterC.totalAssetsUSDC(), 50e6);
+        assertLt(adapterA.totalAssetsUSDC(), 650e6);
+        assertLt(adapterB.totalAssetsUSDC(), 350e6);
+        assertEq(adapterC.totalAssetsUSDC(), 0);
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(adapterA)), adapterA.totalAssetsUSDC());
     }
 
@@ -1301,7 +1355,7 @@ contract BGWVaultTest is Test {
                 BGWVault.FundedAdapterRemovalBlocked.selector,
                 sleeveA,
                 address(adapterA),
-                700e6
+                650e6
             )
         );
         vault.executeSleeveProposal(proposalId);
@@ -1327,7 +1381,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(adapterA1.totalAssetsUSDC(), 700e6);
+        assertEq(adapterA1.totalAssetsUSDC(), 650e6);
 
         address[] memory nextAdapters = new address[](2);
         nextAdapters[0] = address(adapterA1);
@@ -1349,7 +1403,7 @@ contract BGWVaultTest is Test {
         vm.prank(founder);
         vault.executeSleeveAdapterRoutes(sleeveA);
 
-        assertEq(adapterA1.totalAssetsUSDC(), 700e6);
+        assertEq(adapterA1.totalAssetsUSDC(), 650e6);
         assertEq(adapterA2.totalAssetsUSDC(), 0);
         assertEq(vault.sleeveAdapterRouteCount(sleeveA), 2);
         assertEq(vault.sleeveAdapterActiveDepositBps(sleeveA), 10_000);
@@ -1359,9 +1413,9 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(adapterA1.totalAssetsUSDC(), 1_050e6);
-        assertEq(adapterA2.totalAssetsUSDC(), 350e6);
-        assertEq(vault.sleeveValue(sleeveA), 1_400e6);
+        assertEq(adapterA1.totalAssetsUSDC(), 975e6);
+        assertEq(adapterA2.totalAssetsUSDC(), 325e6);
+        assertEq(vault.sleeveValue(sleeveA), 1_300e6);
         assertEq(vault.totalNAV(), 2_000e6);
     }
 
@@ -1397,7 +1451,7 @@ contract BGWVaultTest is Test {
                 BGWVault.FundedAdapterRemovalBlocked.selector,
                 sleeveA,
                 address(adapterA1),
-                700e6
+                650e6
             )
         );
         vm.prank(founder);
