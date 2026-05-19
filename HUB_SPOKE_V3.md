@@ -41,13 +41,25 @@ Native staking adapters and queued redemption routing are still future phases.
 - No optimistic NAV is used for redemptions.
 - A spoke report is usable only after confirmed delivery to the hub.
 - Material spokes block aggregate NAV if their report is stale.
-- Reporters are allowlisted per source chain.
+- Reporters are allowlisted per source chain and must be contracts (typically the
+  hub CCIP receiver, not EOAs).
 - CCIP source selectors are not EVM chain IDs. The receiver maps each CCIP
   selector to the expected Bridgeway spoke chain ID.
 - Source sender bytes are hashed and pinned per CCIP selector.
 - Report nonces must increase monotonically.
+- Per-spoke upward NAV is capped both per report (`maxNavMoveBps`) and per rolling
+  window (`navWindow`, default 24h, `maxWindowNavUpBps`, default 20%).
+- Global NAV variance above `maxGlobalNavMoveBps` rejects the report instead of
+  storing it and tripping the circuit breaker.
 - Queued redemptions remain NAV liabilities until the hub acknowledges that the
   matching local/spoke NAV has been removed from active accounting.
+- `acknowledgeQueuedRedemptionLiquidity()` requires confirmed hub spoke NAV to
+  have dropped by at least the cumulative acknowledgement amount since the
+  redemption was queued.
+- Queued redemptions that exceed local hub liquidity track the remote spoke
+  portion separately. Pricing deducts the full queued liability once, while
+  acknowledgement can only release the remote portion after confirmed spoke NAV
+  drops by the same amount.
 - Values are normalized to 18-decimal USD internally and can be exposed as
   6-decimal USDC for vault integration.
 

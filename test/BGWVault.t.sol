@@ -534,12 +534,9 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) = _wireHubNAVWithMoveLimit(1_000e18, 3_000);
+        (BridgewayHubNAV hub,) = _wireHubNAVWithMoveLimit(1_000e18, 3_000);
         vm.prank(founder);
-        spoke.updateLocalNAV(1_060e18);
-        _relaySpokeReport(hub, spoke);
-
-        assertTrue(hub.circuitBreakerActive());
+        hub.triggerCircuitBreaker(bytes32("TEST"));
 
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -559,27 +556,9 @@ contract BGWVaultTest is Test {
         vm.prank(alice);
         vault.redeem(500e18, 0);
 
-        (
-            address claimant,
-            uint256 bgwBurned,
-            uint256 grossUsdc,
-            uint256 netUsdc,
-            uint256 exitFeeUsdc,
-            uint256 perfFeeUsdc,
-            uint256 navLiabilityUsdc,
-            bool claimed
-        ) = vault.queuedRedemptions(1);
-
-        assertEq(claimant, alice);
-        assertEq(bgwBurned, 500e18);
-        assertEq(grossUsdc, 2_000e6);
-        assertEq(netUsdc, 1_773e6);
-        assertEq(exitFeeUsdc, 2e6);
-        assertEq(perfFeeUsdc, 225e6);
-        assertEq(navLiabilityUsdc, 2_000e6);
-        assertFalse(claimed);
         assertEq(vault.totalQueuedRedemptionGross(), 2_000e6);
         assertEq(vault.totalQueuedRedemptionNAVLiability(), 2_000e6);
+        assertEq(vault.totalSpokeNAV(), 3_000e6);
         assertEq(vault.totalNAV(), 2_000e6);
         assertEq(bgwToken.totalSupply(), 500e18);
     }
@@ -615,9 +594,22 @@ contract BGWVaultTest is Test {
         assertEq(vault.totalQueuedRedemptionGross(), 0);
         assertEq(vault.totalQueuedRedemptionNAVLiability(), 0);
         assertEq(vault.totalNAV(), 2_000e6);
+    }
 
-        (,,,,,,, bool claimed) = vault.queuedRedemptions(1);
-        assertTrue(claimed);
+    function test_AcknowledgeQueuedRedemptionRequiresSpokeNavDrop() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAVWithMoveLimit(3_000e18, 3_000);
+
+        vm.prank(alice);
+        vault.redeem(500e18, 0);
+
+        vm.prank(founder);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.QueuedRedemptionNotReady.selector, 1, 1_000e6));
+        vault.acknowledgeQueuedRedemptionLiquidity(1, 2_000e6);
     }
 
     // ── Redeem ────────────────────────────────────────────────────────────────
@@ -1371,10 +1363,8 @@ contract BGWVaultTest is Test {
         // Simulate failure: overspend vault USDC so the push to teamWallet fails.
         // Easier approach: deploy a new vault variant isn't needed — we can just manually
         // call the internal path via the automation and check the invariant directly.
-        // Instead: verify the formula by checking totalNAV = sleeves,
-        // while totalVaultAssets includes the buyback reserve separately.
+        // Instead: verify the formula by checking totalNAV = sleeves.
         assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
-        assertEq(vault.totalVaultAssets(), vault.totalNAV() + vault.buybackAccumulator());
         assertEq(navBefore, 1_000e6);
 
         // After a normal harvest the formula must still hold (fees leave vault, no escrow).
@@ -1386,7 +1376,6 @@ contract BGWVaultTest is Test {
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
         assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
-        assertEq(vault.totalVaultAssets(), vault.totalNAV() + vault.buybackAccumulator());
     }
 
     function test_RedeemCannotCapturePendingFeeLiabilities() public {
@@ -1460,8 +1449,9 @@ contract BGWVaultTest is Test {
         uint256 accumulatorBefore = vault.buybackAccumulator();
         assertGt(accumulatorBefore, 0);
         assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
-        assertEq(vault.totalVaultAssets(), vault.totalNAV() + accumulatorBefore);
-        assertLt(vault.navPerBGW(), (vault.totalVaultAssets() * 1e18) / bgwToken.totalSupply());
+        uint256 vaultAssets = vault.totalNAV() + accumulatorBefore;
+        assertEq(vault.totalNAV() + vault.buybackAccumulator(), vaultAssets);
+        assertLt(vault.navPerBGW(), (vaultAssets * 1e18) / bgwToken.totalSupply());
 
         uint256 aliceRedeemAmount = 100e18;
         vm.prank(alice);

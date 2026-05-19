@@ -196,19 +196,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     struct QueuedRedemption {
         address claimant;
-        uint256 bgwBurned;
-        uint256 grossUsdc;
         uint256 netUsdc;
         uint256 exitFeeUsdc;
         uint256 perfFeeUsdc;
         uint256 navLiabilityUsdc;
+        uint256 spokeNavSnapshotUsdc;
+        uint256 spokeNavReservedUsdc;
         bool claimed;
     }
 
     uint256 public queuedRedemptionCount;
     uint256 public totalQueuedRedemptionGross;
     uint256 public totalQueuedRedemptionNAVLiability;
-    mapping(uint256 => QueuedRedemption) public queuedRedemptions;
+    mapping(uint256 => QueuedRedemption) private _queuedRedemptions;
 
     /// @notice Timestamp when fees last failed for each recipient (used by sweepStaleFees).
     mapping(address => uint256) public lastFeeAccrual;
@@ -282,7 +282,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error InvalidOracleRound(uint80 roundId, uint80 answeredInRound);
     error InvalidOraclePrice(int256 answer);
     error BatchTooLarge(uint256 count, uint256 max);
-
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
     // ─────────────────────────────────────────────────────────────────────────
@@ -365,7 +364,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return _sleeveValue(SLEEVE_A) + _sleeveValue(SLEEVE_B) + _sleeveValue(SLEEVE_C);
     }
 
-    /// @notice Confirmed spoke NAV cached by the hub NAV contract.
+    /// @notice Confirmed spoke NAV cached by the hub NAV contract. Queued
+    ///         redemptions are deducted once via totalQueuedRedemptionNAVLiability.
     function totalSpokeNAV() public view returns (uint256) {
         address nav = hubNAV;
         if (nav == address(0)) return 0;
@@ -375,11 +375,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Current USDC-denominated value for one sleeve.
     function sleeveValue(uint8 sleeve) public view returns (uint256) {
         return _sleeveValue(sleeve);
-    }
-
-    /// @notice Portfolio NAV plus the dedicated buyback reserve.
-    function totalVaultAssets() public view returns (uint256) {
-        return totalNAV() + buybackAccumulator;
     }
 
     /// @notice NAV per BGW token in USDC (6 dec). Returns 1e6 ($1.00) if no BGW minted.
@@ -520,7 +515,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Claim a queued redemption once hub-chain liquidity has arrived
     ///         from spoke unwinds or treasury buffering.
     function claimQueuedRedemption(uint256 redemptionId) external nonReentrant whenNotPaused {
-        QueuedRedemption storage redemption = queuedRedemptions[redemptionId];
+        QueuedRedemption storage redemption = _queuedRedemptions[redemptionId];
         if (redemption.claimant == address(0)) revert UnknownQueuedRedemption(redemptionId);
         if (redemption.claimant != msg.sender) revert NotQueuedRedemptionClaimant(redemptionId, msg.sender);
         if (redemption.claimed) revert QueuedRedemptionAlreadyClaimed(redemptionId);
@@ -533,7 +528,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (availableUsdc < requiredUsdc) revert InsufficientLocalLiquidity(availableUsdc, requiredUsdc);
 
         redemption.claimed = true;
-        totalQueuedRedemptionGross -= redemption.grossUsdc;
+        totalQueuedRedemptionGross -= requiredUsdc;
 
         if (redemption.perfFeeUsdc > 0) {
             _distributePerfFee(redemption.perfFeeUsdc);
@@ -554,14 +549,29 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         has dropped. This prepares the queue item for claimant withdrawal.
     function acknowledgeQueuedRedemptionLiquidity(uint256 redemptionId, uint256 amount) external {
         if (msg.sender != owner() && msg.sender != automation) revert OnlyAutomation();
-        QueuedRedemption storage redemption = queuedRedemptions[redemptionId];
+        QueuedRedemption storage redemption = _queuedRedemptions[redemptionId];
         if (redemption.claimant == address(0)) revert UnknownQueuedRedemption(redemptionId);
         if (redemption.claimed) revert QueuedRedemptionAlreadyClaimed(redemptionId);
         if (amount > redemption.navLiabilityUsdc) amount = redemption.navLiabilityUsdc;
-        if (amount == 0) return;
+
+        uint256 reservedRelease = amount > redemption.spokeNavReservedUsdc ? redemption.spokeNavReservedUsdc : amount;
+        if (reservedRelease > 0 && hubNAV != address(0) && redemption.spokeNavSnapshotUsdc > 0) {
+            uint256 currentSpokeNav = IBridgewayHubNAV(hubNAV).totalSpokeNAVUSDC();
+            uint256 spokeDrop = redemption.spokeNavSnapshotUsdc > currentSpokeNav
+                ? redemption.spokeNavSnapshotUsdc - currentSpokeNav
+                : 0;
+            if (spokeDrop < reservedRelease) {
+                revert QueuedRedemptionNotReady(redemptionId, reservedRelease);
+            }
+            redemption.spokeNavSnapshotUsdc = currentSpokeNav;
+        }
 
         redemption.navLiabilityUsdc -= amount;
         totalQueuedRedemptionNAVLiability -= amount;
+
+        if (reservedRelease > 0) {
+            redemption.spokeNavReservedUsdc -= reservedRelease;
+        }
 
         emit QueuedRedemptionLiquidityAcknowledged(redemptionId, amount, redemption.navLiabilityUsdc);
     }
@@ -956,15 +966,20 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 currentNav18,
         uint256 effectiveHwm
     ) internal {
+        uint256 localNav = totalLocalNAV();
+        uint256 spokeReserved = grossUsdc > localNav ? grossUsdc - localNav : 0;
+        address nav = hubNAV;
+        uint256 spokeSnapshot = nav == address(0) ? 0 : IBridgewayHubNAV(nav).totalSpokeNAVUSDC();
+
         uint256 redemptionId = ++queuedRedemptionCount;
-        queuedRedemptions[redemptionId] = QueuedRedemption({
+        _queuedRedemptions[redemptionId] = QueuedRedemption({
             claimant: claimant,
-            bgwBurned: bgwBurned,
-            grossUsdc: grossUsdc,
             netUsdc: netUsdc,
             exitFeeUsdc: exitFeeUsdc,
             perfFeeUsdc: perfFeeUsdc,
             navLiabilityUsdc: grossUsdc,
+            spokeNavSnapshotUsdc: spokeSnapshot,
+            spokeNavReservedUsdc: spokeReserved,
             claimed: false
         });
         totalQueuedRedemptionGross += grossUsdc;

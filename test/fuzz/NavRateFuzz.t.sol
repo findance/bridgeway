@@ -98,11 +98,12 @@ contract NavRateFuzzTest is Test {
             abi.decode(baseSpoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
 
         vm.prank(address(baseSpoke));
+        vm.expectRevert();
         hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
 
-        assertTrue(hub.circuitBreakerActive());
-        vm.expectRevert(BridgewayHubNAV.CircuitBreakerActive.selector);
-        hub.totalSpokeNAV18();
+        assertFalse(hub.circuitBreakerActive());
+        (uint256 storedNav,,,) = hub.spokeReports(BASE_CHAIN_ID);
+        assertEq(storedNav, uint256(baseNav));
     }
 
     function testFuzz_MaterialStaleSpokeBlocksNAV(uint128 navUsd18, uint32 delay) public {

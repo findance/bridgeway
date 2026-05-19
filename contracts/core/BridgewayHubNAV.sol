@@ -18,8 +18,18 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     uint256 public constant MAX_NAV_MOVE_BPS = 3_000; // 30%
     uint256 public constant DEFAULT_MAX_GLOBAL_NAV_MOVE_BPS = 500; // 5%
     uint256 public constant MAX_GLOBAL_NAV_MOVE_BPS = 3_000; // 30%
+    uint256 public constant DEFAULT_NAV_WINDOW = 24 hours;
+    uint256 public constant MIN_NAV_WINDOW = 1 hours;
+    uint256 public constant MAX_NAV_WINDOW = 7 days;
+    uint256 public constant DEFAULT_MAX_WINDOW_NAV_UP_BPS = 2_000; // 20% / window
+    uint256 public constant MAX_WINDOW_NAV_UP_BPS = 5_000; // 50% / window
     uint256 public constant BPS_DENOM = 10_000;
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
+
+    struct SpokeNavWindow {
+        uint256 baselineNavUsd18;
+        uint256 baselineTimestamp;
+    }
 
     struct SpokeConfig {
         address reporter;
@@ -49,6 +59,9 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     bool public bootstrapMode = true;
     bool public circuitBreakerActive;
     uint256 public maxGlobalNavMoveBps = DEFAULT_MAX_GLOBAL_NAV_MOVE_BPS;
+    uint256 public navWindow = DEFAULT_NAV_WINDOW;
+    uint256 public maxWindowNavUpBps = DEFAULT_MAX_WINDOW_NAV_UP_BPS;
+    mapping(uint64 => SpokeNavWindow) public spokeNavWindows;
 
     event SpokeConfigured(
         uint64 indexed chainId,
@@ -73,6 +86,8 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     event CircuitBreakerTriggered(bytes32 indexed reason);
     event CircuitBreakerReset(uint256 timestamp);
     event MaxGlobalNavMoveBpsSet(uint256 maxGlobalNavMoveBps);
+    event NavWindowSet(uint256 navWindow);
+    event MaxWindowNavUpBpsSet(uint256 maxWindowNavUpBps);
     event SpokeReportAccepted(
         uint64 indexed chainId,
         address indexed reporter,
@@ -97,6 +112,10 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
     error NoPendingConfig(uint64 chainId);
     error TimelockNotReady(uint64 chainId, uint256 executableAt);
     error InvalidNavMoveBps(uint256 maxNavMoveBps);
+    error ReporterMustBeContract(address reporter);
+    error InvalidNavWindow(uint256 navWindow);
+    error WindowNavGrowthTooLarge(uint64 chainId, uint256 growthUsd18, uint256 maxGrowthUsd18);
+    error GlobalNavVarianceTooLarge(uint256 oldNavUsd18, uint256 newNavUsd18, uint256 varianceBps);
 
     constructor(address owner_) Ownable(owner_) {
         if (owner_ == address(0)) revert ZeroAddress();
@@ -133,6 +152,20 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         if (maxGlobalNavMoveBps_ > MAX_GLOBAL_NAV_MOVE_BPS) revert InvalidNavMoveBps(maxGlobalNavMoveBps_);
         maxGlobalNavMoveBps = maxGlobalNavMoveBps_;
         emit MaxGlobalNavMoveBpsSet(maxGlobalNavMoveBps_);
+    }
+
+    function setNavWindow(uint256 navWindow_) external onlyOwner {
+        if (navWindow_ == 0) navWindow_ = DEFAULT_NAV_WINDOW;
+        if (navWindow_ < MIN_NAV_WINDOW || navWindow_ > MAX_NAV_WINDOW) revert InvalidNavWindow(navWindow_);
+        navWindow = navWindow_;
+        emit NavWindowSet(navWindow_);
+    }
+
+    function setMaxWindowNavUpBps(uint256 maxWindowNavUpBps_) external onlyOwner {
+        if (maxWindowNavUpBps_ == 0) maxWindowNavUpBps_ = DEFAULT_MAX_WINDOW_NAV_UP_BPS;
+        if (maxWindowNavUpBps_ > MAX_WINDOW_NAV_UP_BPS) revert InvalidNavMoveBps(maxWindowNavUpBps_);
+        maxWindowNavUpBps = maxWindowNavUpBps_;
+        emit MaxWindowNavUpBpsSet(maxWindowNavUpBps_);
     }
 
     function triggerCircuitBreaker(bytes32 reason) external onlyOwner {
@@ -218,9 +251,28 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
             uint256 maxMove = Math.mulDiv(previous.navUsd18, config.maxNavMoveBps, BPS_DENOM);
             uint256 delta = navUsd18 > previous.navUsd18 ? navUsd18 - previous.navUsd18 : previous.navUsd18 - navUsd18;
             if (delta > maxMove) revert NavMoveTooLarge(chainId);
+            if (navUsd18 > previous.navUsd18) {
+                _enforceWindowNavGrowthCap(chainId, previous.navUsd18, navUsd18);
+            }
         }
 
         uint256 oldGlobalNav18 = _totalSpokeNAV18(false);
+        bool triggerBreaker;
+        uint256 newGlobalNav18;
+        uint256 varianceBps;
+        if (oldGlobalNav18 > 0 && previous.reportedAt != 0) {
+            newGlobalNav18 = oldGlobalNav18 - previous.navUsd18 + navUsd18;
+            uint256 globalDelta =
+                newGlobalNav18 > oldGlobalNav18 ? newGlobalNav18 - oldGlobalNav18 : oldGlobalNav18 - newGlobalNav18;
+            varianceBps = Math.mulDiv(globalDelta, BPS_DENOM, oldGlobalNav18);
+            if (varianceBps > maxGlobalNavMoveBps) {
+                if (newGlobalNav18 > oldGlobalNav18) {
+                    revert GlobalNavVarianceTooLarge(oldGlobalNav18, newGlobalNav18, varianceBps);
+                }
+                triggerBreaker = true;
+            }
+        }
+
         spokeReports[chainId] = SpokeReport({
             navUsd18: navUsd18,
             reportedAt: reportedAt,
@@ -228,19 +280,12 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
             nonce: nonce
         });
 
-        if (oldGlobalNav18 > 0 && previous.reportedAt != 0) {
-            uint256 newGlobalNav18 = _totalSpokeNAV18(false);
-            uint256 globalDelta =
-                newGlobalNav18 > oldGlobalNav18 ? newGlobalNav18 - oldGlobalNav18 : oldGlobalNav18 - newGlobalNav18;
-            uint256 varianceBps = Math.mulDiv(globalDelta, BPS_DENOM, oldGlobalNav18);
-            if (varianceBps > maxGlobalNavMoveBps) {
-                circuitBreakerActive = true;
-                emit GlobalNAVVarianceBreached(oldGlobalNav18, newGlobalNav18, varianceBps);
-                emit CircuitBreakerTriggered(bytes32("GLOBAL_NAV_VARIANCE"));
-            }
-        }
-
         emit SpokeReportAccepted(chainId, msg.sender, navUsd18, reportedAt, sourceBlockNumber, nonce);
+        if (triggerBreaker) {
+            circuitBreakerActive = true;
+            emit GlobalNAVVarianceBreached(oldGlobalNav18, newGlobalNav18, varianceBps);
+            emit CircuitBreakerTriggered(bytes32("GLOBAL_NAV_VARIANCE"));
+        }
     }
 
     function totalSpokeNAVUSDC() external view returns (uint256) {
@@ -290,9 +335,10 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         uint256 maxNavMoveBps,
         bool enabled,
         bool material
-    ) internal pure returns (SpokeConfig memory config) {
+    ) internal view returns (SpokeConfig memory config) {
         if (chainId == 0) revert InvalidChainId();
         if (reporter == address(0)) revert ZeroAddress();
+        if (reporter.code.length == 0) revert ReporterMustBeContract(reporter);
         if (maxReportAge == 0) maxReportAge = DEFAULT_MAX_REPORT_AGE;
         if (maxNavMoveBps == 0) maxNavMoveBps = DEFAULT_MAX_NAV_MOVE_BPS;
         if (maxNavMoveBps > MAX_NAV_MOVE_BPS) revert InvalidNavMoveBps(maxNavMoveBps);
@@ -306,11 +352,25 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         });
     }
 
+    function _enforceWindowNavGrowthCap(uint64 chainId, uint256 previousNavUsd18, uint256 navUsd18) internal {
+        SpokeNavWindow memory window = spokeNavWindows[chainId];
+        if (window.baselineTimestamp == 0 || block.timestamp > window.baselineTimestamp + navWindow) {
+            window = SpokeNavWindow({baselineNavUsd18: previousNavUsd18, baselineTimestamp: block.timestamp});
+        }
+
+        uint256 growth = navUsd18 - window.baselineNavUsd18;
+        uint256 maxGrowth = Math.mulDiv(window.baselineNavUsd18, maxWindowNavUpBps, BPS_DENOM);
+        if (growth > maxGrowth) revert WindowNavGrowthTooLarge(chainId, growth, maxGrowth);
+
+        spokeNavWindows[chainId] = SpokeNavWindow({baselineNavUsd18: window.baselineNavUsd18, baselineTimestamp: window.baselineTimestamp});
+    }
+
     function _applySpokeConfig(uint64 chainId, SpokeConfig memory config) internal {
         if (spokeConfigs[chainId].reporter == address(0)) {
             _spokeChainIds.push(chainId);
         }
 
+        delete spokeNavWindows[chainId];
         spokeConfigs[chainId] = config;
 
         emit SpokeConfigured(

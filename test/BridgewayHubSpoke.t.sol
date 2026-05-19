@@ -122,7 +122,7 @@ contract BridgewayHubSpokeTest is Test {
         hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
     }
 
-    function test_GlobalNAVVarianceTripsCircuitBreaker() public {
+    function test_GlobalNAVVarianceRejectsReport() public {
         hub.configureSpoke(BASE_CHAIN_ID, address(baseSpoke), 24 hours, 3_000, true, true);
         _report(baseSpoke, BASE_CHAIN_ID, 1_000e18);
         _report(avaxSpoke, AVAX_CHAIN_ID, 500e18);
@@ -131,17 +131,72 @@ contract BridgewayHubSpokeTest is Test {
         (, uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
             abi.decode(baseSpoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
 
+        vm.prank(address(baseSpoke));
+        vm.expectRevert(
+            abi.encodeWithSelector(BridgewayHubNAV.GlobalNavVarianceTooLarge.selector, 1_500e18, 1_600e18, 666)
+        );
+        hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
+
+        assertFalse(hub.circuitBreakerActive());
+        assertEq(hub.totalSpokeNAV18(), 1_500e18);
+    }
+
+    function test_GlobalNAVVarianceStoresDownwardReportAndTripsCircuitBreaker() public {
+        hub.configureSpoke(BASE_CHAIN_ID, address(baseSpoke), 24 hours, 3_000, true, true);
+        _report(baseSpoke, BASE_CHAIN_ID, 1_000e18);
+        _report(avaxSpoke, AVAX_CHAIN_ID, 500e18);
+
+        baseSpoke.updateLocalNAV(900e18);
+        (, uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
+            abi.decode(baseSpoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
+
         vm.expectEmit(false, false, false, true);
-        emit GlobalNAVVarianceBreached(1_500e18, 1_600e18, 666);
+        emit GlobalNAVVarianceBreached(1_500e18, 1_400e18, 666);
         vm.prank(address(baseSpoke));
         hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
 
+        (uint256 storedNav,,,) = hub.spokeReports(BASE_CHAIN_ID);
+        assertEq(storedNav, 900e18);
         assertTrue(hub.circuitBreakerActive());
         vm.expectRevert(BridgewayHubNAV.CircuitBreakerActive.selector);
         hub.totalSpokeNAV18();
+    }
 
-        hub.resetCircuitBreaker();
-        assertEq(hub.totalSpokeNAV18(), 1_600e18);
+    function test_WindowNavGrowthRejectsSlowCompounding() public {
+        _report(baseSpoke, BASE_CHAIN_ID, 1_000e18);
+        hub.setMaxGlobalNavMoveBps(3_000);
+
+        vm.warp(block.timestamp + 1 hours);
+        baseSpoke.updateLocalNAV(1_100e18);
+        _report(baseSpoke, BASE_CHAIN_ID, 1_100e18);
+
+        vm.warp(block.timestamp + 1 hours);
+        baseSpoke.updateLocalNAV(1_210e18);
+        (, uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
+            abi.decode(baseSpoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
+
+        vm.prank(address(baseSpoke));
+        vm.expectRevert(
+            abi.encodeWithSelector(BridgewayHubNAV.WindowNavGrowthTooLarge.selector, BASE_CHAIN_ID, 210e18, 200e18)
+        );
+        hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
+    }
+
+    function test_NavWindowHasBounds() public {
+        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.InvalidNavWindow.selector, 1 hours - 1));
+        hub.setNavWindow(1 hours - 1);
+
+        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.InvalidNavWindow.selector, 7 days + 1));
+        hub.setNavWindow(7 days + 1);
+
+        hub.setNavWindow(2 days);
+        assertEq(hub.navWindow(), 2 days);
+    }
+
+    function test_ReporterMustBeContract() public {
+        address eoaReporter = makeAddr("eoaReporter");
+        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.ReporterMustBeContract.selector, eoaReporter));
+        hub.configureSpoke(BASE_CHAIN_ID, eoaReporter, 24 hours, 1_000, true, true);
     }
 
     function test_FirstSpokeReportDoesNotTripGlobalCircuitBreaker() public {
