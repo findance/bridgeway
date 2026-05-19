@@ -14,7 +14,7 @@ Do not store private keys, RPC URLs, API keys, Safe signatures, or secrets here.
 | Network posture | Mainnet deployment in progress |
 | Hub chain | Base |
 | wstLINK rate path status | Live and valid; excluded from launch allocation |
-| Last updated | 2026-05-17 |
+| Last updated | 2026-05-19 |
 
 ## Operator And Safe Addresses
 
@@ -39,7 +39,32 @@ Do not store private keys, RPC URLs, API keys, Safe signatures, or secrets here.
 
 ## Active Mainnet Deployments
 
-No production Base hub contracts have been deployed yet.
+### Base Hub
+
+| Component | Chain | Address | Status | Notes |
+| --- | --- | --- | --- | --- |
+| `BGWToken` | Base | `0x9285e5bc1177Ee8E734513599035d382e32aA5Ee` | Predicted; pending deterministic deploy | CREATE2 address preflight passed on Base, Ethereum, Arbitrum. |
+| `BGW-GOV` | Base | `0x297E63945B9B93Ab2573D35e6ce6652a46d87713` | Predicted; pending deterministic deploy | CREATE2 address preflight passed on Base, Ethereum, Arbitrum. |
+| `BGWVault` | Base | `TBD` | Pending deterministic redeploy | Redeploy after CREATE2 token deployment. |
+
+### Deterministic Token Deployment Policy
+
+BGW and BGW-GOV must use CREATE2 deployment so the token addresses can remain
+identical across EVM chains where the same canonical tokens are deployed.
+
+| Field | Value |
+| --- | --- |
+| CREATE2 factory | `0x4e59b44847b379578588920cA78FbF26c0B4956C` |
+| BGW salt label | `bridgeway.bgw.token.v2.same-address.2026-05-19` |
+| BGW-GOV salt label | `bridgeway.bgw-gov.token.v2.same-address.2026-05-19` |
+| Predicted BGW | `0x9285e5bc1177Ee8E734513599035d382e32aA5Ee` |
+| Predicted BGW-GOV | `0x297E63945B9B93Ab2573D35e6ce6652a46d87713` |
+| Required preflight | Predicted addresses must have no code on every target chain before broadcast. |
+
+Plain nonce-based token deployments are deprecated for canonical BGW tokens.
+Any future cross-chain BGW deployment must use `scripts/deploy/01_DeployTokens.s.sol`
+after confirming the CREATE2 factory exists and the predicted addresses are
+unoccupied on the target chain.
 
 ### wstLINK Rate Reporter Path
 
@@ -118,6 +143,9 @@ wire new contracts, adapters, registries, or configs to them.
 | Old smoke-test `BridgewayRateRegistry` | Arbitrum One | `0x9ecEdCFd6C2c36A06f01B9a278DE53A6f355deDc` | Pre-final hardening / deprecated. |
 | Pre-ERC165 `BridgewayL1RateReporter` | Ethereum | `0xa9De353B134c2242C2B543894fdB2d24AC040788` | Reporter itself was usable, but paired registry lacked ERC-165 receiver support. Deprecated to avoid 48h receiver-update timer during testing. |
 | Pre-ERC165 `BridgewayRateRegistry` | Arbitrum One | `0x6cbD4adF810dE55d2f75D0886Fe6C403a81EF477` | Destination tx succeeded but registry remained `NoData`; missing CCIP receiver interface advertisement. |
+| Nonce-based `BGWToken` | Base | `0x6cbD4adF810dE55d2f75D0886Fe6C403a81EF477` | No funds; deprecated because address collides with Arbitrum registry and cannot be reused as BGW on Arbitrum. |
+| Nonce-based `BGW-GOV` | Base | `0xa9De353B134c2242C2B543894fdB2d24AC040788` | No funds; deprecated because address collides with Ethereum reporter. |
+| Nonce-based `BGWVault` | Base | `0x6510426155ae3C1d28AE97A1DF1d6f7F504ec1b9` | Safe-owned, no funds; deprecated because it references nonce-based token addresses. |
 
 Deprecated message/transaction references:
 
@@ -134,9 +162,9 @@ the post-deploy read checks. Leave `TBD` until then.
 
 | Component | Chain | Address | Status | Notes |
 | --- | --- | --- | --- | --- |
-| `BGWToken` | Base | `TBD` | Not deployed in current notebook | Canonical BGW receipt token deployment. |
-| `BGW-GOV` / governance token | Base | `TBD` | Not deployed in current notebook | Canonical governance token deployment. |
-| `BridgewayVault` / `BGWVault` | Base | `TBD` | Not deployed in current notebook | Hub mint/redeem/accounting vault. |
+| `BGWToken` | Base | `0x9285e5bc1177Ee8E734513599035d382e32aA5Ee` | Pending CREATE2 deploy | Canonical BGW receipt token deployment. Must not equal deprecated nonce-based addresses. |
+| `BGW-GOV` / governance token | Base | `0x297E63945B9B93Ab2573D35e6ce6652a46d87713` | Pending CREATE2 deploy | Canonical governance token deployment. Must not equal deprecated nonce-based addresses. |
+| `BridgewayVault` / `BGWVault` | Base | `TBD` | Pending redeploy | Hub mint/redeem/accounting vault using CREATE2 token addresses. |
 | `BridgewayRegistry` | Base | `TBD` | Not deployed in current notebook | Chain-local address registry. |
 | `BridgewayHubNAV` | Base | `TBD` | Not deployed in current notebook | Global NAV aggregation. |
 | `BridgewayCCIPNAVReceiver` | Base | `TBD` | Not deployed in current notebook | Spoke NAV CCIP receiver. Must support `supportsInterface(0x85572ffb)`. |

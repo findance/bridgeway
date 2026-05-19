@@ -5,6 +5,35 @@
   "requiredStatusForBroadcast": "approved-for-mainnet",
   "ccipInterfaceVersion": "chainlink-ccip-1.6.4",
   "warning": "Do not deploy until status is approved-for-mainnet, every manualConfirmationRequired item is filled, and all on-chain probes pass.",
+  "deterministicDeployment": {
+    "canonicalCreate2Factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+    "bgwTokenSaltLabel": "bridgeway.bgw.token.v2.same-address.2026-05-19",
+    "bgwGovTokenSaltLabel": "bridgeway.bgw-gov.token.v2.same-address.2026-05-19",
+    "predictedBGWToken": "0x9285e5bc1177Ee8E734513599035d382e32aA5Ee",
+    "predictedBGWGovToken": "0x297E63945B9B93Ab2573D35e6ce6652a46d87713",
+    "preflight": {
+      "baseCodeLength": {
+        "bgwToken": 0,
+        "bgwGovToken": 0
+      },
+      "ethereumCode": {
+        "bgwToken": "0x",
+        "bgwGovToken": "0x"
+      },
+      "arbitrumCode": {
+        "bgwToken": "0x",
+        "bgwGovToken": "0x"
+      },
+      "checkedAt": "2026-05-19"
+    },
+    "policy": "Canonical BGW and BGW-GOV deployments must use CREATE2 and identical constructor arguments across EVM chains. Never use nonce-based CREATE for canonical cross-chain token deployments.",
+    "deprecatedNonceBasedBaseDeployments": {
+      "bgwToken": "0x6cbD4adF810dE55d2f75D0886Fe6C403a81EF477",
+      "bgwGovToken": "0xa9De353B134c2242C2B543894fdB2d24AC040788",
+      "bgwVault": "0x6510426155ae3C1d28AE97A1DF1d6f7F504ec1b9",
+      "reason": "No funds; deprecated because nonce-derived addresses collide with existing Ethereum/Arbitrum infrastructure addresses."
+    }
+  },
   "fileIntegrity": {
     "gitCommit": null,
     "sha256": null

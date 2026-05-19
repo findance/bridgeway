@@ -7,6 +7,7 @@ import "../contracts/tokens/BGWGovToken.sol";
 import "../contracts/core/BGWVault.sol";
 import "../contracts/core/BridgewayAutomation.sol";
 import "../contracts/libraries/FeeLib.sol";
+import "../contracts/libraries/BridgewayDeterministicDeploy.sol";
 
 /// @notice Minimal mock USDC for deploy smoke test.
 contract MockUSDCDeploy {
@@ -45,6 +46,8 @@ contract MockUSDCDeploy {
 contract DeployTest is Test {
     address constant USDC_ADDR = 0xaf88d065e77c8cC2239327C5EDb3A432268e5831;
     address constant CAMELOT_ADDR = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
+    address constant DEPRECATED_NONCE_BGWTOKEN_COLLISION = 0x6cbD4adF810dE55d2f75D0886Fe6C403a81EF477;
+    address constant DEPRECATED_NONCE_GOVTOKEN_COLLISION = 0xa9De353B134c2242C2B543894fdB2d24AC040788;
 
     address founder = makeAddr("founder");
     address team = makeAddr("team");
@@ -81,6 +84,29 @@ contract DeployTest is Test {
         assertEq(govToken.bgwToken(), address(bgwToken));
         assertEq(bgwToken.governanceCompanion(), address(govToken));
         assertTrue(bgwToken.hasRole(bgwToken.DEFAULT_ADMIN_ROLE(), founder));
+    }
+
+    function test_Script01_Create2TokenPredictionsAvoidDeprecatedNonceCollisions() public {
+        address factory = BridgewayDeterministicDeploy.defaultCreate2Factory();
+        address predictedBGW = BridgewayDeterministicDeploy.predictBGWToken(factory, founder);
+        address predictedGov = BridgewayDeterministicDeploy.predictBGWGovToken(factory, founder, predictedBGW, founder);
+
+        assertNotEq(predictedBGW, address(0));
+        assertNotEq(predictedGov, address(0));
+        assertNotEq(predictedBGW, predictedGov);
+        assertNotEq(predictedBGW, DEPRECATED_NONCE_BGWTOKEN_COLLISION);
+        assertNotEq(predictedGov, DEPRECATED_NONCE_GOVTOKEN_COLLISION);
+
+        assertEq(
+            predictedBGW,
+            BridgewayDeterministicDeploy.predictBGWToken(factory, founder),
+            "BGW prediction must be stable"
+        );
+        assertEq(
+            predictedGov,
+            BridgewayDeterministicDeploy.predictBGWGovToken(factory, founder, predictedBGW, founder),
+            "GOV prediction must be stable"
+        );
     }
 
     // ── Script 02: DeployVault ────────────────────────────────────────────────
