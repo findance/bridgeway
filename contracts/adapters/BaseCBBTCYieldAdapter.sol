@@ -27,6 +27,7 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
     uint256 public constant DEFAULT_MAX_STALE = 24 hours;
 
     address public immutable controller;
+    address public immutable rescueReceiver;
     IERC20Metadata public immutable cbbtc;
     IERC20Metadata public immutable aCbbtc;
     IAaveV3Pool public immutable aavePool;
@@ -64,17 +65,20 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
         address aCbbtc_,
         address aerodromeStrategy_,
         address priceFeed_,
+        address rescueReceiver_,
         uint256 maxStale_
     ) Ownable(owner_) {
         if (
             owner_ == address(0) || controller_ == address(0) || cbbtc_ == address(0) || aavePool_ == address(0)
                 || aCbbtc_ == address(0) || aerodromeStrategy_ == address(0) || priceFeed_ == address(0)
+                || rescueReceiver_ == address(0)
         ) {
             revert ZeroAddress();
         }
         if (IAerodromeCbbtcStrategy(aerodromeStrategy_).asset() != cbbtc_) revert InvalidStrategyAsset();
 
         controller = controller_;
+        rescueReceiver = rescueReceiver_;
         cbbtc = IERC20Metadata(cbbtc_);
         aavePool = IAaveV3Pool(aavePool_);
         aCbbtc = IERC20Metadata(aCbbtc_);
@@ -167,15 +171,13 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
         emit MaxStaleUpdated(newMaxStale);
     }
 
-    function emergencyWithdrawAll(address receiver) external onlyOwner returns (uint256 cbbtcReturned) {
-        if (receiver == address(0)) revert ZeroAddress();
-
+    function emergencyWithdrawAll() external onlyOwner returns (uint256 cbbtcReturned) {
         _withdrawAave(type(uint256).max);
         aerodromeStrategy.withdrawAll(address(this));
 
         cbbtcReturned = cbbtc.balanceOf(address(this));
-        if (cbbtcReturned > 0) cbbtc.safeTransfer(receiver, cbbtcReturned);
-        emit EmergencyWithdrawn(cbbtcReturned, receiver);
+        if (cbbtcReturned > 0) cbbtc.safeTransfer(rescueReceiver, cbbtcReturned);
+        emit EmergencyWithdrawn(cbbtcReturned, rescueReceiver);
     }
 
     function _rebalance() internal {
@@ -243,6 +245,8 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     function _aerodromeEnabled() internal view returns (bool) {
+        uint256 lastMark = aerodromeStrategy.lastMarkAt();
+        if (lastMark == 0 || block.timestamp > lastMark + aerodromeStrategy.maxMarkStale()) return false;
         return aerodromeStrategy.netApyBps() >= AERODROME_NET_APY_FLOOR_BPS;
     }
 

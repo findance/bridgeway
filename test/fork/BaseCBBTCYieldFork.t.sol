@@ -81,6 +81,7 @@ contract BaseCBBTCYieldForkTest is Test {
             aCbbtc,
             address(aerodrome),
             BTC_USD_FEED,
+            address(this),
             24 hours
         );
 
@@ -111,6 +112,7 @@ contract BaseCBBTCYieldForkTest is Test {
             aCbbtc,
             address(aerodrome),
             BTC_USD_FEED,
+            address(this),
             24 hours
         );
 

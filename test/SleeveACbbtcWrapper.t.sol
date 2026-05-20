@@ -61,6 +61,7 @@ contract SleeveACbbtcWrapperTest is Test {
             address(aCbbtc),
             address(aerodrome),
             address(btcUsdFeed),
+            owner,
             24 hours
         );
         wrapper.setYieldAdapter(address(yieldAdapter));
@@ -82,6 +83,31 @@ contract SleeveACbbtcWrapperTest is Test {
         usdc.mint(address(fresh), 123e6);
 
         assertEq(fresh.totalAssetsUSDC(), 123e6);
+    }
+
+    function test_YieldAdapterCanBeSetImmediatelyBeforeTimelockEnabled() public {
+        RevertingYieldAdapter replacement = new RevertingYieldAdapter();
+
+        wrapper.setYieldAdapter(address(replacement));
+
+        assertEq(address(wrapper.yieldAdapter()), address(replacement));
+    }
+
+    function test_YieldAdapterChangeRequiresTimelockAfterEnabled() public {
+        RevertingYieldAdapter replacement = new RevertingYieldAdapter();
+
+        wrapper.enableConfigTimelock();
+        vm.expectRevert(SleeveACbbtcWrapper.TimelockActive.selector);
+        wrapper.setYieldAdapter(address(replacement));
+
+        wrapper.proposeYieldAdapter(address(replacement));
+        vm.expectRevert(SleeveACbbtcWrapper.TimelockNotReady.selector);
+        wrapper.executeYieldAdapterProposal();
+
+        vm.warp(block.timestamp + wrapper.CONFIG_DELAY());
+        wrapper.executeYieldAdapterProposal();
+
+        assertEq(address(wrapper.yieldAdapter()), address(replacement));
     }
 
     function test_DeploySwapsUsdcToCbbtcAndForwardsToYieldAdapter() public {
@@ -107,6 +133,20 @@ contract SleeveACbbtcWrapperTest is Test {
         assertEq(returned, 50_000e6);
         assertEq(usdc.balanceOf(vault) - vaultBefore, 50_000e6);
         assertApproxEqAbs(wrapper.totalAssetsUSDC(), 50_000e6, 2);
+    }
+
+    function test_WithdrawReturnsZeroAndKeepsCbbtcAccountedWhenSwapFails() public {
+        usdc.mint(address(wrapper), 100_000e6);
+        wrapper.deploy(100_000e6);
+        router.setPairReverts(address(cbbtc), address(usdc), true);
+
+        uint256 vaultBefore = usdc.balanceOf(vault);
+        uint256 returned = wrapper.withdraw(50_000e6);
+
+        assertEq(returned, 0);
+        assertEq(usdc.balanceOf(vault), vaultBefore);
+        assertGt(cbbtc.balanceOf(address(wrapper)), 0);
+        assertApproxEqAbs(wrapper.totalAssetsUSDC(), 100_000e6, 2);
     }
 
     function test_DeployRejectsStalePrice() public {

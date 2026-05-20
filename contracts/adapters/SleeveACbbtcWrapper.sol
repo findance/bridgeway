@@ -25,6 +25,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS_DENOM = 10_000;
+    uint256 public constant CONFIG_DELAY = 48 hours;
 
     address public immutable vault;
     IERC20 public immutable usdc;
@@ -40,6 +41,9 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     uint256 public maxStale;
     int24 public tickSpacing;
     bool public adapterActivated;
+    bool public configTimelockEnabled;
+    address public pendingYieldAdapter;
+    uint256 public pendingYieldAdapterExecuteAfter;
 
     event Deployed(uint256 usdcIn, uint256 cbbtcObtained);
     event Withdrawn(uint256 usdcRequested, uint256 usdcReturned);
@@ -48,11 +52,19 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     event MaxStaleSet(uint256 maxStale);
     event TickSpacingSet(int24 tickSpacing);
     event YieldAdapterSet(address adapter);
+    event ConfigTimelockEnabled();
+    event YieldAdapterProposed(address indexed adapter, uint256 executeAfter);
+    event YieldAdapterProposalCancelled(address indexed adapter);
 
     error OnlyVault();
+    error OnlySelf();
     error ZeroAddress();
     error InvalidSlippage();
     error InvalidTickSpacing();
+    error TimelockNotEnabled();
+    error TimelockActive();
+    error NoPendingYieldAdapter();
+    error TimelockNotReady();
     error StalePrice(address feed);
     error InvalidPrice(address feed);
 
@@ -96,8 +108,40 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
 
     function setYieldAdapter(address _adapter) external onlyOwner {
         if (_adapter == address(0)) revert ZeroAddress();
+        if (configTimelockEnabled) revert TimelockActive();
         yieldAdapter = IBaseCBBTCYieldAdapter(_adapter);
         emit YieldAdapterSet(_adapter);
+    }
+
+    function enableConfigTimelock() external onlyOwner {
+        configTimelockEnabled = true;
+        emit ConfigTimelockEnabled();
+    }
+
+    function proposeYieldAdapter(address _adapter) external onlyOwner {
+        if (!configTimelockEnabled) revert TimelockNotEnabled();
+        if (_adapter == address(0)) revert ZeroAddress();
+        pendingYieldAdapter = _adapter;
+        pendingYieldAdapterExecuteAfter = block.timestamp + CONFIG_DELAY;
+        emit YieldAdapterProposed(_adapter, pendingYieldAdapterExecuteAfter);
+    }
+
+    function cancelYieldAdapterProposal() external onlyOwner {
+        address pending = pendingYieldAdapter;
+        if (pending == address(0)) revert NoPendingYieldAdapter();
+        pendingYieldAdapter = address(0);
+        pendingYieldAdapterExecuteAfter = 0;
+        emit YieldAdapterProposalCancelled(pending);
+    }
+
+    function executeYieldAdapterProposal() external onlyOwner {
+        address pending = pendingYieldAdapter;
+        if (pending == address(0)) revert NoPendingYieldAdapter();
+        if (block.timestamp < pendingYieldAdapterExecuteAfter) revert TimelockNotReady();
+        pendingYieldAdapter = address(0);
+        pendingYieldAdapterExecuteAfter = 0;
+        yieldAdapter = IBaseCBBTCYieldAdapter(pending);
+        emit YieldAdapterSet(pending);
     }
 
     function setMaxSlippageBps(uint256 newMaxSlippageBps) external onlyOwner {
@@ -147,21 +191,30 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
         uint256 navUSDC = totalAssetsUSDC();
         if (navUSDC == 0) return 0;
 
-        uint256 totalCbbtc = yieldAdapter.totalAssetsAsset();
+        uint256 totalCbbtc = yieldAdapter.totalAssetsAsset() + cbbtc.balanceOf(address(this));
 
         // Pro-rata cbBTC needed to cover the requested USDC value
         uint256 cbbtcNeeded = Math.mulDiv(totalCbbtc, usdcAmount, navUSDC);
         if (cbbtcNeeded > totalCbbtc) cbbtcNeeded = totalCbbtc;
 
         if (cbbtcNeeded > 0) {
-            // Withdraw cbBTC from the yield adapter back to this wrapper
-            uint256 cbbtcWithdrawn = yieldAdapter.withdraw(cbbtcNeeded, address(this));
+            uint256 idleCbbtc = cbbtc.balanceOf(address(this));
+            uint256 cbbtcWithdrawn = idleCbbtc > cbbtcNeeded ? cbbtcNeeded : idleCbbtc;
+            uint256 remaining = cbbtcNeeded - cbbtcWithdrawn;
+            if (remaining > 0) {
+                // Withdraw cbBTC from the yield adapter back to this wrapper
+                cbbtcWithdrawn += yieldAdapter.withdraw(remaining, address(this));
+            }
 
             if (cbbtcWithdrawn > 0) {
                 // Swap cbBTC → USDC
                 uint256 usdcBefore = usdc.balanceOf(address(this));
-                _swap(address(cbbtc), address(usdc), cbbtcWithdrawn, _minUsdcOut(cbbtcWithdrawn));
-                uint256 usdcSwapped = usdc.balanceOf(address(this)) - usdcBefore;
+                uint256 usdcSwapped;
+                try this.swapCbbtcToUsdc(cbbtcWithdrawn) returns (uint256) {
+                    usdcSwapped = usdc.balanceOf(address(this)) - usdcBefore;
+                } catch {
+                    usdcSwapped = 0;
+                }
 
                 usdcReturned = usdcSwapped > usdcAmount ? usdcAmount : usdcSwapped;
                 usdc.safeTransfer(vault, usdcReturned);
@@ -188,9 +241,15 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
 
     /// @notice Reports total position value in USDC 6-decimals for NAV accounting.
     function totalAssetsUSDC() public view returns (uint256) {
-        if (address(yieldAdapter) == address(0)) return usdc.balanceOf(address(this));
-        if (!adapterActivated) return usdc.balanceOf(address(this));
-        return yieldAdapter.totalAssetsUSDC() + usdc.balanceOf(address(this));
+        uint256 totalUsdc = usdc.balanceOf(address(this)) + _cbbtcValueUSDC(cbbtc.balanceOf(address(this)));
+        if (address(yieldAdapter) == address(0)) return totalUsdc;
+        if (!adapterActivated) return totalUsdc;
+        return yieldAdapter.totalAssetsUSDC() + totalUsdc;
+    }
+
+    function swapCbbtcToUsdc(uint256 cbbtcAmount) external returns (uint256 amountOut) {
+        if (msg.sender != address(this)) revert OnlySelf();
+        amountOut = _swap(address(cbbtc), address(usdc), cbbtcAmount, _minUsdcOut(cbbtcAmount));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -217,9 +276,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     }
 
     function _minUsdcOut(uint256 cbbtcAmount) internal view returns (uint256) {
-        uint256 price = _btcUsdPrice();
-        uint256 expected =
-            Math.mulDiv(cbbtcAmount, price * (10 ** usdcDecimals), 10 ** (cbbtcDecimals + feedDecimals));
+        uint256 expected = _cbbtcValueUSDC(cbbtcAmount);
         return Math.mulDiv(expected, BPS_DENOM - maxSlippageBps, BPS_DENOM);
     }
 
@@ -235,6 +292,12 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
         if (answer <= 0 || answeredInRound < roundId || updatedAt == 0) revert InvalidPrice(address(btcUsdFeed));
         if (block.timestamp > updatedAt + maxStale) revert StalePrice(address(btcUsdFeed));
         return SafeCast.toUint256(answer);
+    }
+
+    function _cbbtcValueUSDC(uint256 cbbtcAmount) internal view returns (uint256) {
+        if (cbbtcAmount == 0) return 0;
+        uint256 price = _btcUsdPrice();
+        return Math.mulDiv(cbbtcAmount, price * (10 ** usdcDecimals), 10 ** (cbbtcDecimals + feedDecimals));
     }
 }
 

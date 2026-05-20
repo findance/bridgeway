@@ -26,7 +26,7 @@ import "../../contracts/core/BGWVault.sol";
 ///   MORPHO_VAULT
 ///
 /// Optional:
-///   AERODROME_GAUGE, STRATEGY_KEEPER, MAX_STALE_SECONDS, AERODROME_ROUTER_V2
+///   AERODROME_GAUGE, STRATEGY_KEEPER, MAX_STALE_SECONDS, AERODROME_ROUTER_V2, RESCUE_RECEIVER
 ///   INITIAL_AERODROME_NET_APY_BPS
 contract DeployAndWireSleeves is Script {
     struct Cfg {
@@ -49,6 +49,7 @@ contract DeployAndWireSleeves is Script {
         uint256 maxStale;
         address wrapperRouter;
         address morphoVault;
+        address rescueReceiver;
         uint256 initialAerodromeNetApyBps;
     }
 
@@ -95,6 +96,7 @@ contract DeployAndWireSleeves is Script {
             c.aCbbtc,
             address(strategy),
             c.btcFeed,
+            c.rescueReceiver,
             c.maxStale
         );
         console.log("BaseCBBTCYieldAdapter:", address(yieldAdapter));
@@ -170,6 +172,7 @@ contract DeployAndWireSleeves is Script {
         c.maxStale = vm.envOr("MAX_STALE_SECONDS", uint256(0));
         c.wrapperRouter = vm.envOr("AERODROME_ROUTER_V2", c.swapRouter);
         c.morphoVault = vm.envAddress("MORPHO_VAULT");
+        c.rescueReceiver = vm.envOr("RESCUE_RECEIVER", c.vaultOwner);
         c.initialAerodromeNetApyBps = vm.envOr("INITIAL_AERODROME_NET_APY_BPS", uint256(500));
     }
 }

@@ -31,6 +31,7 @@ import "../../contracts/core/BridgewayNativeSpokePortfolio.sol";
 ///   MAX_STALE_SECONDS
 ///   AERODROME_GAUGE
 ///   STRATEGY_KEEPER (defaults to deployer)
+///   RESCUE_RECEIVER (defaults to SPOKE_OWNER)
 ///
 /// The Aerodrome strategy must expose netApyBps(). The adapter exits that leg
 /// back to Aave whenever net APY is below 4.5%.
@@ -51,6 +52,7 @@ contract DeployBaseCBBTCYieldSpoke is Script {
         int24 tickLower;
         int24 tickUpper;
         address strategyKeeper;
+        address rescueReceiver;
         uint256 maxStale;
     }
 
@@ -87,6 +89,7 @@ contract DeployBaseCBBTCYieldSpoke is Script {
             cfg.aCbbtc,
             address(strategy),
             cfg.btcUsdPriceFeed,
+            cfg.rescueReceiver,
             cfg.maxStale
         );
         strategy.setController(address(adapter));
@@ -124,6 +127,7 @@ contract DeployBaseCBBTCYieldSpoke is Script {
         cfg.tickLower = int24(vm.envInt("AERODROME_TICK_LOWER"));
         cfg.tickUpper = int24(vm.envInt("AERODROME_TICK_UPPER"));
         cfg.strategyKeeper = vm.envOr("STRATEGY_KEEPER", deployer);
+        cfg.rescueReceiver = vm.envOr("RESCUE_RECEIVER", cfg.spokeOwner);
         cfg.maxStale = vm.envOr("MAX_STALE_SECONDS", uint256(0));
     }
 }

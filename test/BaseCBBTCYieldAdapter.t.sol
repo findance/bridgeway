@@ -38,6 +38,7 @@ contract BaseCBBTCYieldAdapterTest is Test {
             address(aCbbtc),
             address(aerodrome),
             address(btcUsdFeed),
+            receiver,
             24 hours
         );
     }
@@ -55,6 +56,17 @@ contract BaseCBBTCYieldAdapterTest is Test {
 
     function test_DeployUsesAaveOnlyWhenAerodromeNetApyIsBelowFloor() public {
         aerodrome.setNetApyBps(449);
+        cbbtc.mint(address(adapter), 100e8);
+
+        adapter.deploy(100e8);
+
+        assertEq(aCbbtc.balanceOf(address(adapter)), 100e8);
+        assertEq(aerodrome.totalAssetsCbbtc(), 0);
+    }
+
+    function test_DeployUsesAaveOnlyWhenAerodromeMarkIsStale() public {
+        aerodrome.setMaxMarkStale(1 hours);
+        vm.warp(block.timestamp + 2 hours);
         cbbtc.mint(address(adapter), 100e8);
 
         adapter.deploy(100e8);
@@ -109,5 +121,17 @@ contract BaseCBBTCYieldAdapterTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(BaseCBBTCYieldAdapter.StalePrice.selector, address(btcUsdFeed)));
         adapter.totalAssetsUSDC();
+    }
+
+    function test_EmergencyWithdrawAllSendsOnlyToRescueReceiver() public {
+        cbbtc.mint(address(adapter), 100e8);
+        adapter.deploy(100e8);
+
+        uint256 returned = adapter.emergencyWithdrawAll();
+
+        assertEq(returned, 100e8);
+        assertEq(cbbtc.balanceOf(receiver), 100e8);
+        assertEq(cbbtc.balanceOf(owner), 0);
+        assertEq(adapter.rescueReceiver(), receiver);
     }
 }

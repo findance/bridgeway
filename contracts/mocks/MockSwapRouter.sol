@@ -33,11 +33,16 @@ contract MockSwapRouter {
     }
 
     mapping(address => mapping(address => Rate)) public rates;
+    mapping(address => mapping(address => bool)) public pairReverts;
 
     function setRate(address tokenIn, address tokenOut, uint256 numerator, uint256 denominator) external {
         require(tokenIn != address(0) && tokenOut != address(0), "MockSwapRouter: zero token");
         require(numerator != 0 && denominator != 0, "MockSwapRouter: zero rate");
         rates[tokenIn][tokenOut] = Rate({numerator: numerator, denominator: denominator});
+    }
+
+    function setPairReverts(address tokenIn, address tokenOut, bool reverts_) external {
+        pairReverts[tokenIn][tokenOut] = reverts_;
     }
 
     function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts) {
@@ -71,6 +76,7 @@ contract MockSwapRouter {
     }
 
     function exactInputSingle(ExactInputSingleParams calldata params) external returns (uint256 amountOut) {
+        require(!pairReverts[params.tokenIn][params.tokenOut], "MockSwapRouter: pair revert");
         Rate memory rate = rates[params.tokenIn][params.tokenOut];
         require(rate.numerator != 0, "MockSwapRouter: missing rate");
         amountOut = (params.amountIn * rate.numerator) / rate.denominator;

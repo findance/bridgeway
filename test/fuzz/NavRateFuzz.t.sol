@@ -51,6 +51,7 @@ contract NavRateFuzzTest is Test {
             address(aCbbtc),
             address(aerodrome),
             address(btcUsdFeed),
+            address(this),
             24 hours
         );
     }

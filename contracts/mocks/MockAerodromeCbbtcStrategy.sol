@@ -11,11 +11,14 @@ contract MockAerodromeCbbtcStrategy is IAerodromeCbbtcStrategy {
 
     IERC20 public immutable cbbtc;
     uint256 public netApyBps;
+    uint256 public lastMarkAt;
+    uint256 public maxMarkStale = 24 hours;
     uint256 public invested;
 
     constructor(address cbbtc_, uint256 netApyBps_) {
         cbbtc = IERC20(cbbtc_);
         netApyBps = netApyBps_;
+        lastMarkAt = block.timestamp;
     }
 
     function asset() external view returns (address) {
@@ -24,6 +27,15 @@ contract MockAerodromeCbbtcStrategy is IAerodromeCbbtcStrategy {
 
     function setNetApyBps(uint256 netApyBps_) external {
         netApyBps = netApyBps_;
+        lastMarkAt = block.timestamp;
+    }
+
+    function setLastMarkAt(uint256 lastMarkAt_) external {
+        lastMarkAt = lastMarkAt_;
+    }
+
+    function setMaxMarkStale(uint256 maxMarkStale_) external {
+        maxMarkStale = maxMarkStale_;
     }
 
     function deposit(uint256 cbbtcAmount) external {

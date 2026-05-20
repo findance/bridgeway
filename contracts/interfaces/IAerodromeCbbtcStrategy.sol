@@ -19,4 +19,8 @@ interface IAerodromeCbbtcStrategy {
     function totalAssetsCbbtc() external view returns (uint256);
 
     function netApyBps() external view returns (uint256);
+
+    function lastMarkAt() external view returns (uint256);
+
+    function maxMarkStale() external view returns (uint256);
 }
