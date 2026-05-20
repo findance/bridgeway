@@ -27,6 +27,7 @@ import "../../contracts/core/BGWVault.sol";
 ///
 /// Optional:
 ///   AERODROME_GAUGE, STRATEGY_KEEPER, MAX_STALE_SECONDS, AERODROME_ROUTER_V2
+///   INITIAL_AERODROME_NET_APY_BPS
 contract DeployAndWireSleeves is Script {
     struct Cfg {
         address vault;
@@ -48,6 +49,7 @@ contract DeployAndWireSleeves is Script {
         uint256 maxStale;
         address wrapperRouter;
         address morphoVault;
+        uint256 initialAerodromeNetApyBps;
     }
 
     function run() external {
@@ -59,7 +61,7 @@ contract DeployAndWireSleeves is Script {
 
         // 1. Sleeve A Wrapper (deploy first — address needed as immutable controller)
         SleeveACbbtcWrapper wrapper = new SleeveACbbtcWrapper(
-            c.vault, deployer, c.usdc, c.cbbtc, c.wrapperRouter
+            c.vault, deployer, c.usdc, c.cbbtc, c.wrapperRouter, c.btcFeed, c.tickSpacing, c.maxStale
         );
         console.log("SleeveACbbtcWrapper:", address(wrapper));
 
@@ -82,6 +84,7 @@ contract DeployAndWireSleeves is Script {
             })
         );
         console.log("AerodromeCbbtcStrategy:", address(strategy));
+        strategy.markToMarket(0, c.initialAerodromeNetApyBps);
 
         // 3. cbBTC yield adapter — controller = wrapper (immutable)
         BaseCBBTCYieldAdapter yieldAdapter = new BaseCBBTCYieldAdapter(
@@ -99,7 +102,6 @@ contract DeployAndWireSleeves is Script {
         strategy.setController(address(yieldAdapter));
 
         // 4. Configure wrapper
-        _configurePaths(wrapper, c.usdc, c.cbbtc);
         wrapper.setYieldAdapter(address(yieldAdapter));
 
         // 5. Sleeve B
@@ -121,18 +123,6 @@ contract DeployAndWireSleeves is Script {
         }
 
         vm.stopBroadcast();
-    }
-
-    function _configurePaths(SleeveACbbtcWrapper wrapper, address usdc, address cbbtc) internal {
-        address[] memory buy = new address[](2);
-        buy[0] = usdc;
-        buy[1] = cbbtc;
-
-        address[] memory sell = new address[](2);
-        sell[0] = cbbtc;
-        sell[1] = usdc;
-
-        wrapper.setPaths(buy, sell);
     }
 
     function _wireVault(
@@ -180,5 +170,6 @@ contract DeployAndWireSleeves is Script {
         c.maxStale = vm.envOr("MAX_STALE_SECONDS", uint256(0));
         c.wrapperRouter = vm.envOr("AERODROME_ROUTER_V2", c.swapRouter);
         c.morphoVault = vm.envAddress("MORPHO_VAULT");
+        c.initialAerodromeNetApyBps = vm.envOr("INITIAL_AERODROME_NET_APY_BPS", uint256(500));
     }
 }

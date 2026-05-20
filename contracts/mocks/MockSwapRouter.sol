@@ -13,6 +13,25 @@ contract MockSwapRouter {
         uint256 denominator;
     }
 
+    struct ExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        int24 tickSpacing;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    struct ExactInputParams {
+        bytes path;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+    }
+
     mapping(address => mapping(address => Rate)) public rates;
 
     function setRate(address tokenIn, address tokenOut, uint256 numerator, uint256 denominator) external {
@@ -49,5 +68,19 @@ contract MockSwapRouter {
 
         IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
         IERC20(path[path.length - 1]).safeTransfer(to, amountOut);
+    }
+
+    function exactInputSingle(ExactInputSingleParams calldata params) external returns (uint256 amountOut) {
+        Rate memory rate = rates[params.tokenIn][params.tokenOut];
+        require(rate.numerator != 0, "MockSwapRouter: missing rate");
+        amountOut = (params.amountIn * rate.numerator) / rate.denominator;
+        require(amountOut >= params.amountOutMinimum, "MockSwapRouter: slippage");
+
+        IERC20(params.tokenIn).safeTransferFrom(msg.sender, address(this), params.amountIn);
+        IERC20(params.tokenOut).safeTransfer(params.recipient, amountOut);
+    }
+
+    function exactInput(ExactInputParams calldata) external pure returns (uint256) {
+        revert("MockSwapRouter: exactInput unsupported");
     }
 }
