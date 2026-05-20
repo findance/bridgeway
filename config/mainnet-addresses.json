@@ -198,7 +198,7 @@
       "assets": {
         "USDC": {
           "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-          "priceFeed": "0x51597f405303C4377E36123cBc172b13269EA163",
+          "priceFeed": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B",
           "tokenDecimals": 6,
           "feedDecimals": 8
         },
@@ -225,7 +225,7 @@
       "settlementAsset": {
         "symbol": "USDC",
         "token": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        "usdPriceFeed": "0x51597f405303C4377E36123cBc172b13269EA163",
+        "usdPriceFeed": "0x7e860098F58bBFC8648a4311b374B1D669a2bc6B",
         "tokenDecimals": 6,
         "feedDecimals": 8,
         "source": "https://data.chain.link/feeds/base/base/usdc-usd",
