@@ -111,6 +111,19 @@ contract BaseCBBTCYieldAdapterTest is Test {
         assertEq(aerodrome.totalAssetsCbbtc(), 10e8);
     }
 
+    function test_ControllerCanWithdrawAllToReceiver() public {
+        cbbtc.mint(address(adapter), 100e8);
+        adapter.deploy(100e8);
+
+        uint256 returned = adapter.withdrawAll(receiver);
+
+        assertEq(returned, 100e8);
+        assertEq(cbbtc.balanceOf(receiver), 100e8);
+        assertEq(adapter.totalAssetsAsset(), 0);
+        assertEq(aCbbtc.balanceOf(address(adapter)), 0);
+        assertEq(aerodrome.totalAssetsCbbtc(), 0);
+    }
+
     function test_AdapterRejectsStalePrice() public {
         cbbtc.mint(address(adapter), 1e8);
         adapter.deploy(1e8);

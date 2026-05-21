@@ -122,6 +122,7 @@ contract BGWVaultTest is Test {
         vault.setWhitelisted(founder, true);
         vault.setWhitelisted(alice, true);
         vault.setWhitelisted(bob, true);
+        vault.setRedemptionBuffer(0, 0);
 
         vm.stopPrank();
 
@@ -1494,6 +1495,70 @@ contract BGWVaultTest is Test {
         assertEq(vault.sleeveValue(vault.SLEEVE_B()), 1e6);
         assertEq(vault.totalNAV(), 1e6);
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
+    }
+
+    function test_SmallRedemptionsUseStableSleeveBeforeSleeveA() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        address[] memory routeA = new address[](1);
+        routeA[0] = address(adapterA);
+        address[] memory routeB = new address[](1);
+        routeB[0] = address(adapterB);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.startPrank(founder);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 100e6);
+        vault.deposit(100e6, 0);
+        uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vault.redeem(1e18, 0);
+        vm.stopPrank();
+
+        assertEq(adapterA.totalAssetsUSDC(), 65e6);
+        assertLt(adapterB.totalAssetsUSDC(), 35e6);
+        assertGt(MockUSDC(USDC_ADDR).balanceOf(alice), usdcBefore);
+        assertEq(bgwToken.balanceOf(alice), 99e18);
+    }
+
+    function test_RedemptionBufferRetainsIdleUSDCAndFundsSmallRedeemsFirst() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        address[] memory routeA = new address[](1);
+        routeA[0] = address(adapterA);
+        address[] memory routeB = new address[](1);
+        routeB[0] = address(adapterB);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.startPrank(founder);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
+        vault.setRedemptionBuffer(200, 2e6);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 100e6);
+        vault.deposit(100e6, 0);
+        uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vault.redeem(1e18, 0);
+        vm.stopPrank();
+
+        assertEq(vault.holderIdleUSDC(), 1e6);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 1e6);
+        assertEq(adapterA.totalAssetsUSDC(), 63_700_000);
+        assertEq(adapterB.totalAssetsUSDC(), 34_300_000);
+        assertGt(MockUSDC(USDC_ADDR).balanceOf(alice), usdcBefore);
     }
 
     function test_OwnerCanDisableStableOnlySmallDepositRouting() public {

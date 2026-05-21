@@ -8,6 +8,7 @@ import "../../contracts/adapters/BaseCBBTCYieldAdapter.sol";
 import "../../contracts/interfaces/IAerodromeSlipstream.sol";
 import "../../contracts/mocks/MockAerodromeCbbtcStrategy.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 interface IAaveV3PoolReserveData {
     struct ReserveConfigurationMap {
@@ -154,6 +155,35 @@ contract BaseCBBTCYieldForkTest is Test {
         assertEq(strategy.token1(), CBBTC);
         assertFalse(strategy.cbbtcIsToken0());
         assertEq(strategy.totalAssetsCbbtc(), SAMPLE_CBBTC);
+    }
+
+    function test_AerodromeCbbtcStrategyAcceptsPositionNftsOnlyFromPositionManager() public {
+        AerodromeCbbtcStrategy strategy = new AerodromeCbbtcStrategy(
+            AerodromeCbbtcStrategy.ConstructorParams({
+                owner: address(this),
+                controller: address(this),
+                keeper: address(this),
+                cbbtc: CBBTC,
+                usdc: USDC,
+                aero: AERO,
+                positionManager: AERODROME_POSITION_MANAGER,
+                swapRouter: AERODROME_SWAP_ROUTER,
+                gauge: address(0),
+                btcUsdFeed: BTC_USD_FEED,
+                tickSpacing: 100,
+                tickLower: -887200,
+                tickUpper: 887200
+            })
+        );
+
+        vm.prank(AERODROME_POSITION_MANAGER);
+        assertEq(
+            strategy.onERC721Received(address(this), address(this), 1, ""),
+            IERC721Receiver.onERC721Received.selector
+        );
+
+        vm.expectRevert(AerodromeCbbtcStrategy.InvalidPair.selector);
+        strategy.onERC721Received(address(this), address(this), 1, "");
     }
 
     function _selectBaseFork() internal returns (bool selected) {

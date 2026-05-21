@@ -136,6 +136,14 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
         emit Withdrawn(cbbtcAmount, cbbtcReturned, receiver);
     }
 
+    /// @notice Controller-only full exit used by Sleeve A emergency unwinds.
+    function withdrawAll(address receiver) external onlyController returns (uint256 cbbtcReturned) {
+        if (receiver == address(0)) revert ZeroAddress();
+
+        cbbtcReturned = _withdrawAllTo(receiver);
+        emit Withdrawn(type(uint256).max, cbbtcReturned, receiver);
+    }
+
     /// @notice Harvest strategy rewards into cbBTC and redeploy according to policy.
     function harvest() external onlyController returns (uint256 cbbtcHarvested) {
         cbbtcHarvested = aerodromeStrategy.harvestToCbbtc(address(this));
@@ -172,12 +180,16 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     function emergencyWithdrawAll() external onlyOwner returns (uint256 cbbtcReturned) {
+        cbbtcReturned = _withdrawAllTo(rescueReceiver);
+        emit EmergencyWithdrawn(cbbtcReturned, rescueReceiver);
+    }
+
+    function _withdrawAllTo(address receiver) internal returns (uint256 cbbtcReturned) {
         _withdrawAave(type(uint256).max);
         aerodromeStrategy.withdrawAll(address(this));
 
         cbbtcReturned = cbbtc.balanceOf(address(this));
-        if (cbbtcReturned > 0) cbbtc.safeTransfer(rescueReceiver, cbbtcReturned);
-        emit EmergencyWithdrawn(cbbtcReturned, rescueReceiver);
+        if (cbbtcReturned > 0) cbbtc.safeTransfer(receiver, cbbtcReturned);
     }
 
     function _rebalance() internal {

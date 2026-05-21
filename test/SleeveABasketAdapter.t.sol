@@ -20,11 +20,13 @@ contract SleeveABasketAdapterTest is Test {
     MockERC20 asset2;
     MockERC20 asset3;
     MockERC20 asset4;
+    MockERC20 asset5;
 
     MockPriceFeed feed1;
     MockPriceFeed feed2;
     MockPriceFeed feed3;
     MockPriceFeed feed4;
+    MockPriceFeed feed5;
 
     bytes32 constant ASSET_1 = keccak256("ASSET_1");
     bytes32 constant ASSET_2 = keccak256("ASSET_2");
@@ -44,11 +46,13 @@ contract SleeveABasketAdapterTest is Test {
         asset2 = new MockERC20("Asset 2", "A2", 18);
         asset3 = new MockERC20("Asset 3", "A3", 18);
         asset4 = new MockERC20("Asset 4", "A4", 18);
+        asset5 = new MockERC20("Asset 5", "A5", 18);
 
         feed1 = new MockPriceFeed(100e8, 8);
         feed2 = new MockPriceFeed(50e8, 8);
         feed3 = new MockPriceFeed(25e8, 8);
         feed4 = new MockPriceFeed(10e8, 8);
+        feed5 = new MockPriceFeed(20e8, 8);
 
         adapter = new SleeveABasketAdapter(address(this), owner, address(usdc), address(router));
 
@@ -56,11 +60,13 @@ contract SleeveABasketAdapterTest is Test {
         _setRates(asset2, 20_000_000_000, 20_000_000_000);
         _setRates(asset3, 40_000_000_000, 40_000_000_000);
         _setRates(asset4, 100_000_000_000, 100_000_000_000);
+        _setRates(asset5, 50_000_000_000, 50_000_000_000);
 
         asset1.mint(address(router), 1_000_000e18);
         asset2.mint(address(router), 1_000_000e18);
         asset3.mint(address(router), 1_000_000e18);
         asset4.mint(address(router), 1_000_000e18);
+        asset5.mint(address(router), 1_000_000e18);
         usdc.mint(address(router), 1_000_000e6);
 
         adapter.setAssets(_defaultAssets());
@@ -221,6 +227,23 @@ contract SleeveABasketAdapterTest is Test {
         adapter.setAssets(_defaultAssets());
     }
 
+    function test_CanReplaceOldAssetAfterEmergencyUnwind() public {
+        usdc.mint(address(adapter), 1_000e6);
+        adapter.deploy(1_000e6);
+
+        SleeveABasketAdapter.AssetInput[] memory replacement = _replacementAssets();
+        vm.expectRevert(SleeveABasketAdapter.AdapterNotEmpty.selector);
+        adapter.setAssets(replacement);
+
+        adapter.emergencyUnwindAll();
+        adapter.harvest();
+        adapter.setAssets(replacement);
+
+        assertEq(adapter.assetCount(), 4);
+        assertEq(adapter.assetAt(0).token, address(asset2));
+        assertEq(adapter.assetAt(3).token, address(asset5));
+    }
+
     function test_OnlyVaultCanMoveFunds() public {
         vm.startPrank(stranger);
         vm.expectRevert(SleeveABasketAdapter.OnlyVault.selector);
@@ -238,6 +261,14 @@ contract SleeveABasketAdapterTest is Test {
         assets[1] = _assetInput(address(asset2), address(feed2), 3_000);
         assets[2] = _assetInput(address(asset3), address(feed3), 2_500);
         assets[3] = _assetInput(address(asset4), address(feed4), 1_500);
+    }
+
+    function _replacementAssets() internal view returns (SleeveABasketAdapter.AssetInput[] memory assets) {
+        assets = new SleeveABasketAdapter.AssetInput[](4);
+        assets[0] = _assetInput(address(asset2), address(feed2), 3_000);
+        assets[1] = _assetInput(address(asset3), address(feed3), 3_000);
+        assets[2] = _assetInput(address(asset4), address(feed4), 2_500);
+        assets[3] = _assetInput(address(asset5), address(feed5), 1_500);
     }
 
     function _assetInput(address token, address feed, uint16 weightBps)

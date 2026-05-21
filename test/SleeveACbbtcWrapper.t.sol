@@ -110,6 +110,51 @@ contract SleeveACbbtcWrapperTest is Test {
         assertEq(address(wrapper.yieldAdapter()), address(replacement));
     }
 
+    function test_MaxStaleIsBoundedAtOneDay() public {
+        wrapper.setMaxStale(0);
+        assertEq(wrapper.maxStale(), 24 hours);
+
+        wrapper.setMaxStale(12 hours);
+        assertEq(wrapper.maxStale(), 12 hours);
+
+        vm.expectRevert(SleeveACbbtcWrapper.InvalidMaxStale.selector);
+        wrapper.setMaxStale(24 hours + 1);
+    }
+
+    function test_TickSpacingMustBeKnownAerodromeSpacing() public {
+        wrapper.setTickSpacing(200);
+        assertEq(wrapper.tickSpacing(), 200);
+
+        vm.expectRevert(SleeveACbbtcWrapper.InvalidTickSpacing.selector);
+        wrapper.setTickSpacing(123);
+    }
+
+    function test_ConstructorRejectsUnknownTickSpacingAndTooLargeMaxStale() public {
+        vm.expectRevert(SleeveACbbtcWrapper.InvalidTickSpacing.selector);
+        new SleeveACbbtcWrapper(
+            vault,
+            owner,
+            address(usdc),
+            address(cbbtc),
+            address(router),
+            address(btcUsdFeed),
+            123,
+            24 hours
+        );
+
+        vm.expectRevert(SleeveACbbtcWrapper.InvalidMaxStale.selector);
+        new SleeveACbbtcWrapper(
+            vault,
+            owner,
+            address(usdc),
+            address(cbbtc),
+            address(router),
+            address(btcUsdFeed),
+            100,
+            24 hours + 1
+        );
+    }
+
     function test_DeploySwapsUsdcToCbbtcAndForwardsToYieldAdapter() public {
         usdc.mint(address(wrapper), 100_000e6);
 
@@ -149,6 +194,20 @@ contract SleeveACbbtcWrapperTest is Test {
         assertApproxEqAbs(wrapper.totalAssetsUSDC(), 100_000e6, 2);
     }
 
+    function test_EmergencyWithdrawAllReturnsUsdcToVault() public {
+        usdc.mint(address(wrapper), 100_000e6);
+        wrapper.deploy(100_000e6);
+
+        uint256 vaultBefore = usdc.balanceOf(vault);
+        uint256 returned = wrapper.emergencyWithdrawAll();
+
+        assertEq(returned, 100_000e6);
+        assertEq(usdc.balanceOf(vault) - vaultBefore, 100_000e6);
+        assertEq(cbbtc.balanceOf(address(wrapper)), 0);
+        assertEq(yieldAdapter.totalAssetsAsset(), 0);
+        assertEq(wrapper.totalAssetsUSDC(), 0);
+    }
+
     function test_DeployRejectsStalePrice() public {
         usdc.mint(address(wrapper), 100_000e6);
         wrapper.setMaxStale(1 hours);
@@ -164,6 +223,10 @@ contract RevertingYieldAdapter is IBaseCBBTCYieldAdapter {
     function deploy(uint256) external pure {}
 
     function withdraw(uint256, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function withdrawAll(address) external pure returns (uint256) {
         return 0;
     }
 

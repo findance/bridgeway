@@ -27,7 +27,7 @@ import "../../contracts/core/BGWVault.sol";
 ///
 /// Optional:
 ///   AERODROME_GAUGE, STRATEGY_KEEPER, MAX_STALE_SECONDS, AERODROME_ROUTER_V2, RESCUE_RECEIVER
-///   INITIAL_AERODROME_NET_APY_BPS
+///   INITIAL_AERODROME_NET_APY_BPS, AERO_TO_CBBTC_PATH
 contract DeployAndWireSleeves is Script {
     struct Cfg {
         address vault;
@@ -51,6 +51,7 @@ contract DeployAndWireSleeves is Script {
         address morphoVault;
         address rescueReceiver;
         uint256 initialAerodromeNetApyBps;
+        bytes aeroToCbbtcPath;
     }
 
     function run() external {
@@ -85,7 +86,14 @@ contract DeployAndWireSleeves is Script {
             })
         );
         console.log("AerodromeCbbtcStrategy:", address(strategy));
+        console.log("Aerodrome gauge:", c.gauge);
         strategy.markToMarket(0, c.initialAerodromeNetApyBps);
+        if (c.aeroToCbbtcPath.length > 0) {
+            strategy.setAeroToCbbtcPath(c.aeroToCbbtcPath);
+            console.log("AERO reward compounding path configured.");
+        } else {
+            console.log("AERO reward compounding path not configured.");
+        }
 
         // 3. cbBTC yield adapter — controller = wrapper (immutable)
         BaseCBBTCYieldAdapter yieldAdapter = new BaseCBBTCYieldAdapter(
@@ -187,5 +195,6 @@ contract DeployAndWireSleeves is Script {
         c.morphoVault = vm.envAddress("MORPHO_VAULT");
         c.rescueReceiver = vm.envOr("RESCUE_RECEIVER", c.vaultOwner);
         c.initialAerodromeNetApyBps = vm.envOr("INITIAL_AERODROME_NET_APY_BPS", uint256(500));
+        c.aeroToCbbtcPath = vm.envOr("AERO_TO_CBBTC_PATH", bytes(""));
     }
 }

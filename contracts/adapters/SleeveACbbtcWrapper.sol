@@ -26,6 +26,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
 
     uint256 public constant BPS_DENOM = 10_000;
     uint256 public constant CONFIG_DELAY = 48 hours;
+    uint256 public constant MAX_STALE_LIMIT = 24 hours;
 
     address public immutable vault;
     IERC20 public immutable usdc;
@@ -55,11 +56,13 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     event ConfigTimelockEnabled();
     event YieldAdapterProposed(address indexed adapter, uint256 executeAfter);
     event YieldAdapterProposalCancelled(address indexed adapter);
+    event EmergencyWithdrawn(uint256 cbbtcWithdrawn, uint256 usdcReturned);
 
     error OnlyVault();
     error OnlySelf();
     error ZeroAddress();
     error InvalidSlippage();
+    error InvalidMaxStale();
     error InvalidTickSpacing();
     error TimelockNotEnabled();
     error TimelockActive();
@@ -89,7 +92,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
         ) {
             revert ZeroAddress();
         }
-        if (_tickSpacing <= 0) revert InvalidTickSpacing();
+        _validateTickSpacing(_tickSpacing);
         vault = _vault;
         usdc = IERC20(_usdc);
         cbbtc = IERC20(_cbbtc);
@@ -99,7 +102,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
         usdcDecimals = IERC20MetadataLike(_usdc).decimals();
         feedDecimals = IChainlinkAggregator(_btcUsdFeed).decimals();
         tickSpacing = _tickSpacing;
-        maxStale = _maxStale == 0 ? 24 hours : _maxStale;
+        maxStale = _normalizeMaxStale(_maxStale);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -151,12 +154,12 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     }
 
     function setMaxStale(uint256 newMaxStale) external onlyOwner {
-        maxStale = newMaxStale == 0 ? 24 hours : newMaxStale;
+        maxStale = _normalizeMaxStale(newMaxStale);
         emit MaxStaleSet(maxStale);
     }
 
     function setTickSpacing(int24 newTickSpacing) external onlyOwner {
-        if (newTickSpacing <= 0) revert InvalidTickSpacing();
+        _validateTickSpacing(newTickSpacing);
         tickSpacing = newTickSpacing;
         emit TickSpacingSet(newTickSpacing);
     }
@@ -239,6 +242,26 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
         }
     }
 
+    /// @notice Owner-only full Sleeve A unwind. Pulls cbBTC back from the yield
+    ///         adapter, swaps available cbBTC to USDC, and returns USDC to vault.
+    function emergencyWithdrawAll() external onlyOwner returns (uint256 usdcReturned) {
+        if (address(yieldAdapter) != address(0)) {
+            yieldAdapter.withdrawAll(address(this));
+        }
+
+        uint256 cbbtcToSwap = cbbtc.balanceOf(address(this));
+        if (cbbtcToSwap > 0) {
+            try this.swapCbbtcToUsdc(cbbtcToSwap) returns (uint256) {} catch {}
+        }
+
+        usdcReturned = usdc.balanceOf(address(this));
+        if (usdcReturned > 0) {
+            usdc.safeTransfer(vault, usdcReturned);
+        }
+
+        emit EmergencyWithdrawn(cbbtcToSwap, usdcReturned);
+    }
+
     /// @notice Reports total position value in USDC 6-decimals for NAV accounting.
     function totalAssetsUSDC() public view returns (uint256) {
         uint256 totalUsdc = usdc.balanceOf(address(this)) + _cbbtcValueUSDC(cbbtc.balanceOf(address(this)));
@@ -298,6 +321,18 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
         if (cbbtcAmount == 0) return 0;
         uint256 price = _btcUsdPrice();
         return Math.mulDiv(cbbtcAmount, price * (10 ** usdcDecimals), 10 ** (cbbtcDecimals + feedDecimals));
+    }
+
+    function _normalizeMaxStale(uint256 stale) internal pure returns (uint256) {
+        if (stale == 0) return MAX_STALE_LIMIT;
+        if (stale > MAX_STALE_LIMIT) revert InvalidMaxStale();
+        return stale;
+    }
+
+    function _validateTickSpacing(int24 spacing) internal pure {
+        if (spacing != 1 && spacing != 50 && spacing != 100 && spacing != 200 && spacing != 2_000) {
+            revert InvalidTickSpacing();
+        }
     }
 }
 

@@ -215,6 +215,7 @@
     tr:last-child td { border-bottom: 0; }
     .right { text-align: right; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .wrap { overflow-wrap: anywhere; }
     .good { color: var(--good); font-weight: 700; }
     .warn { color: var(--warn); font-weight: 700; }
 
@@ -253,7 +254,7 @@
     <div class="controls">
       <label>
         RPC URL
-        <input id="rpc" value="https://mainnet.base.org">
+        <input id="rpc" value="https://base-mainnet.g.alchemy.com/v2/PRhoD3X6orZwD8NtGSvb5">
       </label>
       <label>
         Wallet / Depositor
@@ -359,27 +360,39 @@
       </table>
     </section>
 
+    <section>
+      <div class="section-head">
+        <h2>Deployment Wiring</h2>
+        <span id="wiringStatus" class="pill">New deployment</span>
+      </div>
+      <table>
+        <tbody id="configRows"></tbody>
+      </table>
+    </section>
+
     <div class="links">
       <a href="https://app.morpho.org/base/vault/0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61" target="_blank" rel="noreferrer">Morpho USDC Vault</a>
-      <a href="https://basescan.org/address/0xDbC67391e3DAf3E542B7D290f607FE0CBc91307f" target="_blank" rel="noreferrer">Vault On BaseScan</a>
-      <a href="https://basescan.org/address/0x9285e5bc1177Ee8E734513599035d382e32aA5Ee" target="_blank" rel="noreferrer">BGW Token</a>
+      <a href="https://basescan.org/address/0x62f60d6C5bcdf76B0Dd086526B9e18f99d5a8B5a" target="_blank" rel="noreferrer">Vault On BaseScan</a>
+      <a href="https://basescan.org/address/0x60529BA0958a35AD64FC31523B51D194b4D78A7f" target="_blank" rel="noreferrer">BGW Token</a>
+      <a href="https://basescan.org/address/0xb2a8A466F018573AA69b9F2C33140603cd5EE049" target="_blank" rel="noreferrer">Aerodrome Strategy</a>
     </div>
   </main>
 
   <script>
     const ADDR = {
-      vault: "0xDbC67391e3DAf3E542B7D290f607FE0CBc91307f",
-      bgw: "0x9285e5bc1177Ee8E734513599035d382e32aA5Ee",
-      gov: "0x297E63945B9B93Ab2573D35e6ce6652a46d87713",
+      vault: "0x62f60d6C5bcdf76B0Dd086526B9e18f99d5a8B5a",
+      bgw: "0x60529BA0958a35AD64FC31523B51D194b4D78A7f",
+      gov: "0x0262f068A9A69C88988061bE1689bdD02967676d",
       usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
       cbbtc: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
       aUsdc: "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB",
       aCbbtc: "0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6",
       morpho: "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
-      sleeveA: "0xd89014930C45282D2306Ea6C0050740303207701",
-      strategy: "0x3CC2848457e00D6114a2C546166e1f1596d8fCCd",
-      yield: "0x4B887acc298f68298E4C70Bc74AE0834f4F2028B",
-      sleeveB: "0xb95cF3E4009bB466E46909a4aF88aAaF29E7e7e4",
+      sleeveA: "0x0897bD6B8612A43E0d015A6f4c760f5d1eAD70AC",
+      strategy: "0xb2a8A466F018573AA69b9F2C33140603cd5EE049",
+      yield: "0x44c76eEcaB00e7448215558c13Ebf8EEbB7F0065",
+      sleeveB: "0x5a0d347C37Dcce87aEc394080B1f658E4484F7Ed",
+      gauge: "0x6399ed6725cC163D019aA64FF55b22149D7179A8",
       safe: "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
       founder: "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
     };
@@ -408,7 +421,18 @@
       usdcRedemptionMaxStale: "0x75b52aa7",
       maxStale: "0x31dd6b06",
       lastMarkAt: "0xb5d92571",
-      maxMarkStale: "0x4870b777"
+      maxMarkStale: "0x4870b777",
+      markedTotalAssetsCbbtc: "0x191c06b7",
+      sleeveAdapterRouteAt: "0x19f16128",
+      sleeveAdapterRouteCount: "0x80ab507d",
+      sleeveAdapterActiveDepositBps: "0xba4ad3e4",
+      gauge: "0xa6f19c84",
+      aeroToCbbtcPath: "0x7f8266c7",
+      tickSpacing: "0xd0c93a7c",
+      minDepositUsdc: "0xd98656fd",
+      smallDepositStableOnlyThresholdUsdc: "0x287cbeb1",
+      minSleeveRouteDepositUsdc: "0xb60388bd",
+      bootstrapMode: "0x9563ddb3"
     };
 
     const MIN_BUY_USDC = 1000000n;
@@ -451,6 +475,51 @@
     function asAddress(hex) {
       const h = cleanHex(hex).replace(/^0x/, "").padStart(64, "0");
       return "0x" + h.slice(24);
+    }
+
+    function shortAddr(address) {
+      return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    }
+
+    function asBytes(hex) {
+      const h = cleanHex(hex).replace(/^0x/, "");
+      if (h.length <= 64) return `0x${h}`;
+      const offset = Number(BigInt(`0x${h.slice(0, 64)}`));
+      const lengthStart = offset * 2;
+      const length = Number(BigInt(`0x${h.slice(lengthStart, lengthStart + 64)}`));
+      return `0x${h.slice(lengthStart + 64, lengthStart + 64 + length * 2)}`;
+    }
+
+    function decodeRoute(hex) {
+      const h = cleanHex(hex).replace(/^0x/, "").padStart(192, "0");
+      return {
+        adapter: asAddress(`0x${h.slice(0, 64)}`),
+        bps: Number(BigInt(`0x${h.slice(64, 128)}`)),
+        active: BigInt(`0x${h.slice(128, 192)}`) !== 0n
+      };
+    }
+
+    function decodeAeroPath(hex) {
+      const bytes = asBytes(hex);
+      const h = bytes.replace(/^0x/, "");
+      if (h.length < 86) return bytes;
+      const names = {
+        "940181a94a35a4569e4529a3cdfb74e38fd98631": "AERO",
+        "833589fcd6edb6e08f4c7c32d4f71b54bda02913": "USDC",
+        "cbb7c0000ab88b473b1f5afd9ef808440eed33bf": "cbBTC"
+      };
+      let cursor = 0;
+      const first = h.slice(cursor, cursor + 40);
+      cursor += 40;
+      const parts = [names[first] || shortAddr(`0x${first}`)];
+      while (cursor + 46 <= h.length) {
+        const spacing = Number(BigInt(`0x${h.slice(cursor, cursor + 6)}`));
+        cursor += 6;
+        const token = h.slice(cursor, cursor + 40);
+        cursor += 40;
+        parts.push(`${spacing}`, names[token] || shortAddr(`0x${token}`));
+      }
+      return parts.join(" -> ");
     }
 
     function fmtFixed(value, decimals, places = 6) {
@@ -557,8 +626,28 @@
       return json.result;
     }
 
+    function callLabel(to, callData) {
+      const selector = callData.slice(0, 10);
+      const name = Object.entries(SIG).find(([, value]) => value === selector)?.[0] || selector;
+      const addressName = Object.entries(ADDR).find(([, value]) => value.toLowerCase() === to.toLowerCase())?.[0] || to;
+      return `${addressName}.${name}`;
+    }
+
     async function call(to, callData) {
-      return rpc("eth_call", [{ to, data: callData }, "latest"]);
+      try {
+        return await rpc("eth_call", [{ to, data: callData }, "latest"]);
+      } catch (error) {
+        error.message = `${callLabel(to, callData)} failed: ${error.message}`;
+        throw error;
+      }
+    }
+
+    async function safeCall(to, callData, fallback = "0x0") {
+      try {
+        return await call(to, callData);
+      } catch {
+        return fallback;
+      }
     }
 
     async function balance(token, holder) {
@@ -697,6 +786,16 @@
           ["Vault whitelist", asBool(whitelisted) ? "true" : "false"]
         ].map(([k, v]) => `<tr><td>${k}</td><td class="right mono">${v}</td></tr>`).join("");
 
+        $("configRows").innerHTML = [
+          ["Vault", ADDR.vault],
+          ["BGW token", ADDR.bgw],
+          ["BGW-GOV token", ADDR.gov],
+          ["Sleeve A wrapper", ADDR.sleeveA],
+          ["Base cbBTC yield adapter", ADDR.yield],
+          ["Aerodrome strategy", ADDR.strategy],
+          ["Sleeve B stable adapter", ADDR.sleeveB]
+        ].map(configRow).join("");
+
         if (!$("sleeveARows").children.length) {
           $("sleeveARows").innerHTML = `<tr><td colspan="3">Use Deep Refresh for underlying positions.</td></tr>`;
           $("sleeveBRows").innerHTML = `<tr><td colspan="3">Use Deep Refresh for underlying positions.</td></tr>`;
@@ -705,6 +804,9 @@
         $("status").textContent = "Overview refresh complete.";
       } catch (error) {
         $("status").textContent = `Error: ${error.message}`;
+        $("sleeveARows").innerHTML = `<tr><td colspan="3" class="warn">${error.message}</td></tr>`;
+        $("sleeveBRows").innerHTML = `<tr><td colspan="3" class="warn">Deep Refresh stopped before look-through render.</td></tr>`;
+        $("configRows").innerHTML = `<tr><td>Deep Refresh error</td><td class="right mono wrap">${error.message}</td></tr>`;
       } finally {
         button.disabled = false;
       }
@@ -759,7 +861,20 @@
           whitelisted,
           usdcMaxStale,
           wrapperMaxStale,
-          yieldMaxStale
+          yieldMaxStale,
+          wrapperTickSpacing,
+          routeACount,
+          routeBCount,
+          routeA,
+          routeB,
+          routeAActiveBps,
+          routeBActiveBps,
+          strategyGauge,
+          aeroPath,
+          minDeposit,
+          smallStableOnly,
+          minRoute,
+          bootstrapMode
         ] = await Promise.all([
           rpc("eth_blockNumber", []),
           rpc("eth_getTransactionCount", [wallet, "latest"]),
@@ -777,22 +892,23 @@
           call(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveA)])),
           call(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.sleeveA)])),
           call(ADDR.yield, data(SIG.totalAssetsUSDC)),
-          call(ADDR.yield, data(SIG.totalAssetsAsset)),
-          call(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.yield)])),
-          call(ADDR.aCbbtc, data(SIG.balanceOf, [addrArg(ADDR.yield)])),
-          call(ADDR.yield, data(SIG.aerodromeEnabled)),
-          call(ADDR.strategy, data(SIG.totalAssetsCbbtc)).catch(() => "0x0"),
-          call(ADDR.strategy, data(SIG.netApyBps)),
-          call(ADDR.strategy, data(SIG.tokenId)),
-          call(ADDR.strategy, data(SIG.currentLiquidity)),
-          call(ADDR.strategy, data(SIG.lastMarkAt)),
-          call(ADDR.strategy, data(SIG.maxMarkStale)),
-          call(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.strategy)])),
-          call(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.strategy)])),
+          safeCall(ADDR.yield, data(SIG.totalAssetsAsset)),
+          safeCall(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.yield)])),
+          safeCall(ADDR.aCbbtc, data(SIG.balanceOf, [addrArg(ADDR.yield)])),
+          safeCall(ADDR.yield, data(SIG.aerodromeEnabled)),
+          safeCall(ADDR.strategy, data(SIG.totalAssetsCbbtc))
+            .then((value) => value === "0x0" ? safeCall(ADDR.strategy, data(SIG.markedTotalAssetsCbbtc)) : value),
+          safeCall(ADDR.strategy, data(SIG.netApyBps)),
+          safeCall(ADDR.strategy, data(SIG.tokenId)),
+          safeCall(ADDR.strategy, data(SIG.currentLiquidity)),
+          safeCall(ADDR.strategy, data(SIG.lastMarkAt)),
+          safeCall(ADDR.strategy, data(SIG.maxMarkStale)),
+          safeCall(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.strategy)])),
+          safeCall(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.strategy)])),
           call(ADDR.sleeveB, data(SIG.totalAssetsUSDC)),
-          call(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
-          call(ADDR.aUsdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
-          call(ADDR.morpho, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
+          safeCall(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
+          safeCall(ADDR.aUsdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
+          safeCall(ADDR.morpho, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
           call(ADDR.vault, data(SIG.owner)),
           call(ADDR.vault, data(SIG.pendingOwner)),
           call(ADDR.sleeveA, data(SIG.pendingOwner)),
@@ -800,16 +916,32 @@
           call(ADDR.yield, data(SIG.pendingOwner)),
           call(ADDR.sleeveB, data(SIG.pendingOwner)),
           call(ADDR.vault, data(SIG.whitelist, [addrArg(wallet)])),
-          call(ADDR.vault, data(SIG.usdcRedemptionMaxStale)).catch(() => "0x0"),
-          call(ADDR.sleeveA, data(SIG.maxStale)),
-          call(ADDR.yield, data(SIG.maxStale))
+          safeCall(ADDR.vault, data(SIG.usdcRedemptionMaxStale)),
+          safeCall(ADDR.sleeveA, data(SIG.maxStale)),
+          safeCall(ADDR.yield, data(SIG.maxStale)),
+          safeCall(ADDR.sleeveA, data(SIG.tickSpacing)),
+          call(ADDR.vault, data(SIG.sleeveAdapterRouteCount, [uintArg(0)])),
+          call(ADDR.vault, data(SIG.sleeveAdapterRouteCount, [uintArg(1)])),
+          call(ADDR.vault, data(SIG.sleeveAdapterRouteAt, [uintArg(0), uintArg(0)])),
+          call(ADDR.vault, data(SIG.sleeveAdapterRouteAt, [uintArg(1), uintArg(0)])),
+          call(ADDR.vault, data(SIG.sleeveAdapterActiveDepositBps, [uintArg(0)])),
+          call(ADDR.vault, data(SIG.sleeveAdapterActiveDepositBps, [uintArg(1)])),
+          safeCall(ADDR.strategy, data(SIG.gauge)),
+          safeCall(ADDR.strategy, data(SIG.aeroToCbbtcPath)),
+          call(ADDR.vault, data(SIG.minDepositUsdc)),
+          call(ADDR.vault, data(SIG.smallDepositStableOnlyThresholdUsdc)),
+          call(ADDR.vault, data(SIG.minSleeveRouteDepositUsdc)),
+          call(ADDR.vault, data(SIG.bootstrapMode))
         ]);
 
         const aeroTotal = asUint(aeroTotalCbbtc);
         const morphoShares = asUint(bMorphoShares);
-        const morphoAssets = asUint(await call(ADDR.morpho, data(SIG.convertToAssets, [uintArg(morphoShares)])));
+        const morphoAssets = asUint(await safeCall(ADDR.morpho, data(SIG.convertToAssets, [uintArg(morphoShares)])));
         const block = Number(asUint(blockHex));
         const nonce = Number(asUint(nonceHex));
+        const decodedRouteA = decodeRoute(routeA);
+        const decodedRouteB = decodeRoute(routeB);
+        const pathBytes = asBytes(aeroPath);
 
         $("navPerBgw").textContent = fmtUsdc(asUint(navPerBGW));
         $("totalNav").textContent = fmtUsdc(asUint(totalNav));
@@ -836,11 +968,14 @@
           ["Yield total", `${fmtUsdc(asUint(yieldTotalUsdc))} USDC / ${fmtCbbtc(yieldCbbtc)} cbBTC`, "100%"],
           ["Aave cbBTC", `${fmtCbbtc(asUint(yieldACbbtc))} cbBTC`, pct(asUint(yieldACbbtc), yieldCbbtc)],
           ["Aerodrome cbBTC mark", `${fmtCbbtc(aeroTotal)} cbBTC`, pct(aeroTotal, yieldCbbtc)],
+          ["Aerodrome gauge", asAddress(strategyGauge), asAddress(strategyGauge).toLowerCase() === ADDR.gauge.toLowerCase() ? "configured" : "check"],
+          ["AERO compounding path", decodeAeroPath(aeroPath), pathBytes],
           ["Aerodrome LP token ID", asUint(aeroTokenId).toString(), "-"],
           ["Aerodrome liquidity", asUint(aeroLiquidity).toString(), "-"],
           ["Aerodrome last mark", new Date(Number(asUint(aeroLastMarkAt)) * 1000).toLocaleString(), `max ${fmtSeconds(asUint(aeroMaxMarkStale))}`],
           ["Aerodrome idle dust", `${fmtUsdc(asUint(aeroIdleUsdc))} USDC / ${fmtCbbtc(asUint(aeroIdleCbbtc))} cbBTC`, "-"],
           ["Aerodrome net APY", `${Number(asUint(aeroApy)) / 100}%`, "-"],
+          ["Wrapper tick spacing", Number(asUint(wrapperTickSpacing)).toString(), "validated"],
           ["Sleeve A BTC feed max age", fmtSeconds(asUint(wrapperMaxStale)), "configurable"],
           ["Yield BTC feed max age", fmtSeconds(asUint(yieldMaxStale)), "configurable"]
         ].map(row).join("");
@@ -860,6 +995,7 @@
           ["Founder BGW-GOV", `${fmtToken18(asUint(founderGov))} BGW-GOV`],
           ["Vault whitelist", asBool(whitelisted) ? "true" : "false"],
           ["USDC redemption feed max age", fmtSeconds(asUint(usdcMaxStale)), "configurable"],
+          ["Bootstrap mode", asBool(bootstrapMode) ? "true" : "false"],
           ["Vault owner", asAddress(vaultOwner)],
           ["Vault pending owner", asAddress(vaultPending)],
           ["Sleeve A pending owner", asAddress(wrapperPending)],
@@ -867,6 +1003,23 @@
           ["Yield adapter pending owner", asAddress(yieldPending)],
           ["Sleeve B pending owner", asAddress(sleeveBPending)]
         ].map(([k, v]) => `<tr><td>${k}</td><td class="right mono">${v}</td></tr>`).join("");
+
+        $("configRows").innerHTML = [
+          ["Vault", ADDR.vault],
+          ["BGW token", ADDR.bgw],
+          ["BGW-GOV token", ADDR.gov],
+          ["Sleeve A route", `${decodedRouteA.adapter} / ${decodedRouteA.bps} bps / ${decodedRouteA.active ? "active" : "inactive"}`],
+          ["Sleeve B route", `${decodedRouteB.adapter} / ${decodedRouteB.bps} bps / ${decodedRouteB.active ? "active" : "inactive"}`],
+          ["Sleeve A route count", `${asUint(routeACount).toString()} route, ${asUint(routeAActiveBps).toString()} active bps`],
+          ["Sleeve B route count", `${asUint(routeBCount).toString()} route, ${asUint(routeBActiveBps).toString()} active bps`],
+          ["Minimum buy", `${fmtUsdc(asUint(minDeposit))} USDC`],
+          ["Small buy stable-only threshold", `${fmtUsdc(asUint(smallStableOnly))} USDC`],
+          ["Minimum sleeve route", `${fmtUsdc(asUint(minRoute))} USDC`],
+          ["Safe", ADDR.safe],
+          ["Founder treasury", ADDR.founder]
+        ].map(configRow).join("");
+        $("wiringStatus").textContent = asBool(bootstrapMode) ? "Bootstrap open" : "Bootstrap finalized";
+        $("wiringStatus").className = asBool(bootstrapMode) ? "pill warn" : "pill good";
 
         $("status").textContent = "Refresh complete.";
       } catch (error) {
@@ -878,6 +1031,10 @@
 
     function row(items) {
       return `<tr>${items.map((item, index) => `<td class="${index ? "right mono" : ""}">${item}</td>`).join("")}</tr>`;
+    }
+
+    function configRow([key, value]) {
+      return `<tr><td>${key}</td><td class="right mono wrap">${value}</td></tr>`;
     }
 
     $("refresh").addEventListener("click", refresh);

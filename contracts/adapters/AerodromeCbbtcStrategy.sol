@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -15,7 +16,7 @@ import "../interfaces/IChainlinkAggregator.sol";
 /// @notice Aerodrome Slipstream strategy wrapper for the Base cbBTC spoke.
 ///         It manages one concentrated-liquidity NFT and exposes a conservative
 ///         cbBTC-denominated surface to BaseCBBTCYieldAdapter.
-contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step {
+contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC721Receiver {
     using SafeERC20 for IERC20Metadata;
 
     uint256 public constant BPS_DENOM = 10_000;
@@ -253,6 +254,11 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step {
         markedTotalAssetsCbbtc = 0;
 
         emit EmergencyWithdrawn(cbbtcReturned, receiver);
+    }
+
+    function onERC721Received(address, address, uint256, bytes calldata) external view returns (bytes4) {
+        if (msg.sender != address(positionManager)) revert InvalidPair();
+        return IERC721Receiver.onERC721Received.selector;
     }
 
     function _setRange(int24 tickSpacing_, int24 tickLower_, int24 tickUpper_) internal {

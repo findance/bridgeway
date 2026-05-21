@@ -169,6 +169,15 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Deposits below this size route entirely to stable Sleeve B. 0 = disabled.
     uint256 public smallDepositStableOnlyThresholdUsdc = 20e6;
 
+    /// @notice Target idle USDC buffer, in bps of local NAV, kept for routine redemptions.
+    uint16 public redemptionBufferBps = 200;
+
+    /// @notice Minimum idle USDC buffer kept for routine redemptions.
+    uint256 public minRedemptionBufferUsdc = 2e6;
+
+    /// @notice Tracked idle USDC that belongs to BGW holders and is reserved for routine redemptions.
+    uint256 public idleRedemptionReserveUsdc;
+
     /// @notice Max age for the USDC/USD redemption feed. 0 = no age-based block.
     uint256 public usdcRedemptionMaxStale;
 
@@ -275,6 +284,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event MinDepositUpdated(uint256 minimum);
     event MinSleeveRouteDepositUpdated(uint256 minimum);
     event SmallDepositStableOnlyThresholdUpdated(uint256 threshold);
+    event RedemptionBufferUpdated(uint16 bufferBps, uint256 minimumUsdc);
     event SleeveRebalanced(uint8 indexed fromSleeve, uint8 indexed toSleeve, uint256 requestedUsdc, uint256 movedUsdc);
     event BootstrapFinalized();
     event TreasuryVaultUSDCRecoveryProposed(address indexed to, uint256 amount, uint256 executeAfter);
@@ -407,7 +417,17 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice NAV held on the hub chain in local sleeves.
     function totalLocalNAV() public view returns (uint256) {
-        return _sleeveValue(SLEEVE_A) + _sleeveValue(SLEEVE_B) + _sleeveValue(SLEEVE_C);
+        return _sleeveValue(SLEEVE_A) + _sleeveValue(SLEEVE_B) + _sleeveValue(SLEEVE_C) + holderIdleUSDC();
+    }
+
+    /// @notice Idle vault USDC attributable to BGW holders, excluding fee/buyback reserves.
+    function holderIdleUSDC() public view returns (uint256) {
+        return idleRedemptionReserveUsdc;
+    }
+
+    /// @notice Current target idle USDC redemption buffer.
+    function redemptionBufferTargetUSDC() public view returns (uint256 target) {
+        target = _redemptionBufferTargetUSDC(totalLocalNAV());
     }
 
     /// @notice Confirmed spoke NAV cached by the hub NAV contract. Queued
@@ -478,13 +498,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             revert DepositExceedsCap(usdcAmount, maxDepositUsdc);
         }
 
-        IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
-        cumulativePrincipal += usdcAmount;
-
         uint256 nav6 = navPerBGW();
         uint256 bgwToMint = (usdcAmount * 1e18) / nav6;
 
         if (bgwToMint < minBgwOut) revert SlippageTooHigh(bgwToMint, minBgwOut);
+
+        IERC20(USDC).safeTransferFrom(msg.sender, address(this), usdcAmount);
+        cumulativePrincipal += usdcAmount;
 
         // Effects before interactions (CEI)
         _deployToSleeves(usdcAmount);
@@ -541,7 +561,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             return;
         }
 
-        _reduceSleevesProRata(grossUsdc);
+        _fundRedemptionFromLiquidSleeves(grossUsdc);
 
         if (perfFeeUsdc > 0) {
             _distributePerfFee(perfFeeUsdc);
@@ -1026,6 +1046,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit SmallDepositStableOnlyThresholdUpdated(threshold);
     }
 
+    /// @notice Configure the idle USDC buffer retained for routine redemptions.
+    function setRedemptionBuffer(uint16 bufferBps, uint256 minimumUsdc) external onlyOwner {
+        if (bufferBps > 2_000) revert InvalidFeeBps(bufferBps);
+        redemptionBufferBps = bufferBps;
+        minRedemptionBufferUsdc = minimumUsdc;
+        emit RedemptionBufferUpdated(bufferBps, minimumUsdc);
+    }
+
     /// @notice Set max USDC/USD feed age for redemptions. Set to 0 to disable age-based blocking.
     function setUSDCRedemptionMaxStale(uint256 maxStale) external onlyOwner {
         usdcRedemptionMaxStale = maxStale;
@@ -1077,6 +1105,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @dev Deploy new USDC deposit into sleeves at configured target weights.
     function _deployToSleeves(uint256 usdcAmount) internal {
+        if (usdcAmount == 0) return;
+        usdcAmount = _retainRedemptionBuffer(usdcAmount);
+        if (usdcAmount == 0) return;
+
         uint256 stableOnlyThreshold = smallDepositStableOnlyThresholdUsdc;
         if (stableOnlyThreshold != 0 && usdcAmount < stableOnlyThreshold) {
             _deployToSleeve(SLEEVE_B, usdcAmount, true);
@@ -1092,6 +1124,23 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _deployToSleeve(SLEEVE_C, toC, false);
     }
 
+    function _retainRedemptionBuffer(uint256 availableToDeploy) internal returns (uint256 deployableUsdc) {
+        uint256 target = _redemptionBufferTargetUSDC(totalLocalNAV() + availableToDeploy);
+        uint256 reserve = idleRedemptionReserveUsdc;
+        if (reserve >= target) return availableToDeploy;
+
+        uint256 shortfall = target - reserve;
+        uint256 retain = shortfall > availableToDeploy ? availableToDeploy : shortfall;
+        idleRedemptionReserveUsdc = reserve + retain;
+        return availableToDeploy - retain;
+    }
+
+    function _redemptionBufferTargetUSDC(uint256 localNav) internal view returns (uint256 target) {
+        target = (localNav * redemptionBufferBps) / FeeLib.BPS_DENOM;
+        if (target < minRedemptionBufferUsdc) target = minRedemptionBufferUsdc;
+        if (target > localNav) target = localNav;
+    }
+
     /// @dev Reduce portfolio sleeves proportionally when holder NAV leaves the vault.
     ///      The buyback accumulator is a separate reserve and is not redeemable NAV.
     function _reduceSleevesProRata(uint256 grossUsdc) internal {
@@ -1102,6 +1151,47 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         _withdrawFromSleeve(SLEEVE_A, (_sleeveValue(SLEEVE_A) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_B, (_sleeveValue(SLEEVE_B) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_C, (_sleeveValue(SLEEVE_C) * grossUsdc) / nav);
+    }
+
+    /// @dev Fund redemptions from the most liquid sleeve first. Stable Sleeve B
+    ///      is the first line of defense for routine exits; Sleeve A is touched
+    ///      only when the stable/cash layers are insufficient.
+    function _fundRedemptionFromLiquidSleeves(uint256 grossUsdc) internal returns (uint256 usdcReturned) {
+        uint256 nav = totalLocalNAV();
+        if (nav == 0) return 0;
+        if (grossUsdc > nav) revert InsufficientLocalLiquidity(nav, grossUsdc);
+
+        uint256 idle = idleRedemptionReserveUsdc;
+        uint256 availableUsdc = _availableUSDC();
+        if (idle > availableUsdc) idle = availableUsdc;
+        if (idle >= grossUsdc) {
+            idleRedemptionReserveUsdc -= grossUsdc;
+            return 0;
+        }
+
+        uint256 remaining = grossUsdc - idle;
+        if (idle > 0) idleRedemptionReserveUsdc -= idle;
+
+        uint256 sleeveB = _sleeveValue(SLEEVE_B);
+        uint256 request = sleeveB > remaining ? remaining : sleeveB;
+        if (request > 0) {
+            uint256 returned = _withdrawFromSleeve(SLEEVE_B, request);
+            usdcReturned += returned;
+            remaining = returned >= remaining ? 0 : remaining - returned;
+        }
+
+        uint256 sleeveC = _sleeveValue(SLEEVE_C);
+        request = sleeveC > remaining ? remaining : sleeveC;
+        if (request > 0) {
+            uint256 returned = _withdrawFromSleeve(SLEEVE_C, request);
+            usdcReturned += returned;
+            remaining = returned >= remaining ? 0 : remaining - returned;
+        }
+
+        if (remaining > 0) {
+            uint256 returned = _withdrawFromSleeve(SLEEVE_A, remaining);
+            usdcReturned += returned;
+        }
     }
 
     function _setSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) internal {
@@ -1164,7 +1254,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function _availableUSDC() internal view returns (uint256) {
         uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
-        return usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
+        uint256 reserved = totalPendingFees + buybackAccumulator;
+        return usdcBalance > reserved ? usdcBalance - reserved : 0;
     }
 
     function _recoverTreasuryVaultUSDC(address to, uint256 amount) internal {

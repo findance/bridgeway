@@ -11,6 +11,7 @@ contract SleeveCAlphaYieldAdapterTest is Test {
     MockUSDC usdc;
     MockERC4626Vault ethenaLike;
     MockERC4626Vault pendleLike;
+    MockERC4626Vault curveLike;
     SleeveCAlphaYieldAdapter adapter;
 
     address vault = address(this);
@@ -21,6 +22,7 @@ contract SleeveCAlphaYieldAdapterTest is Test {
         usdc = new MockUSDC();
         ethenaLike = new MockERC4626Vault(usdc, "Ethena USDC Wrapper", "eUSDC");
         pendleLike = new MockERC4626Vault(usdc, "Pendle Fixed USDC", "pUSDC");
+        curveLike = new MockERC4626Vault(usdc, "Curve USDC Wrapper", "cUSDC");
         adapter = new SleeveCAlphaYieldAdapter(vault, owner, address(usdc));
         adapter.setStrategies(_defaultStrategies());
     }
@@ -81,6 +83,25 @@ contract SleeveCAlphaYieldAdapterTest is Test {
         adapter.setStrategies(_defaultStrategies());
     }
 
+    function test_CanReplaceOldStrategyAfterEmergencyWithdraw() public {
+        usdc.mint(address(adapter), 1_000e6);
+        adapter.deploy(1_000e6);
+
+        SleeveCAlphaYieldAdapter.StrategyInput[] memory replacement = _replacementStrategies();
+        vm.expectRevert(SleeveCAlphaYieldAdapter.AdapterNotEmpty.selector);
+        adapter.setStrategies(replacement);
+
+        uint256 vaultBefore = usdc.balanceOf(vault);
+        uint256 returned = adapter.emergencyWithdrawAll();
+        adapter.setStrategies(replacement);
+
+        assertEq(returned, 1_000e6);
+        assertEq(usdc.balanceOf(vault) - vaultBefore, 1_000e6);
+        assertEq(adapter.strategyCount(), 2);
+        assertEq(address(adapter.strategyAt(0).vault), address(pendleLike));
+        assertEq(address(adapter.strategyAt(1).vault), address(curveLike));
+    }
+
     function test_OnlyVaultCanMoveFunds() public {
         vm.startPrank(stranger);
         vm.expectRevert(SleeveCAlphaYieldAdapter.OnlyVault.selector);
@@ -96,5 +117,15 @@ contract SleeveCAlphaYieldAdapterTest is Test {
         strategies = new SleeveCAlphaYieldAdapter.StrategyInput[](2);
         strategies[0] = SleeveCAlphaYieldAdapter.StrategyInput({vault: address(ethenaLike), weightBps: 5_000});
         strategies[1] = SleeveCAlphaYieldAdapter.StrategyInput({vault: address(pendleLike), weightBps: 5_000});
+    }
+
+    function _replacementStrategies()
+        internal
+        view
+        returns (SleeveCAlphaYieldAdapter.StrategyInput[] memory strategies)
+    {
+        strategies = new SleeveCAlphaYieldAdapter.StrategyInput[](2);
+        strategies[0] = SleeveCAlphaYieldAdapter.StrategyInput({vault: address(pendleLike), weightBps: 5_000});
+        strategies[1] = SleeveCAlphaYieldAdapter.StrategyInput({vault: address(curveLike), weightBps: 5_000});
     }
 }

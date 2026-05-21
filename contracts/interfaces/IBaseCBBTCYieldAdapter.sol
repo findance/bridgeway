@@ -12,6 +12,10 @@ interface IBaseCBBTCYieldAdapter {
     /// @return cbbtcReturned Amount of cbBTC actually returned.
     function withdraw(uint256 cbbtcAmount, address receiver) external returns (uint256 cbbtcReturned);
 
+    /// @notice Withdraw the full cbBTC position back to the specified receiver.
+    /// @return cbbtcReturned Amount of cbBTC actually returned.
+    function withdrawAll(address receiver) external returns (uint256 cbbtcReturned);
+
     /// @notice Harvest strategy rewards into cbBTC and redeploy according to policy.
     /// @return cbbtcHarvested Amount of cbBTC harvested from Aerodrome rewards.
     function harvest() external returns (uint256 cbbtcHarvested);
