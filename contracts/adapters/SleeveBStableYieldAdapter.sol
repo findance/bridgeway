@@ -19,6 +19,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
     uint256 public constant BPS_DENOM = 10_000;
     uint16 public constant AAVE_WEIGHT_BPS = 7_000;
     uint16 public constant MORPHO_WEIGHT_BPS = 3_000;
+    uint256 public minMorphoDepositUsdc = 5e6;
 
     address public immutable vault;
     IERC20 public immutable usdc;
@@ -31,6 +32,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
     event Harvested(uint256 yieldUsdc);
     event Rebalanced(uint256 navAfter);
     event EmergencyWithdrawn(uint256 usdcReturned);
+    event MinMorphoDepositUpdated(uint256 minimum);
 
     error ZeroAddress();
     error OnlyVault();
@@ -62,11 +64,20 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
     function deploy(uint256 usdcAmount) external onlyVault {
         uint256 aaveAmount = Math.mulDiv(usdcAmount, AAVE_WEIGHT_BPS, BPS_DENOM);
         uint256 morphoAmount = usdcAmount - aaveAmount;
+        if (morphoAmount < minMorphoDepositUsdc) {
+            aaveAmount = usdcAmount;
+            morphoAmount = 0;
+        }
 
         _supplyAave(aaveAmount);
         _depositMorpho(morphoAmount);
 
         emit Deployed(usdcAmount, aaveAmount, morphoAmount);
+    }
+
+    function setMinMorphoDepositUsdc(uint256 minimum) external onlyOwner {
+        minMorphoDepositUsdc = minimum;
+        emit MinMorphoDepositUpdated(minimum);
     }
 
     function withdraw(uint256 usdcAmount) external onlyVault returns (uint256 usdcReturned) {

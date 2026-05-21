@@ -42,6 +42,27 @@ contract SleeveBStableYieldAdapterTest is Test {
         assertEq(adapter.totalAssetsUSDC(), 1_000e6);
     }
 
+    function test_SmallDeployGoesOnlyToAave() public {
+        usdc.mint(address(adapter), 1e6);
+
+        adapter.deploy(1e6);
+
+        assertEq(aUsdc.balanceOf(address(adapter)), 1e6);
+        assertEq(morphoVault.convertToAssets(morphoVault.balanceOf(address(adapter))), 0);
+        assertEq(adapter.totalAssetsUSDC(), 1e6);
+    }
+
+    function test_OwnerCanLowerMorphoMinimum() public {
+        adapter.setMinMorphoDepositUsdc(0);
+        usdc.mint(address(adapter), 1e6);
+
+        adapter.deploy(1e6);
+
+        assertEq(aUsdc.balanceOf(address(adapter)), 700_000);
+        assertEq(morphoVault.convertToAssets(morphoVault.balanceOf(address(adapter))), 300_000);
+        assertEq(adapter.totalAssetsUSDC(), 1e6);
+    }
+
     function test_WithdrawUsesAaveLiquidityBeforeMorpho() public {
         usdc.mint(address(adapter), 1_000e6);
         adapter.deploy(1_000e6);

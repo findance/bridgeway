@@ -155,7 +155,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
     error NotWhitelisted(address account);
     error AccountBlacklisted(address account);
 
-    constructor(address admin) ERC20("Bridgeway Index", "BGW") {
+    constructor(address admin) ERC20("Bridgeway", "BGW") {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(BLACKLIST_ADMIN_ROLE, admin);

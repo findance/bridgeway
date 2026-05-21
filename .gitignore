@@ -28,3 +28,10 @@ Thumbs.db
 # Test coverage
 /lcov.info
 /coverage/
+
+# Generated analysis artifacts
+/.slither_env/
+/slither_report.json
+
+# Local deployment transcripts
+/*_RAW.log

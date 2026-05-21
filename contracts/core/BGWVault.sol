@@ -46,9 +46,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Constants
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Chainlink price staleness threshold.
-    uint256 public constant ORACLE_STALE_THRESHOLD = 20 minutes;
-
     /// @dev Chainlink USD feeds are normalized to 8 decimals for pricing guards.
     uint256 public constant USD_PRICE_SCALE = 1e8;
 
@@ -95,10 +92,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     uint256 public sleeveAValue;
     uint256 public sleeveBValue;
     uint256 public sleeveCValue;
-
-    /// @notice Optional strategy adapters for sleeves A/B/C.
-    ///         If unset, the sleeve uses manual vault accounting.
-    address[3] public sleeveAdapters;
 
     struct SleeveAdapterRoute {
         address adapter;
@@ -166,6 +159,30 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice Maximum USDC per single deposit. 0 = uncapped.
     uint256 public maxDepositUsdc;
+
+    /// @notice Minimum accepted deposit amount in USDC. 0 = no minimum.
+    uint256 public minDepositUsdc = 1e6;
+
+    /// @notice Minimum per-route sleeve allocation to deploy externally. Smaller amounts stay idle in sleeve NAV.
+    uint256 public minSleeveRouteDepositUsdc = 20e6;
+
+    /// @notice Deposits below this size route entirely to stable Sleeve B. 0 = disabled.
+    uint256 public smallDepositStableOnlyThresholdUsdc = 20e6;
+
+    /// @notice Max age for the USDC/USD redemption feed. 0 = no age-based block.
+    uint256 public usdcRedemptionMaxStale;
+
+    /// @notice Deployment bootstrap mode. While true, owner can recover idle
+    ///         vault USDC immediately for launch mistakes. Finalize before public deposits.
+    bool public bootstrapMode = true;
+
+    struct PendingTreasuryVaultUSDCRecovery {
+        address to;
+        uint256 amount;
+        uint256 executeAfter;
+    }
+
+    PendingTreasuryVaultUSDCRecovery public pendingTreasuryVaultUSDCRecovery;
 
     // ─────────────────────────────────────────────────────────────────────────
     // State — protected tokens (C-02)
@@ -239,7 +256,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event BuybackExecuted(uint256 usdcInjected, uint256 bgwMintedAndBurned);
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
-    event SleeveAdapterSet(uint8 indexed sleeve, address indexed adapter);
     event SleeveAdapterRoutesConfigured(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps);
     event SleeveDepositWeightsUpdated(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC);
     event TrustedSleeveAssetUpdated(uint8 indexed sleeve, address indexed asset, bool trusted);
@@ -255,6 +271,15 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event FeeWalletsUpdated(address team, address holdback, address reserve);
     event ProtectedTokenUpdated(address indexed token, bool protected);
     event HubNAVSet(address indexed hubNAV);
+    event USDCRedemptionMaxStaleUpdated(uint256 maxStale);
+    event MinDepositUpdated(uint256 minimum);
+    event MinSleeveRouteDepositUpdated(uint256 minimum);
+    event SmallDepositStableOnlyThresholdUpdated(uint256 threshold);
+    event SleeveRebalanced(uint8 indexed fromSleeve, uint8 indexed toSleeve, uint256 requestedUsdc, uint256 movedUsdc);
+    event BootstrapFinalized();
+    event TreasuryVaultUSDCRecoveryProposed(address indexed to, uint256 amount, uint256 executeAfter);
+    event TreasuryVaultUSDCRecoveryCancelled(address indexed to, uint256 amount);
+    event TreasuryVaultUSDCRecovered(address indexed to, uint256 amount);
 
     // ─────────────────────────────────────────────────────────────────────────
     // Errors
@@ -265,10 +290,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error SlippageTooHigh(uint256 received, uint256 minimum);
     error StaleOracle(uint256 updatedAt);
     error OnlyAutomation();
+    error OnlyAutomationOrOwner();
     error InsufficientBGW(uint256 have, uint256 need);
     error InvalidFeeBps(uint256 bps);
     error ZeroAddress();
     error DepositExceedsCap(uint256 amount, uint256 cap);
+    error DepositBelowMinimum(uint256 amount, uint256 minimum);
     error UnknownQueuedRedemption(uint256 redemptionId);
     error NotQueuedRedemptionClaimant(uint256 redemptionId, address caller);
     error QueuedRedemptionAlreadyClaimed(uint256 redemptionId);
@@ -282,6 +309,20 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     error InvalidOracleRound(uint80 roundId, uint80 answeredInRound);
     error InvalidOraclePrice(int256 answer);
     error BatchTooLarge(uint256 count, uint256 max);
+    error BootstrapAlreadyFinalized();
+    error NoPendingTreasuryVaultUSDCRecovery();
+    error TimelockNotReady(uint256 executeAfter);
+    error YieldExceedsBalance();
+    error HarvestGapTooShort();
+    error YieldRateTooHigh();
+    error NotContract(address account);
+    error FeesNotStale();
+    error InvalidSleeve(uint8 sleeve);
+    error RouteLengthMismatch();
+    error TooManyRoutes(uint256 count, uint256 max);
+    error DuplicateRoute(address adapter);
+    error RouteBpsTooHigh(uint256 totalBps);
+    error SleeveMoveTooFast();
     // ─────────────────────────────────────────────────────────────────────────
     // Modifiers
     // ─────────────────────────────────────────────────────────────────────────
@@ -293,6 +334,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     modifier onlyAutomation() {
         if (msg.sender != automation) revert OnlyAutomation();
+        _;
+    }
+
+    modifier onlyAutomationOrOwner() {
+        if (msg.sender != automation && msg.sender != owner()) revert OnlyAutomationOrOwner();
         _;
     }
 
@@ -425,6 +471,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (recipient == address(0)) revert ZeroAddress();
         if (!whitelist[recipient]) revert NotWhitelisted(recipient);
         if (usdcAmount == 0) revert ZeroAmount();
+        if (minDepositUsdc > 0 && usdcAmount < minDepositUsdc) {
+            revert DepositBelowMinimum(usdcAmount, minDepositUsdc);
+        }
         if (maxDepositUsdc > 0 && usdcAmount > maxDepositUsdc) {
             revert DepositExceedsCap(usdcAmount, maxDepositUsdc);
         }
@@ -595,19 +644,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         // Yield must not exceed actual USDC received — fundamental sanity check (C-01).
         uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
         uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
-        require(netYieldUsdc <= availableUsdc, "BGWVault: yield exceeds balance");
+        if (netYieldUsdc > availableUsdc) revert YieldExceedsBalance();
 
         // Time-weighted anti-manipulation bounds (C-01).
         // lastHarvestTime is initialised in the constructor so the first harvest
         // is constrained against the deployment timestamp instead of receiving
         // a one-time unrestricted reporting window.
         uint256 sinceLastHarvest = block.timestamp - lastHarvestTime;
-        require(sinceLastHarvest >= FeeLib.MIN_HARVEST_GAP, "BGWVault: harvest gap too short");
+        if (sinceLastHarvest < FeeLib.MIN_HARVEST_GAP) revert HarvestGapTooShort();
 
         uint256 nav = totalNAV();
         if (nav > 0 && netYieldUsdc > 0) {
             uint256 maxYield = (nav * FeeLib.MAX_YIELD_APR_BPS * sinceLastHarvest) / (FeeLib.BPS_DENOM * 365 days);
-            require(netYieldUsdc <= maxYield, "BGWVault: yield rate too high");
+            if (netYieldUsdc > maxYield) revert YieldRateTooHigh();
         }
 
         uint256 actualA = _reportedOrAdapterValue(SLEEVE_A, newSleeveA);
@@ -659,7 +708,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (usdcAmount == 0 || usdcAmount > buybackAccumulator) return;
         uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
         uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
-        require(usdcAmount <= availableUsdc, "BGWVault: insufficient reserve USDC");
+        if (usdcAmount > availableUsdc) revert InsufficientLocalLiquidity(availableUsdc, usdcAmount);
 
         buybackAccumulator -= usdcAmount;
 
@@ -697,6 +746,51 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit SleeveValuesUpdated(actualA, actualB, actualC);
     }
 
+    /// @notice Move sleeve value toward configured weights using the approved
+    ///         one-way policy: Sleeve C -> Sleeve B, then Sleeve B -> Sleeve A.
+    ///         Automatic rebalancing never funds Sleeve C and never moves A down.
+    /// @param maxMoveUsdc Maximum total USDC value to move in this call.
+    /// @return movedCToB USDC value moved from Sleeve C into Sleeve B.
+    /// @return movedBToA USDC value moved from Sleeve B into Sleeve A.
+    function rebalanceSleevesOneWay(uint256 maxMoveUsdc)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyAutomationOrOwner
+        returns (uint256 movedCToB, uint256 movedBToA)
+    {
+        if (maxMoveUsdc == 0) return (0, 0);
+
+        uint256 nav = totalLocalNAV();
+        if (nav == 0) return (0, 0);
+
+        uint256 targetA = (nav * sleeveADepositBps) / FeeLib.BPS_DENOM;
+        uint256 targetB = (nav * sleeveBDepositBps) / FeeLib.BPS_DENOM;
+        uint256 targetC = nav - targetA - targetB;
+
+        uint256 moved;
+        uint256 cValue = _sleeveValue(SLEEVE_C);
+        if (cValue > targetC) {
+            uint256 amount = cValue - targetC;
+            uint256 remainingCap = maxMoveUsdc - moved;
+            if (amount > remainingCap) amount = remainingCap;
+
+            movedCToB = _moveSleeveValue(SLEEVE_C, SLEEVE_B, amount);
+            moved += movedCToB;
+        }
+
+        if (moved < maxMoveUsdc) {
+            uint256 bValue = _sleeveValue(SLEEVE_B);
+            if (bValue > targetB) {
+                uint256 amount = bValue - targetB;
+                uint256 remainingCap = maxMoveUsdc - moved;
+                if (amount > remainingCap) amount = remainingCap;
+
+                movedBToA = _moveSleeveValue(SLEEVE_B, SLEEVE_A, amount);
+            }
+        }
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Admin functions
     // ─────────────────────────────────────────────────────────────────────────
@@ -705,7 +799,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         In production the vault owner should be a timelock/controller.
     function setAutomation(address _automation) external onlyOwner {
         if (_automation == address(0)) revert ZeroAddress();
-        require(_automation.code.length > 0, "BGWVault: not a contract");
+        if (_automation.code.length == 0) revert NotContract(_automation);
         automation = _automation;
         emit AutomationSet(_automation);
     }
@@ -721,7 +815,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Record a genuine realised loss acknowledged by governance.
     ///         In production the vault owner should be a timelock/controller.
     function markRealisedLoss(uint256 amount) external onlyOwner {
-        require(amount > 0, "BGWVault: zero loss");
+        if (amount == 0) revert ZeroAmount();
         authorisedLosses += amount;
         emit LossMarkExecuted(amount);
     }
@@ -738,13 +832,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Owner can redirect fees that have been unclaimed for STALE_FEE_DELAY (1 year).
     ///         Protects against permanently locked funds if a fee wallet is permanently inaccessible (H-13).
     function sweepStaleFees(address staleWallet, address newRecipient) external onlyOwner nonReentrant {
-        require(newRecipient != address(0), "BGWVault: zero recipient");
+        if (newRecipient == address(0)) revert ZeroAddress();
         uint256 amount = pendingFees[staleWallet];
         if (amount == 0) revert NoPendingFees();
-        require(
-            lastFeeAccrual[staleWallet] > 0 && block.timestamp >= lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY,
-            "BGWVault: fees not stale"
-        );
+        if (lastFeeAccrual[staleWallet] == 0 || block.timestamp < lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY) {
+            revert FeesNotStale();
+        }
         pendingFees[staleWallet] = 0;
         totalPendingFees -= amount;
         emit StaleFeeSwept(staleWallet, newRecipient, amount);
@@ -807,17 +900,53 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Wire the vault to a hub-chain confirmed spoke NAV cache.
     ///         Use address(0) to disconnect hub-spoke accounting.
     function setHubNAV(address newHubNAV) external onlyOwner {
-        if (newHubNAV != address(0)) require(newHubNAV.code.length > 0, "BGWVault: hub NAV not contract");
+        if (newHubNAV != address(0) && newHubNAV.code.length == 0) revert NotContract(newHubNAV);
         hubNAV = newHubNAV;
         emit HubNAVSet(newHubNAV);
     }
 
-    /// @notice Set or clear the strategy adapter for one sleeve.
-    ///         Use address(0) to return a sleeve to manual accounting. Direct
-    ///         single-adapter changes are only allowed before live deposits.
-    function setSleeveAdapter(uint8 sleeve, address adapter) external onlyOwner {
-        if (bgwToken.totalSupply() != 0) revert AdapterChangeAfterDeposits();
-        _setSleeveAdapter(sleeve, adapter);
+    /// @notice Finalize deployment bootstrap mode. After this, owner/Safe USDC
+    ///         recovery requires a 48-hour propose/execute delay.
+    function finalizeBootstrap() external onlyOwner {
+        if (!bootstrapMode) revert BootstrapAlreadyFinalized();
+        bootstrapMode = false;
+        emit BootstrapFinalized();
+    }
+
+    /// @notice Recover idle USDC from the vault to the treasury/Safe.
+    ///         During bootstrap this executes immediately; after bootstrap it
+    ///         creates a 48-hour pending recovery.
+    function recoverTreasuryVaultUSDC(address to, uint256 amount) external onlyOwner nonReentrant {
+        if (to == address(0)) revert ZeroAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        if (bootstrapMode) {
+            _recoverTreasuryVaultUSDC(to, amount);
+            return;
+        }
+
+        uint256 executeAfter = block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY;
+        pendingTreasuryVaultUSDCRecovery =
+            PendingTreasuryVaultUSDCRecovery({to: to, amount: amount, executeAfter: executeAfter});
+        emit TreasuryVaultUSDCRecoveryProposed(to, amount, executeAfter);
+    }
+
+    /// @notice Execute a pending post-bootstrap USDC recovery after the 48-hour delay.
+    function executeTreasuryVaultUSDCRecovery() external onlyOwner nonReentrant {
+        PendingTreasuryVaultUSDCRecovery memory pending = pendingTreasuryVaultUSDCRecovery;
+        if (pending.to == address(0)) revert NoPendingTreasuryVaultUSDCRecovery();
+        if (block.timestamp < pending.executeAfter) revert TimelockNotReady(pending.executeAfter);
+
+        delete pendingTreasuryVaultUSDCRecovery;
+        _recoverTreasuryVaultUSDC(pending.to, pending.amount);
+    }
+
+    /// @notice Cancel a pending post-bootstrap USDC recovery.
+    function cancelTreasuryVaultUSDCRecovery() external onlyOwner {
+        PendingTreasuryVaultUSDCRecovery memory pending = pendingTreasuryVaultUSDCRecovery;
+        if (pending.to == address(0)) revert NoPendingTreasuryVaultUSDCRecovery();
+        delete pendingTreasuryVaultUSDCRecovery;
+        emit TreasuryVaultUSDCRecoveryCancelled(pending.to, pending.amount);
     }
 
     /// @notice Configure multiple strategy routes for one sleeve without moving
@@ -877,6 +1006,32 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit MaxDepositCapUpdated(cap);
     }
 
+    /// @notice Set a minimum accepted deposit amount. Set to 0 to remove the minimum.
+    function setMinDepositUsdc(uint256 minimum) external onlyOwner {
+        minDepositUsdc = minimum;
+        emit MinDepositUpdated(minimum);
+    }
+
+    /// @notice Set the minimum per-route amount deployed to external sleeve adapters.
+    ///         Smaller allocations remain as idle vault USDC counted in that sleeve's NAV.
+    function setMinSleeveRouteDepositUsdc(uint256 minimum) external onlyOwner {
+        minSleeveRouteDepositUsdc = minimum;
+        emit MinSleeveRouteDepositUpdated(minimum);
+    }
+
+    /// @notice Route deposits below this size entirely to Sleeve B's stable adapter.
+    ///         Set to 0 to use normal sleeve weights for all deposit sizes.
+    function setSmallDepositStableOnlyThresholdUsdc(uint256 threshold) external onlyOwner {
+        smallDepositStableOnlyThresholdUsdc = threshold;
+        emit SmallDepositStableOnlyThresholdUpdated(threshold);
+    }
+
+    /// @notice Set max USDC/USD feed age for redemptions. Set to 0 to disable age-based blocking.
+    function setUSDCRedemptionMaxStale(uint256 maxStale) external onlyOwner {
+        usdcRedemptionMaxStale = maxStale;
+        emit USDCRedemptionMaxStaleUpdated(maxStale);
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
@@ -908,10 +1063,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Blocked for USDC (vault funds), BGW, BGW-GOV, and any token
     ///         registered as a vault position via setProtectedToken (C-02).
     function recoverToken(address token, uint256 amount, address to) external onlyOwner {
-        require(to != address(0), "BGWVault: zero recipient");
-        require(token != USDC, "BGWVault: cannot recover vault USDC");
-        require(token != address(bgwToken), "BGWVault: cannot recover BGW");
-        require(token != address(govToken), "BGWVault: cannot recover BGW-GOV");
+        if (to == address(0)) revert ZeroAddress();
+        if (token == USDC) revert ProtectedTokenRecovery(token);
+        if (token == address(bgwToken)) revert ProtectedTokenRecovery(token);
+        if (token == address(govToken)) revert ProtectedTokenRecovery(token);
         if (protectedTokens[token]) revert ProtectedTokenRecovery(token);
         IERC20(token).safeTransfer(to, amount);
     }
@@ -922,13 +1077,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @dev Deploy new USDC deposit into sleeves at configured target weights.
     function _deployToSleeves(uint256 usdcAmount) internal {
+        uint256 stableOnlyThreshold = smallDepositStableOnlyThresholdUsdc;
+        if (stableOnlyThreshold != 0 && usdcAmount < stableOnlyThreshold) {
+            _deployToSleeve(SLEEVE_B, usdcAmount, true);
+            return;
+        }
+
         uint256 toA = (usdcAmount * sleeveADepositBps) / FeeLib.BPS_DENOM;
         uint256 toB = (usdcAmount * sleeveBDepositBps) / FeeLib.BPS_DENOM;
         uint256 toC = usdcAmount - toA - toB;
 
-        _deployToSleeve(SLEEVE_A, toA);
-        _deployToSleeve(SLEEVE_B, toB);
-        _deployToSleeve(SLEEVE_C, toC);
+        _deployToSleeve(SLEEVE_A, toA, false);
+        _deployToSleeve(SLEEVE_B, toB, false);
+        _deployToSleeve(SLEEVE_C, toC, false);
     }
 
     /// @dev Reduce portfolio sleeves proportionally when holder NAV leaves the vault.
@@ -936,7 +1097,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function _reduceSleevesProRata(uint256 grossUsdc) internal {
         uint256 nav = totalLocalNAV();
         if (nav == 0) return;
-        require(grossUsdc <= nav, "BGWVault: insufficient local NAV");
+        if (grossUsdc > nav) revert InsufficientLocalLiquidity(nav, grossUsdc);
 
         _withdrawFromSleeve(SLEEVE_A, (_sleeveValue(SLEEVE_A) * grossUsdc) / nav);
         _withdrawFromSleeve(SLEEVE_B, (_sleeveValue(SLEEVE_B) * grossUsdc) / nav);
@@ -1006,7 +1167,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
     }
 
-    function _deployToSleeve(uint8 sleeve, uint256 usdcAmount) internal {
+    function _recoverTreasuryVaultUSDC(address to, uint256 amount) internal {
+        uint256 available = _availableUSDC();
+        if (amount > available) amount = available;
+        if (amount == 0) revert ZeroAmount();
+
+        emit TreasuryVaultUSDCRecovered(to, amount);
+        IERC20(USDC).safeTransfer(to, amount);
+    }
+
+    function _deployToSleeve(uint8 sleeve, uint256 usdcAmount, bool forceExternalDeploy) internal {
         if (usdcAmount == 0) return;
         uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
         if (routeCount > 0) {
@@ -1017,6 +1187,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
                 uint256 routeAmount = (usdcAmount * route.depositBps) / FeeLib.BPS_DENOM;
                 if (routeAmount == 0) continue;
+                if (
+                    !forceExternalDeploy && minSleeveRouteDepositUsdc > 0
+                        && routeAmount < minSleeveRouteDepositUsdc
+                ) continue;
 
                 allocated += routeAmount;
                 IERC20(USDC).safeTransfer(route.adapter, routeAmount);
@@ -1028,19 +1202,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             return;
         }
 
-        address adapter = sleeveAdapters[sleeve];
-        if (adapter == address(0)) {
-            _setSleeveValue(sleeve, _manualSleeveValue(sleeve) + usdcAmount);
-            return;
-        }
-
-        IERC20(USDC).safeTransfer(adapter, usdcAmount);
-        ISleeveAdapter(adapter).deploy(usdcAmount);
-        _syncSleeveFromAdapter(sleeve);
+        _setSleeveValue(sleeve, _manualSleeveValue(sleeve) + usdcAmount);
     }
 
-    function _withdrawFromSleeve(uint8 sleeve, uint256 usdcAmount) internal {
-        if (usdcAmount == 0) return;
+    function _withdrawFromSleeve(uint8 sleeve, uint256 usdcAmount) internal returns (uint256 usdcReturned) {
+        if (usdcAmount == 0) return 0;
         uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
         if (routeCount > 0) {
             uint256 remaining = usdcAmount;
@@ -1049,6 +1215,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             if (fromManual > 0) {
                 _setSleeveValue(sleeve, manual - fromManual);
                 remaining -= fromManual;
+                usdcReturned += fromManual;
             }
 
             for (uint256 i; i < routeCount && remaining > 0; ++i) {
@@ -1058,43 +1225,34 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
                 uint256 request = routeAssets > remaining ? remaining : routeAssets;
                 uint256 returned = ISleeveAdapter(routeAdapter).withdraw(request);
+                usdcReturned += returned;
                 remaining = returned >= remaining ? 0 : remaining - returned;
             }
-            return;
+            return usdcReturned;
         }
 
-        address adapter = sleeveAdapters[sleeve];
-        if (adapter == address(0)) {
-            uint256 current = _manualSleeveValue(sleeve);
-            _setSleeveValue(sleeve, usdcAmount >= current ? 0 : current - usdcAmount);
-            return;
-        }
-
-        ISleeveAdapter(adapter).withdraw(usdcAmount);
-        _syncSleeveFromAdapter(sleeve);
+        uint256 current = _manualSleeveValue(sleeve);
+        usdcReturned = usdcAmount > current ? current : usdcAmount;
+        _setSleeveValue(sleeve, current - usdcReturned);
+        return usdcReturned;
     }
 
-    function _syncSleeveFromAdapter(uint8 sleeve) internal {
-        if (_sleeveAdapterRoutes[sleeve].length > 0) return;
-        address adapter = sleeveAdapters[sleeve];
-        if (adapter != address(0)) {
-            _setSleeveValue(sleeve, ISleeveAdapter(adapter).totalAssetsUSDC());
-        }
+    function _moveSleeveValue(uint8 fromSleeve, uint8 toSleeve, uint256 usdcAmount) internal returns (uint256 movedUsdc) {
+        movedUsdc = _withdrawFromSleeve(fromSleeve, usdcAmount);
+        if (movedUsdc == 0) return 0;
+
+        _deployToSleeve(toSleeve, movedUsdc, true);
+        emit SleeveRebalanced(fromSleeve, toSleeve, usdcAmount, movedUsdc);
     }
 
     function _reportedOrAdapterValue(uint8 sleeve, uint256 reportedValue) internal view returns (uint256) {
         if (_sleeveAdapterRoutes[sleeve].length > 0) return _sleeveValue(sleeve);
-        address adapter = sleeveAdapters[sleeve];
-        if (adapter == address(0)) return reportedValue;
-        return ISleeveAdapter(adapter).totalAssetsUSDC();
+        return reportedValue;
     }
 
     function _sleeveValue(uint8 sleeve) internal view returns (uint256) {
         uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
         if (routeCount > 0) return _manualSleeveValue(sleeve) + _routeAssetsUSDC(sleeve);
-
-        address adapter = sleeveAdapters[sleeve];
-        if (adapter != address(0)) return ISleeveAdapter(adapter).totalAssetsUSDC();
         return _manualSleeveValue(sleeve);
     }
 
@@ -1102,7 +1260,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (sleeve == SLEEVE_A) return sleeveAValue;
         if (sleeve == SLEEVE_B) return sleeveBValue;
         if (sleeve == SLEEVE_C) return sleeveCValue;
-        revert("BGWVault: invalid sleeve");
+        revert InvalidSleeve(sleeve);
     }
 
     function _setSleeveValue(uint8 sleeve, uint256 value) internal {
@@ -1113,7 +1271,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         } else if (sleeve == SLEEVE_C) {
             sleeveCValue = value;
         } else {
-            revert("BGWVault: invalid sleeve");
+            revert InvalidSleeve(sleeve);
         }
     }
 
@@ -1142,30 +1300,21 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         bool[] memory active
     ) internal view returns (uint256 activeBps) {
         _validateSleeve(sleeve);
-        require(
-            adapters.length == depositBps.length && adapters.length == active.length,
-            "BGWVault: route length mismatch"
-        );
-        require(adapters.length <= 10, "BGWVault: too many routes");
+        if (adapters.length != depositBps.length || adapters.length != active.length) revert RouteLengthMismatch();
+        if (adapters.length > 10) revert TooManyRoutes(adapters.length, 10);
 
         for (uint256 i; i < adapters.length; ++i) {
             address adapter = adapters[i];
             if (adapter == address(0)) revert ZeroAddress();
-            require(adapter.code.length > 0, "BGWVault: adapter not contract");
+            if (adapter.code.length == 0) revert NotContract(adapter);
 
             for (uint256 j = i + 1; j < adapters.length; ++j) {
-                require(adapter != adapters[j], "BGWVault: duplicate route");
+                if (adapter == adapters[j]) revert DuplicateRoute(adapter);
             }
 
             if (active[i]) activeBps += depositBps[i];
         }
-        require(activeBps <= FeeLib.BPS_DENOM, "BGWVault: route bps too high");
-
-        address legacyAdapter = sleeveAdapters[sleeve];
-        if (legacyAdapter != address(0) && !_containsAdapter(adapters, legacyAdapter)) {
-            uint256 legacyAssets = ISleeveAdapter(legacyAdapter).totalAssetsUSDC();
-            if (legacyAssets > 0) revert FundedAdapterRemovalBlocked(sleeve, legacyAdapter, legacyAssets);
-        }
+        if (activeBps > FeeLib.BPS_DENOM) revert RouteBpsTooHigh(activeBps);
 
         SleeveAdapterRoute[] storage existingRoutes = _sleeveAdapterRoutes[sleeve];
         uint256 existingCount = existingRoutes.length;
@@ -1201,28 +1350,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         }
     }
 
-    function _setSleeveAdapter(uint8 sleeve, address adapter) internal {
-        _validateSleeve(sleeve);
-        require(_sleeveAdapterRoutes[sleeve].length == 0, "BGWVault: routes configured");
-        if (adapter != address(0)) require(adapter.code.length > 0, "BGWVault: adapter not contract");
-
-        address currentAdapter = sleeveAdapters[sleeve];
-        if (currentAdapter != address(0) && currentAdapter != adapter) {
-            uint256 currentAssets = ISleeveAdapter(currentAdapter).totalAssetsUSDC();
-            if (currentAssets > 0) revert FundedAdapterRemovalBlocked(sleeve, currentAdapter, currentAssets);
-        }
-
-        if (adapter != address(0)) {
-            require(
-                ISleeveAdapter(adapter).totalAssetsUSDC() == _manualSleeveValue(sleeve),
-                "BGWVault: adapter value mismatch"
-            );
-        }
-        sleeveAdapters[sleeve] = adapter;
-        _syncSleeveFromAdapter(sleeve);
-        emit SleeveAdapterSet(sleeve, adapter);
-    }
-
     function _setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) internal {
         _validateSleeve(sleeve);
         if (asset == address(0)) revert ZeroAddress();
@@ -1243,7 +1370,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     function _validateSleeve(uint8 sleeve) internal pure {
-        require(sleeve <= SLEEVE_C, "BGWVault: invalid sleeve");
+        if (sleeve > SLEEVE_C) revert InvalidSleeve(sleeve);
     }
 
     /// @dev Distribute performance fee across 6 recipients.
@@ -1284,7 +1411,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function _usdPrice8(address feed) internal view returns (uint256 price) {
         (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) =
             IChainlinkAggregator(feed).latestRoundData();
-        if (updatedAt == 0 || updatedAt > block.timestamp || block.timestamp - updatedAt > ORACLE_STALE_THRESHOLD) {
+        if (updatedAt == 0 || updatedAt > block.timestamp) {
+            revert StaleOracle(updatedAt);
+        }
+        uint256 maxStale = usdcRedemptionMaxStale;
+        if (maxStale != 0 && block.timestamp - updatedAt > maxStale) {
             revert StaleOracle(updatedAt);
         }
         if (answeredInRound < roundId) revert InvalidOracleRound(roundId, answeredInRound);
@@ -1357,10 +1488,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (oldVal == 0) return;
         if (newVal >= oldVal) {
             uint256 maxGrow = (oldVal * FeeLib.MAX_SLEEVE_GROWTH_BPS_DAY * elapsed) / (FeeLib.BPS_DENOM * 1 days);
-            require(newVal - oldVal <= maxGrow, "BGWVault: sleeve growth too fast");
+            if (newVal - oldVal > maxGrow) revert SleeveMoveTooFast();
         } else {
             uint256 maxShrink = (oldVal * FeeLib.MAX_SLEEVE_SHRINK_BPS_DAY * elapsed) / (FeeLib.BPS_DENOM * 1 days);
-            require(oldVal - newVal <= maxShrink, "BGWVault: sleeve shrink too fast");
+            if (oldVal - newVal > maxShrink) revert SleeveMoveTooFast();
         }
     }
 }

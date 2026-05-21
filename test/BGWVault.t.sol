@@ -63,6 +63,7 @@ contract BGWVaultTest is Test {
     address founder = makeAddr("founder");
     address alice = makeAddr("alice");
     address bob = makeAddr("bob");
+    address stranger = makeAddr("stranger");
 
     address team = makeAddr("team");
     address holdback = makeAddr("holdback");
@@ -249,12 +250,12 @@ contract BGWVaultTest is Test {
     }
 
     function test_DepositRevertsIfNotWhitelisted() public {
-        address stranger = makeAddr("stranger");
-        MockUSDC(USDC_ADDR).mint(stranger, 1_000e6);
+        address outsider = makeAddr("unlisted");
+        MockUSDC(USDC_ADDR).mint(outsider, 1_000e6);
 
-        vm.startPrank(stranger);
+        vm.startPrank(outsider);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.NotWhitelisted.selector, stranger));
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.NotWhitelisted.selector, outsider));
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
     }
@@ -263,6 +264,27 @@ contract BGWVaultTest is Test {
         vm.prank(alice);
         vm.expectRevert(BGWVault.ZeroAmount.selector);
         vault.deposit(0, 0);
+    }
+
+    function test_DepositRevertsBelowMinimum() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 999_999);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.DepositBelowMinimum.selector, 999_999, 1e6));
+        vault.deposit(999_999, 0);
+        vm.stopPrank();
+    }
+
+    function test_OwnerCanUpdateDepositMinimum() public {
+        vm.prank(founder);
+        vault.setMinDepositUsdc(0);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1);
+        vault.deposit(1, 0);
+        vm.stopPrank();
+
+        assertEq(bgwToken.balanceOf(alice), 1e12);
+        assertEq(vault.totalNAV(), 1);
     }
 
     function test_DepositForMintsToRecipient() public {
@@ -663,7 +685,26 @@ contract BGWVaultTest is Test {
         assertEq(MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore, grossAfterDepeg - expectedFee);
     }
 
-    function test_RedeemRevertsOnStaleUSDCFeed() public {
+    function test_RedeemAllowsStaleUSDCFeed() public {
+        vm.warp(3 hours);
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+
+        usdcUsdFeed.setStale();
+        uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vm.stopPrank();
+
+        uint256 expectedFee = (1_000e6 * 10) / 10_000;
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore, 1_000e6 - expectedFee);
+    }
+
+    function test_RedeemCanEnforceConfiguredUSDCFeedStaleness() public {
+        vm.prank(founder);
+        vault.setUSDCRedemptionMaxStale(20 minutes);
+
+        vm.warp(3 hours);
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -1147,6 +1188,61 @@ contract BGWVaultTest is Test {
         vault.recoverToken(anotherToken, 1, founder);
     }
 
+    function test_BootstrapTreasuryVaultUSDCRecoveryIsImmediate() public {
+        MockUSDC(USDC_ADDR).mint(address(vault), 2e6);
+
+        uint256 beforeBalance = MockUSDC(USDC_ADDR).balanceOf(founder);
+
+        vm.prank(founder);
+        vault.recoverTreasuryVaultUSDC(founder, 2e6);
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(founder) - beforeBalance, 2e6);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
+    }
+
+    function test_PostBootstrapTreasuryVaultUSDCRecoveryRequiresTimelock() public {
+        MockUSDC(USDC_ADDR).mint(address(vault), 2e6);
+
+        vm.prank(founder);
+        vault.finalizeBootstrap();
+
+        vm.prank(founder);
+        vault.recoverTreasuryVaultUSDC(founder, 2e6);
+
+        (address to, uint256 amount, uint256 executeAfter) = vault.pendingTreasuryVaultUSDCRecovery();
+        assertEq(to, founder);
+        assertEq(amount, 2e6);
+        assertEq(executeAfter, block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 2e6);
+
+        vm.prank(founder);
+        vm.expectRevert(abi.encodeWithSelector(BGWVault.TimelockNotReady.selector, executeAfter));
+        vault.executeTreasuryVaultUSDCRecovery();
+
+        uint256 beforeBalance = MockUSDC(USDC_ADDR).balanceOf(founder);
+
+        vm.warp(executeAfter);
+        vm.prank(founder);
+        vault.executeTreasuryVaultUSDCRecovery();
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(founder) - beforeBalance, 2e6);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
+    }
+
+    function test_PostBootstrapTreasuryVaultUSDCRecoveryCanBeCancelled() public {
+        MockUSDC(USDC_ADDR).mint(address(vault), 2e6);
+
+        vm.startPrank(founder);
+        vault.finalizeBootstrap();
+        vault.recoverTreasuryVaultUSDC(founder, 2e6);
+        vault.cancelTreasuryVaultUSDCRecovery();
+        vm.expectRevert(BGWVault.NoPendingTreasuryVaultUSDCRecovery.selector);
+        vault.executeTreasuryVaultUSDCRecovery();
+        vm.stopPrank();
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 2e6);
+    }
+
     function test_SetProtectedTokenRevertsZeroAddress() public {
         vm.prank(founder);
         vm.expectRevert(BGWVault.ZeroAddress.selector);
@@ -1188,10 +1284,21 @@ contract BGWVaultTest is Test {
         MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
         MockSleeveAdapter adapterC = new MockSleeveAdapter(address(vault), USDC_ADDR);
 
+        address[] memory routeA = new address[](1);
+        address[] memory routeB = new address[](1);
+        address[] memory routeC = new address[](1);
+        routeA[0] = address(adapterA);
+        routeB[0] = address(adapterB);
+        routeC[0] = address(adapterC);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
         vm.startPrank(founder);
-        vault.setSleeveAdapter(vault.SLEEVE_A(), address(adapterA));
-        vault.setSleeveAdapter(vault.SLEEVE_B(), address(adapterB));
-        vault.setSleeveAdapter(vault.SLEEVE_C(), address(adapterC));
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_C(), routeC, bps, active);
         vm.stopPrank();
 
         vm.startPrank(alice);
@@ -1215,13 +1322,36 @@ contract BGWVaultTest is Test {
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(adapterA)), adapterA.totalAssetsUSDC());
     }
 
-    function test_LiveVaultCannotInstantlyChangeSingleSleeveAdapter() public {
-        MockSleeveAdapter adapterA1 = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        MockSleeveAdapter adapterA2 = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        uint8 sleeveA = vault.SLEEVE_A();
+    function test_OneWayRebalanceMovesCToBThenBToA() public {
+        vm.prank(founder);
+        vault.setSleeveDepositWeights(0, 0, 10_000);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_B()), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_C()), 1_000e6);
 
         vm.prank(founder);
-        vault.setSleeveAdapter(sleeveA, address(adapterA1));
+        vault.setSleeveDepositWeights(6_500, 3_500, 0);
+
+        vm.prank(founder);
+        (uint256 movedCToB, uint256 movedBToA) = vault.rebalanceSleevesOneWay(type(uint256).max);
+
+        assertEq(movedCToB, 1_000e6);
+        assertEq(movedBToA, 650e6);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 650e6);
+        assertEq(vault.sleeveValue(vault.SLEEVE_B()), 350e6);
+        assertEq(vault.sleeveValue(vault.SLEEVE_C()), 0);
+        assertEq(vault.totalNAV(), 1_000e6);
+    }
+
+    function test_OneWayRebalanceHonorsMoveCap() public {
+        vm.prank(founder);
+        vault.setSleeveDepositWeights(0, 0, 10_000);
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -1229,8 +1359,59 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(founder);
-        vm.expectRevert(BGWVault.AdapterChangeAfterDeposits.selector);
-        vault.setSleeveAdapter(sleeveA, address(adapterA2));
+        vault.setSleeveDepositWeights(6_500, 3_500, 0);
+
+        vm.prank(founder);
+        (uint256 movedCToB, uint256 movedBToA) = vault.rebalanceSleevesOneWay(500e6);
+
+        assertEq(movedCToB, 500e6);
+        assertEq(movedBToA, 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_B()), 500e6);
+        assertEq(vault.sleeveValue(vault.SLEEVE_C()), 500e6);
+    }
+
+    function test_OnlyOwnerOrAutomationCanOneWayRebalance() public {
+        address automationAddr = _setupAutomation();
+
+        vm.prank(stranger);
+        vm.expectRevert(BGWVault.OnlyAutomationOrOwner.selector);
+        vault.rebalanceSleevesOneWay(1e6);
+
+        vm.prank(automationAddr);
+        vault.rebalanceSleevesOneWay(1e6);
+    }
+
+    function test_LiveVaultCannotRemoveFundedSleeveAdapterRoute() public {
+        MockSleeveAdapter adapterA1 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterA2 = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        uint8 sleeveA = vault.SLEEVE_A();
+
+        address[] memory firstAdapters = new address[](1);
+        firstAdapters[0] = address(adapterA1);
+        uint16[] memory firstBps = new uint16[](1);
+        firstBps[0] = 10_000;
+        bool[] memory firstActive = new bool[](1);
+        firstActive[0] = true;
+
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(sleeveA, firstAdapters, firstBps, firstActive);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        address[] memory nextAdapters = new address[](1);
+        nextAdapters[0] = address(adapterA2);
+        uint16[] memory nextBps = new uint16[](1);
+        nextBps[0] = 10_000;
+        bool[] memory nextActive = new bool[](1);
+        nextActive[0] = true;
+
+        vm.prank(founder);
+        vm.expectRevert();
+        vault.configureSleeveAdapterRoutes(sleeveA, nextAdapters, nextBps, nextActive);
     }
 
     function test_MultipleSleeveAdapterRoutesCanBeAddedWithoutMovingExistingFunds() public {
@@ -1282,6 +1463,68 @@ contract BGWVaultTest is Test {
         assertEq(adapterA2.totalAssetsUSDC(), 325e6);
         assertEq(vault.sleeveValue(sleeveA), 1_300e6);
         assertEq(vault.totalNAV(), 2_000e6);
+    }
+
+    function test_SmallDepositsRouteEntirelyToStableSleeve() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        address[] memory routeA = new address[](1);
+        routeA[0] = address(adapterA);
+        address[] memory routeB = new address[](1);
+        routeB[0] = address(adapterB);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.startPrank(founder);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1e6);
+        vault.deposit(1e6, 0);
+        vm.stopPrank();
+
+        assertEq(adapterA.totalAssetsUSDC(), 0);
+        assertEq(adapterB.totalAssetsUSDC(), 1e6);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_B()), 1e6);
+        assertEq(vault.totalNAV(), 1e6);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
+    }
+
+    function test_OwnerCanDisableStableOnlySmallDepositRouting() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        address[] memory routeA = new address[](1);
+        routeA[0] = address(adapterA);
+        address[] memory routeB = new address[](1);
+        routeB[0] = address(adapterB);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.startPrank(founder);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
+        vault.setSmallDepositStableOnlyThresholdUsdc(0);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 5e6);
+        vault.deposit(5e6, 0);
+        vm.stopPrank();
+
+        assertEq(adapterA.totalAssetsUSDC(), 0);
+        assertEq(adapterB.totalAssetsUSDC(), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 3_250_000);
+        assertEq(vault.sleeveValue(vault.SLEEVE_B()), 1_750_000);
+        assertEq(vault.totalNAV(), 5e6);
     }
 
     function test_FundedSleeveAdapterRouteCannotBeDroppedFromNAV() public {

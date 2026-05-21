@@ -313,8 +313,8 @@ export SLEEVE_B_ADAPTER="<printed-SleeveBStableYieldAdapter-address>"
 Post-check:
 
 ```bash
-cast call $VAULT "sleeveAdapters(uint8)(address)" 0 --rpc-url $BASE_RPC_URL
-cast call $VAULT "sleeveAdapters(uint8)(address)" 1 --rpc-url $BASE_RPC_URL
+cast call $VAULT "sleeveAdapterRouteAt(uint8,uint256)(address,uint16,bool)" 0 0 --rpc-url $BASE_RPC_URL
+cast call $VAULT "sleeveAdapterRouteAt(uint8,uint256)(address,uint16,bool)" 1 0 --rpc-url $BASE_RPC_URL
 cast call $SLEEVE_A_WRAPPER "yieldAdapter()(address)" --rpc-url $BASE_RPC_URL
 cast call $BASE_CBBTC_YIELD_ADAPTER "controller()(address)" --rpc-url $BASE_RPC_URL
 cast call $BASE_CBBTC_YIELD_ADAPTER "rescueReceiver()(address)" --rpc-url $BASE_RPC_URL
@@ -326,6 +326,7 @@ Expected:
 
 - Vault sleeve adapter `0` is `$SLEEVE_A_WRAPPER`.
 - Vault sleeve adapter `1` is `$SLEEVE_B_ADAPTER`.
+- Each route has `depositBps=10000` and `active=true`.
 - Wrapper yield adapter is `$BASE_CBBTC_YIELD_ADAPTER`.
 - Yield adapter controller is `$SLEEVE_A_WRAPPER`.
 - Rescue receiver is `$RESCUE_RECEIVER`.

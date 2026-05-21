@@ -136,8 +136,21 @@ contract DeployAndWireSleeves is Script {
         address cbbtc,
         address aCbbtc
     ) internal {
-        vault.setSleeveAdapter(0, sleeveA);
-        vault.setSleeveAdapter(1, sleeveB);
+        address[] memory sleeveARoutes = new address[](1);
+        sleeveARoutes[0] = sleeveA;
+        uint16[] memory sleeveABps = new uint16[](1);
+        sleeveABps[0] = 10_000;
+        bool[] memory sleeveAActive = new bool[](1);
+        sleeveAActive[0] = true;
+        vault.configureSleeveAdapterRoutes(0, sleeveARoutes, sleeveABps, sleeveAActive);
+
+        address[] memory sleeveBRoutes = new address[](1);
+        sleeveBRoutes[0] = sleeveB;
+        uint16[] memory sleeveBBps = new uint16[](1);
+        sleeveBBps[0] = 10_000;
+        bool[] memory sleeveBActive = new bool[](1);
+        sleeveBActive[0] = true;
+        vault.configureSleeveAdapterRoutes(1, sleeveBRoutes, sleeveBBps, sleeveBActive);
         console.log("Sleeves wired: A =", sleeveA, " B =", sleeveB);
 
         vault.setSleeveDepositWeights(6500, 3500, 0);

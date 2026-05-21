@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bridgeway Operator Dashboard</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fb;
+      --panel: #ffffff;
+      --ink: #18202f;
+      --muted: #667085;
+      --line: #d8dde7;
+      --accent: #0f766e;
+      --accent-strong: #0b5f59;
+      --warn: #9a3412;
+      --good: #166534;
+      --soft: #eef7f6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      padding: 18px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto auto;
+      gap: 12px;
+      align-items: end;
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: white;
+      color: var(--ink);
+      padding: 10px 12px;
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      padding: 11px 16px;
+      min-width: 132px;
+    }
+
+    button:hover { background: var(--accent-strong); }
+    button:disabled { cursor: wait; opacity: 0.7; }
+
+    button.secondary {
+      background: #344054;
+    }
+
+    button.secondary:hover {
+      background: #182230;
+    }
+
+    .status {
+      min-height: 22px;
+      color: var(--muted);
+      margin-bottom: 18px;
+    }
+
+    .buy-panel {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 12px;
+      align-items: end;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    .metric, section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .metric {
+      padding: 14px;
+      min-height: 88px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 22px;
+      line-height: 1.15;
+      word-break: break-word;
+    }
+
+    .metric small {
+      color: var(--muted);
+      display: block;
+      margin-top: 5px;
+    }
+
+    section {
+      margin-bottom: 18px;
+      overflow: hidden;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfe;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .pill {
+      border-radius: 999px;
+      background: var(--soft);
+      color: var(--accent-strong);
+      padding: 4px 9px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      background: #fff;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    .right { text-align: right; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .good { color: var(--good); font-weight: 700; }
+    .warn { color: var(--warn); font-weight: 700; }
+
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    a {
+      color: var(--accent-strong);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    @media (max-width: 900px) {
+      .controls, .buy-panel, .grid { grid-template-columns: 1fr; }
+      header, main { padding-left: 14px; padding-right: 14px; }
+      .topline { align-items: flex-start; flex-direction: column; }
+      th, td { padding: 9px 10px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topline">
+      <h1>Bridgeway Operator Dashboard</h1>
+      <div class="pill">Base Mainnet</div>
+    </div>
+  </header>
+
+  <main>
+    <div class="controls">
+      <label>
+        RPC URL
+        <input id="rpc" value="https://mainnet.base.org">
+      </label>
+      <label>
+        Wallet / Depositor
+        <input id="wallet" value="0x13c142E565d28b1558BecAA2Af4495CB133801f4">
+      </label>
+      <button id="refresh">Refresh</button>
+      <button id="deepRefresh" class="secondary">Deep Refresh</button>
+    </div>
+
+    <div id="status" class="status">Ready.</div>
+
+    <div class="buy-panel">
+      <label>
+        Buy BGW With USDC
+        <input id="buyAmount" inputmode="decimal" type="number" min="1" step="0.000001" value="1">
+      </label>
+      <button id="connectWallet" class="secondary">Connect Wallet</button>
+      <button id="buyBgw">Buy BGW</button>
+    </div>
+
+    <div class="grid">
+      <div class="metric">
+        <span>NAV Per BGW</span>
+        <strong id="navPerBgw">-</strong>
+        <small>USDC per BGW</small>
+      </div>
+      <div class="metric">
+        <span>Total NAV</span>
+        <strong id="totalNav">-</strong>
+        <small>USDC</small>
+      </div>
+      <div class="metric">
+        <span>BGW Supply</span>
+        <strong id="bgwSupply">-</strong>
+        <small>BGW</small>
+      </div>
+      <div class="metric">
+        <span>Wallet BGW</span>
+        <strong id="walletBgw">-</strong>
+        <small>Selected wallet</small>
+      </div>
+    </div>
+
+    <section>
+      <div class="section-head">
+        <h2>Sleeve Summary</h2>
+        <span id="lastUpdated" class="pill">Not loaded</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Sleeve</th>
+            <th class="right">Current Value</th>
+            <th class="right">Launch Allocation</th>
+            <th class="right">P/L</th>
+          </tr>
+        </thead>
+        <tbody id="sleeveRows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Sleeve A Look-Through</h2>
+        <span id="aeroEnabled" class="pill">-</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Position</th>
+            <th class="right">Amount</th>
+            <th class="right">Share</th>
+          </tr>
+        </thead>
+        <tbody id="sleeveARows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Sleeve B Look-Through</h2>
+        <span class="pill">USDC Yield</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Position</th>
+            <th class="right">Amount</th>
+            <th class="right">Share</th>
+          </tr>
+        </thead>
+        <tbody id="sleeveBRows"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <div class="section-head">
+        <h2>Wallet And Ownership</h2>
+        <span id="nonce" class="pill">-</span>
+      </div>
+      <table>
+        <tbody id="walletRows"></tbody>
+      </table>
+    </section>
+
+    <div class="links">
+      <a href="https://app.morpho.org/base/vault/0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61" target="_blank" rel="noreferrer">Morpho USDC Vault</a>
+      <a href="https://basescan.org/address/0xDbC67391e3DAf3E542B7D290f607FE0CBc91307f" target="_blank" rel="noreferrer">Vault On BaseScan</a>
+      <a href="https://basescan.org/address/0x9285e5bc1177Ee8E734513599035d382e32aA5Ee" target="_blank" rel="noreferrer">BGW Token</a>
+    </div>
+  </main>
+
+  <script>
+    const ADDR = {
+      vault: "0xDbC67391e3DAf3E542B7D290f607FE0CBc91307f",
+      bgw: "0x9285e5bc1177Ee8E734513599035d382e32aA5Ee",
+      gov: "0x297E63945B9B93Ab2573D35e6ce6652a46d87713",
+      usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      cbbtc: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+      aUsdc: "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB",
+      aCbbtc: "0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6",
+      morpho: "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
+      sleeveA: "0xd89014930C45282D2306Ea6C0050740303207701",
+      strategy: "0x3CC2848457e00D6114a2C546166e1f1596d8fCCd",
+      yield: "0x4B887acc298f68298E4C70Bc74AE0834f4F2028B",
+      sleeveB: "0xb95cF3E4009bB466E46909a4aF88aAaF29E7e7e4",
+      safe: "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
+      founder: "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
+    };
+
+    const SIG = {
+      navPerBGW: "0x6f12ee1c",
+      totalNAV: "0x30421927",
+      totalLocalNAV: "0x9cc2a7a3",
+      sleeveValue: "0x7ef80393",
+      totalAssetsUSDC: "0xf7c760f5",
+      totalAssetsAsset: "0xd83f24ff",
+      totalAssetsCbbtc: "0x4b8bd46b",
+      aerodromeEnabled: "0x5302bc33",
+      netApyBps: "0xb7b6207e",
+      tokenId: "0x17d70f7c",
+      currentLiquidity: "0x46caf2ae",
+      owner: "0x8da5cb5b",
+      pendingOwner: "0xe30c3978",
+      balanceOf: "0x70a08231",
+      totalSupply: "0x18160ddd",
+      convertToAssets: "0x07a2d13a",
+      whitelist: "0x9b19251a",
+      allowance: "0xdd62ed3e",
+      approve: "0x095ea7b3",
+      deposit: "0xe2bbb158",
+      usdcRedemptionMaxStale: "0x75b52aa7",
+      maxStale: "0x31dd6b06",
+      lastMarkAt: "0xb5d92571",
+      maxMarkStale: "0x4870b777"
+    };
+
+    const MIN_BUY_USDC = 1000000n;
+
+    const $ = (id) => document.getElementById(id);
+
+    function cleanHex(hex) {
+      if (!hex || hex === "0x") return "0x0";
+      return hex;
+    }
+
+    function word(value) {
+      let hex;
+      if (typeof value === "bigint") hex = value.toString(16);
+      else if (typeof value === "number") hex = BigInt(value).toString(16);
+      else hex = value.toLowerCase().replace(/^0x/, "");
+      return hex.padStart(64, "0");
+    }
+
+    function addrArg(address) {
+      return word(address);
+    }
+
+    function uintArg(value) {
+      return word(BigInt(value));
+    }
+
+    function data(selector, args = []) {
+      return selector + args.join("");
+    }
+
+    function asUint(hex) {
+      return BigInt(cleanHex(hex));
+    }
+
+    function asBool(hex) {
+      return asUint(hex) !== 0n;
+    }
+
+    function asAddress(hex) {
+      const h = cleanHex(hex).replace(/^0x/, "").padStart(64, "0");
+      return "0x" + h.slice(24);
+    }
+
+    function fmtFixed(value, decimals, places = 6) {
+      value = BigInt(value);
+      const base = 10n ** BigInt(decimals);
+      const whole = value / base;
+      const frac = value % base;
+      if (places === 0) return whole.toString();
+      const fracStr = frac.toString().padStart(decimals, "0").slice(0, places);
+      const trimmed = fracStr.replace(/0+$/, "");
+      return trimmed ? `${whole}.${trimmed}` : whole.toString();
+    }
+
+    function fmtUsdc(value) {
+      return fmtFixed(value, 6, 6);
+    }
+
+    function fmtToken18(value) {
+      return fmtFixed(value, 18, 6);
+    }
+
+    function fmtCbbtc(value) {
+      return fmtFixed(value, 8, 8);
+    }
+
+    function parseUnits(value, decimals) {
+      const text = String(value).trim();
+      if (!/^\d+(\.\d+)?$/.test(text)) throw new Error("Enter a valid USDC amount.");
+      const [whole, fraction = ""] = text.split(".");
+      if (fraction.length > decimals) throw new Error(`USDC supports ${decimals} decimal places.`);
+      return BigInt(whole) * (10n ** BigInt(decimals)) + BigInt(fraction.padEnd(decimals, "0") || "0");
+    }
+
+    function pct(part, total) {
+      part = BigInt(part);
+      total = BigInt(total);
+      if (total === 0n) return "-";
+      const bps = (part * 1000000n) / total;
+      return `${Number(bps) / 10000}%`;
+    }
+
+    function fmtSeconds(value) {
+      value = BigInt(value);
+      if (value === 0n) return "disabled";
+      const seconds = Number(value);
+      if (seconds >= 86400) return `${seconds / 86400} days`;
+      if (seconds >= 3600) return `${seconds / 3600} hours`;
+      if (seconds >= 60) return `${seconds / 60} min`;
+      return `${seconds}s`;
+    }
+
+    function diff(current, start) {
+      current = BigInt(current);
+      start = BigInt(start);
+      const sign = current >= start ? "+" : "-";
+      const abs = current >= start ? current - start : start - current;
+      const bps = start === 0n ? 0n : (abs * 1000000n) / start;
+      return `${sign}${fmtUsdc(abs)} USDC (${sign}${Number(bps) / 10000}%)`;
+    }
+
+    let rpcQueue = Promise.resolve();
+    let lastRpcAt = 0;
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function rpc(method, params) {
+      const run = async () => {
+        let lastError;
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          try {
+            return await rpcOnce(method, params);
+          } catch (error) {
+            lastError = error;
+            const retryable = error.message.includes("429") || error.message.includes("rate limit");
+            if (!retryable || attempt === 3) break;
+            $("status").textContent = `Public RPC is throttling. Waiting ${attempt + 1}s before continuing...`;
+            await sleep((attempt + 1) * 1000);
+          }
+        }
+        throw lastError;
+      };
+
+      const next = rpcQueue.then(run, run);
+      rpcQueue = next.catch(() => {});
+      return next;
+    }
+
+    async function rpcOnce(method, params) {
+      const gapMs = $("rpc").value.includes("mainnet.base.org") ? 450 : 125;
+      const elapsed = Date.now() - lastRpcAt;
+      if (elapsed < gapMs) await sleep(gapMs - elapsed);
+      lastRpcAt = Date.now();
+
+      const res = await fetch($("rpc").value.trim(), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params })
+      });
+      if (!res.ok) throw new Error(`RPC HTTP ${res.status}. Public RPCs may rate-limit refreshes; use your Base Alchemy RPC for smoother reads.`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+      return json.result;
+    }
+
+    async function call(to, callData) {
+      return rpc("eth_call", [{ to, data: callData }, "latest"]);
+    }
+
+    async function balance(token, holder) {
+      return asUint(await call(token, data(SIG.balanceOf, [addrArg(holder)])));
+    }
+
+    async function walletRequest(args) {
+      if (!window.ethereum) throw new Error("No browser wallet found. Open this page in a browser with MetaMask or another EIP-1193 wallet.");
+      return window.ethereum.request(args);
+    }
+
+    async function connectWallet() {
+      const accounts = await walletRequest({ method: "eth_requestAccounts" });
+      if (!accounts.length) throw new Error("Wallet did not return an account.");
+      $("wallet").value = accounts[0];
+      return accounts[0];
+    }
+
+    async function ensureBase() {
+      try {
+        await walletRequest({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: "0x2105" }]
+        });
+      } catch (error) {
+        if (error.code !== 4902) throw error;
+        await walletRequest({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0x2105",
+            chainName: "Base Mainnet",
+            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: ["https://mainnet.base.org"],
+            blockExplorerUrls: ["https://basescan.org"]
+          }]
+        });
+      }
+    }
+
+    async function sendTransaction(to, callData) {
+      const from = $("wallet").value.trim();
+      return walletRequest({ method: "eth_sendTransaction", params: [{ from, to, data: callData }] });
+    }
+
+    async function buyBgw() {
+      const button = $("buyBgw");
+      button.disabled = true;
+      try {
+        const wallet = await connectWallet();
+        await ensureBase();
+
+        const amount = parseUnits($("buyAmount").value, 6);
+        if (amount <= 0n) throw new Error("Buy amount must be greater than zero.");
+        if (amount < MIN_BUY_USDC) throw new Error("Minimum buy is 1 USDC.");
+
+        $("status").textContent = "Checking USDC allowance...";
+        const allowance = asUint(await call(ADDR.usdc, data(SIG.allowance, [addrArg(wallet), addrArg(ADDR.vault)])));
+
+        if (allowance < amount) {
+          $("status").textContent = "Approve USDC in your wallet...";
+          const approveHash = await sendTransaction(ADDR.usdc, data(SIG.approve, [addrArg(ADDR.vault), uintArg(amount)]));
+          $("status").textContent = `USDC approval sent: ${approveHash}. Waiting a few seconds before deposit...`;
+          await sleep(4500);
+        }
+
+        $("status").textContent = "Confirm BGW purchase in your wallet...";
+        const depositHash = await sendTransaction(ADDR.vault, data(SIG.deposit, [uintArg(amount), uintArg(0)]));
+        $("status").textContent = `Buy transaction sent: ${depositHash}`;
+      } catch (error) {
+        $("status").textContent = `Buy failed: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function refresh() {
+      const button = $("refresh");
+      button.disabled = true;
+      $("status").textContent = "Refreshing overview...";
+      try {
+        const wallet = $("wallet").value.trim();
+
+        const [
+          blockHex,
+          nonceHex,
+          navPerBGW,
+          totalNav,
+          localNav,
+          bgwSupply,
+          walletBgw,
+          walletGov,
+          walletUsdc,
+          founderGov,
+          sleeveAValue,
+          sleeveBValue,
+          whitelisted
+        ] = await Promise.all([
+          rpc("eth_blockNumber", []),
+          rpc("eth_getTransactionCount", [wallet, "latest"]),
+          call(ADDR.vault, data(SIG.navPerBGW)),
+          call(ADDR.vault, data(SIG.totalNAV)),
+          call(ADDR.vault, data(SIG.totalLocalNAV)),
+          call(ADDR.bgw, data(SIG.totalSupply)),
+          call(ADDR.bgw, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.gov, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.usdc, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.gov, data(SIG.balanceOf, [addrArg(ADDR.founder)])),
+          call(ADDR.vault, data(SIG.sleeveValue, [uintArg(0)])),
+          call(ADDR.vault, data(SIG.sleeveValue, [uintArg(1)])),
+          call(ADDR.vault, data(SIG.whitelist, [addrArg(wallet)]))
+        ]);
+
+        const block = Number(asUint(blockHex));
+        const nonce = Number(asUint(nonceHex));
+
+        $("navPerBgw").textContent = fmtUsdc(asUint(navPerBGW));
+        $("totalNav").textContent = fmtUsdc(asUint(totalNav));
+        $("bgwSupply").textContent = fmtToken18(asUint(bgwSupply));
+        $("walletBgw").textContent = fmtToken18(asUint(walletBgw));
+        $("nonce").textContent = `Nonce ${nonce}`;
+        $("lastUpdated").textContent = `Block ${block}`;
+
+        const sleeveAStart = 39000000n;
+        const sleeveBStart = 21000000n;
+        $("sleeveRows").innerHTML = [
+          ["Sleeve A", fmtUsdc(asUint(sleeveAValue)), "39.000000", diff(asUint(sleeveAValue), sleeveAStart)],
+          ["Sleeve B", fmtUsdc(asUint(sleeveBValue)), "21.000000", diff(asUint(sleeveBValue), sleeveBStart)],
+          ["Local NAV", fmtUsdc(asUint(localNav)), "60.000000", diff(asUint(localNav), 60000000n)]
+        ].map(row).join("");
+
+        $("walletRows").innerHTML = [
+          ["Wallet USDC", `${fmtUsdc(asUint(walletUsdc))} USDC`],
+          ["Wallet BGW", `${fmtToken18(asUint(walletBgw))} BGW`],
+          ["Wallet BGW-GOV", `${fmtToken18(asUint(walletGov))} BGW-GOV`],
+          ["Founder BGW-GOV", `${fmtToken18(asUint(founderGov))} BGW-GOV`],
+          ["Vault whitelist", asBool(whitelisted) ? "true" : "false"]
+        ].map(([k, v]) => `<tr><td>${k}</td><td class="right mono">${v}</td></tr>`).join("");
+
+        if (!$("sleeveARows").children.length) {
+          $("sleeveARows").innerHTML = `<tr><td colspan="3">Use Deep Refresh for underlying positions.</td></tr>`;
+          $("sleeveBRows").innerHTML = `<tr><td colspan="3">Use Deep Refresh for underlying positions.</td></tr>`;
+        }
+
+        $("status").textContent = "Overview refresh complete.";
+      } catch (error) {
+        $("status").textContent = `Error: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function deepRefresh() {
+      const button = $("deepRefresh");
+      button.disabled = true;
+      $("status").textContent = "Refreshing full look-through...";
+      try {
+        const wallet = $("wallet").value.trim();
+
+        const [
+          blockHex,
+          nonceHex,
+          navPerBGW,
+          totalNav,
+          localNav,
+          bgwSupply,
+          walletBgw,
+          walletGov,
+          walletUsdc,
+          founderGov,
+          sleeveAValue,
+          sleeveBValue,
+          wrapperTotal,
+          wrapperIdleUsdc,
+          wrapperIdleCbbtc,
+          yieldTotalUsdc,
+          yieldTotalCbbtc,
+          yieldIdleCbbtc,
+          yieldACbbtc,
+          aeroEnabled,
+          aeroTotalCbbtc,
+          aeroApy,
+          aeroTokenId,
+          aeroLiquidity,
+          aeroLastMarkAt,
+          aeroMaxMarkStale,
+          aeroIdleUsdc,
+          aeroIdleCbbtc,
+          bTotal,
+          bIdleUsdc,
+          bAUsdc,
+          bMorphoShares,
+          vaultOwner,
+          vaultPending,
+          wrapperPending,
+          strategyPending,
+          yieldPending,
+          sleeveBPending,
+          whitelisted,
+          usdcMaxStale,
+          wrapperMaxStale,
+          yieldMaxStale
+        ] = await Promise.all([
+          rpc("eth_blockNumber", []),
+          rpc("eth_getTransactionCount", [wallet, "latest"]),
+          call(ADDR.vault, data(SIG.navPerBGW)),
+          call(ADDR.vault, data(SIG.totalNAV)),
+          call(ADDR.vault, data(SIG.totalLocalNAV)),
+          call(ADDR.bgw, data(SIG.totalSupply)),
+          call(ADDR.bgw, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.gov, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.usdc, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.gov, data(SIG.balanceOf, [addrArg(ADDR.founder)])),
+          call(ADDR.vault, data(SIG.sleeveValue, [uintArg(0)])),
+          call(ADDR.vault, data(SIG.sleeveValue, [uintArg(1)])),
+          call(ADDR.sleeveA, data(SIG.totalAssetsUSDC)),
+          call(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveA)])),
+          call(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.sleeveA)])),
+          call(ADDR.yield, data(SIG.totalAssetsUSDC)),
+          call(ADDR.yield, data(SIG.totalAssetsAsset)),
+          call(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.yield)])),
+          call(ADDR.aCbbtc, data(SIG.balanceOf, [addrArg(ADDR.yield)])),
+          call(ADDR.yield, data(SIG.aerodromeEnabled)),
+          call(ADDR.strategy, data(SIG.totalAssetsCbbtc)).catch(() => "0x0"),
+          call(ADDR.strategy, data(SIG.netApyBps)),
+          call(ADDR.strategy, data(SIG.tokenId)),
+          call(ADDR.strategy, data(SIG.currentLiquidity)),
+          call(ADDR.strategy, data(SIG.lastMarkAt)),
+          call(ADDR.strategy, data(SIG.maxMarkStale)),
+          call(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.strategy)])),
+          call(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.strategy)])),
+          call(ADDR.sleeveB, data(SIG.totalAssetsUSDC)),
+          call(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
+          call(ADDR.aUsdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
+          call(ADDR.morpho, data(SIG.balanceOf, [addrArg(ADDR.sleeveB)])),
+          call(ADDR.vault, data(SIG.owner)),
+          call(ADDR.vault, data(SIG.pendingOwner)),
+          call(ADDR.sleeveA, data(SIG.pendingOwner)),
+          call(ADDR.strategy, data(SIG.pendingOwner)),
+          call(ADDR.yield, data(SIG.pendingOwner)),
+          call(ADDR.sleeveB, data(SIG.pendingOwner)),
+          call(ADDR.vault, data(SIG.whitelist, [addrArg(wallet)])),
+          call(ADDR.vault, data(SIG.usdcRedemptionMaxStale)).catch(() => "0x0"),
+          call(ADDR.sleeveA, data(SIG.maxStale)),
+          call(ADDR.yield, data(SIG.maxStale))
+        ]);
+
+        const aeroTotal = asUint(aeroTotalCbbtc);
+        const morphoShares = asUint(bMorphoShares);
+        const morphoAssets = asUint(await call(ADDR.morpho, data(SIG.convertToAssets, [uintArg(morphoShares)])));
+        const block = Number(asUint(blockHex));
+        const nonce = Number(asUint(nonceHex));
+
+        $("navPerBgw").textContent = fmtUsdc(asUint(navPerBGW));
+        $("totalNav").textContent = fmtUsdc(asUint(totalNav));
+        $("bgwSupply").textContent = fmtToken18(asUint(bgwSupply));
+        $("walletBgw").textContent = fmtToken18(asUint(walletBgw));
+        $("aeroEnabled").textContent = asBool(aeroEnabled) ? "Aerodrome active" : "Aerodrome inactive";
+        $("aeroEnabled").className = asBool(aeroEnabled) ? "pill good" : "pill warn";
+        $("nonce").textContent = `Nonce ${nonce}`;
+        $("lastUpdated").textContent = `Block ${block}`;
+
+        const sleeveAStart = 39000000n;
+        const sleeveBStart = 21000000n;
+        $("sleeveRows").innerHTML = [
+          ["Sleeve A", fmtUsdc(asUint(sleeveAValue)), "39.000000", diff(asUint(sleeveAValue), sleeveAStart)],
+          ["Sleeve B", fmtUsdc(asUint(sleeveBValue)), "21.000000", diff(asUint(sleeveBValue), sleeveBStart)],
+          ["Local NAV", fmtUsdc(asUint(localNav)), "60.000000", diff(asUint(localNav), 60000000n)]
+        ].map(row).join("");
+
+        const yieldCbbtc = asUint(yieldTotalCbbtc);
+        $("sleeveARows").innerHTML = [
+          ["Wrapper total", `${fmtUsdc(asUint(wrapperTotal))} USDC`, "100%"],
+          ["Wrapper idle USDC", `${fmtUsdc(asUint(wrapperIdleUsdc))} USDC`, pct(asUint(wrapperIdleUsdc), asUint(wrapperTotal))],
+          ["Wrapper idle cbBTC", `${fmtCbbtc(asUint(wrapperIdleCbbtc))} cbBTC`, "-"],
+          ["Yield total", `${fmtUsdc(asUint(yieldTotalUsdc))} USDC / ${fmtCbbtc(yieldCbbtc)} cbBTC`, "100%"],
+          ["Aave cbBTC", `${fmtCbbtc(asUint(yieldACbbtc))} cbBTC`, pct(asUint(yieldACbbtc), yieldCbbtc)],
+          ["Aerodrome cbBTC mark", `${fmtCbbtc(aeroTotal)} cbBTC`, pct(aeroTotal, yieldCbbtc)],
+          ["Aerodrome LP token ID", asUint(aeroTokenId).toString(), "-"],
+          ["Aerodrome liquidity", asUint(aeroLiquidity).toString(), "-"],
+          ["Aerodrome last mark", new Date(Number(asUint(aeroLastMarkAt)) * 1000).toLocaleString(), `max ${fmtSeconds(asUint(aeroMaxMarkStale))}`],
+          ["Aerodrome idle dust", `${fmtUsdc(asUint(aeroIdleUsdc))} USDC / ${fmtCbbtc(asUint(aeroIdleCbbtc))} cbBTC`, "-"],
+          ["Aerodrome net APY", `${Number(asUint(aeroApy)) / 100}%`, "-"],
+          ["Sleeve A BTC feed max age", fmtSeconds(asUint(wrapperMaxStale)), "configurable"],
+          ["Yield BTC feed max age", fmtSeconds(asUint(yieldMaxStale)), "configurable"]
+        ].map(row).join("");
+
+        $("sleeveBRows").innerHTML = [
+          ["Sleeve B total", `${fmtUsdc(asUint(bTotal))} USDC`, "100%"],
+          ["Idle USDC", `${fmtUsdc(asUint(bIdleUsdc))} USDC`, pct(asUint(bIdleUsdc), asUint(bTotal))],
+          ["Aave USDC", `${fmtUsdc(asUint(bAUsdc))} USDC`, pct(asUint(bAUsdc), asUint(bTotal))],
+          ["Morpho vault assets", `${fmtUsdc(morphoAssets)} USDC`, pct(morphoAssets, asUint(bTotal))],
+          ["Morpho shares", morphoShares.toString(), "-"]
+        ].map(row).join("");
+
+        $("walletRows").innerHTML = [
+          ["Wallet USDC", `${fmtUsdc(asUint(walletUsdc))} USDC`],
+          ["Wallet BGW", `${fmtToken18(asUint(walletBgw))} BGW`],
+          ["Wallet BGW-GOV", `${fmtToken18(asUint(walletGov))} BGW-GOV`],
+          ["Founder BGW-GOV", `${fmtToken18(asUint(founderGov))} BGW-GOV`],
+          ["Vault whitelist", asBool(whitelisted) ? "true" : "false"],
+          ["USDC redemption feed max age", fmtSeconds(asUint(usdcMaxStale)), "configurable"],
+          ["Vault owner", asAddress(vaultOwner)],
+          ["Vault pending owner", asAddress(vaultPending)],
+          ["Sleeve A pending owner", asAddress(wrapperPending)],
+          ["Strategy pending owner", asAddress(strategyPending)],
+          ["Yield adapter pending owner", asAddress(yieldPending)],
+          ["Sleeve B pending owner", asAddress(sleeveBPending)]
+        ].map(([k, v]) => `<tr><td>${k}</td><td class="right mono">${v}</td></tr>`).join("");
+
+        $("status").textContent = "Refresh complete.";
+      } catch (error) {
+        $("status").textContent = `Error: ${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    function row(items) {
+      return `<tr>${items.map((item, index) => `<td class="${index ? "right mono" : ""}">${item}</td>`).join("")}</tr>`;
+    }
+
+    $("refresh").addEventListener("click", refresh);
+    $("deepRefresh").addEventListener("click", deepRefresh);
+    $("connectWallet").addEventListener("click", async () => {
+      try {
+        await connectWallet();
+        $("status").textContent = "Wallet connected.";
+      } catch (error) {
+        $("status").textContent = `Connect failed: ${error.message}`;
+      }
+    });
+    $("buyBgw").addEventListener("click", buyBgw);
+    refresh();
+  </script>
+</body>
+</html>

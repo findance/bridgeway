@@ -58,6 +58,7 @@ contract AutomationTest is Test {
     address constant CAMELOT_ADDR = 0xc873fEcbd354f5A56E00E710B90EF4201db2448d;
 
     uint256 constant HARVEST_INTERVAL = 30 days;
+    uint256 constant REBALANCE_INTERVAL = 30 days;
     uint256 constant BUYBACK_INTERVAL = 30 days;
     uint256 constant BUYBACK_THRESHOLD = 500e6; // 500 USDC (M-07)
 
@@ -131,6 +132,18 @@ contract AutomationTest is Test {
         assertEq(action, keccak256("HARVEST"));
     }
 
+    function test_CheckUpkeepTrueAfterRebalanceIntervalWhenHarvestDisabled() public {
+        vm.prank(founder);
+        automation.setHarvestEnabled(false);
+
+        vm.warp(block.timestamp + REBALANCE_INTERVAL);
+
+        (bool needed, bytes memory data) = automation.checkUpkeep("");
+        assertTrue(needed);
+        bytes32 action = abi.decode(data, (bytes32));
+        assertEq(action, keccak256("REBALANCE"));
+    }
+
     // ── checkUpkeep — buyback ─────────────────────────────────────────────────
 
     function test_CheckUpkeepFalseWhenAccumulatorBelowThreshold() public {
@@ -170,9 +183,11 @@ contract AutomationTest is Test {
         uint256 acc = vault.buybackAccumulator();
         assertGe(acc, BUYBACK_THRESHOLD, "accumulator should be above 500 USDC threshold");
 
-        // Step 4: this test is about buyback priority, so suppress harvest.
-        vm.prank(founder);
+        // Step 4: this test is about buyback priority, so suppress other actions.
+        vm.startPrank(founder);
         automation.setHarvestEnabled(false);
+        automation.setRebalanceEnabled(false);
+        vm.stopPrank();
 
         (bool needed, bytes memory data) = automation.checkUpkeep("");
         assertTrue(needed);
@@ -242,16 +257,52 @@ contract AutomationTest is Test {
         automation.performUpkeep(data);
     }
 
+    function test_PerformUpkeepRebalanceMovesCToBThenBToA() public {
+        vm.prank(founder);
+        vault.setSleeveDepositWeights(0, 0, 10_000);
+
+        vm.startPrank(alice);
+        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        vm.startPrank(founder);
+        vault.setSleeveDepositWeights(6_500, 3_500, 0);
+        automation.setHarvestEnabled(false);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + REBALANCE_INTERVAL);
+        automation.performUpkeep(abi.encode(keccak256("REBALANCE")));
+
+        assertEq(vault.sleeveAValue(), 650e6);
+        assertEq(vault.sleeveBValue(), 350e6);
+        assertEq(vault.sleeveCValue(), 0);
+    }
+
     // ── Toggle controls ───────────────────────────────────────────────────────
 
     function test_DisablingHarvestSuppressesCheckUpkeep() public {
-        vm.prank(founder);
+        vm.startPrank(founder);
         automation.setHarvestEnabled(false);
+        automation.setRebalanceEnabled(false);
+        vm.stopPrank();
 
         vm.warp(block.timestamp + HARVEST_INTERVAL);
 
         (bool needed,) = automation.checkUpkeep("");
         assertFalse(needed); // harvest suppressed
+    }
+
+    function test_DisablingRebalanceSuppressesCheckUpkeep() public {
+        vm.startPrank(founder);
+        automation.setHarvestEnabled(false);
+        automation.setRebalanceEnabled(false);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + REBALANCE_INTERVAL);
+
+        (bool needed,) = automation.checkUpkeep("");
+        assertFalse(needed);
     }
 
     function test_OnlyOwnerCanToggle() public {
@@ -281,6 +332,14 @@ contract AutomationTest is Test {
         vm.prank(founder);
         vm.expectRevert("BA: accumulator too low");
         automation.manualBuyback();
+    }
+
+    function test_ManualRebalanceUpdatesTimestamp() public {
+        uint256 before = automation.lastRebalanceTime();
+        vm.warp(block.timestamp + 1);
+        vm.prank(founder);
+        automation.manualRebalance(type(uint256).max);
+        assertGt(automation.lastRebalanceTime(), before);
     }
 
     // ── H-01: manual trigger rate-limiting ───────────────────────────────────

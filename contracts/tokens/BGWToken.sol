@@ -10,7 +10,7 @@ interface IBGWGovTransferCompanion {
 }
 
 /// @title  BGWToken
-/// @notice Bridgeway Index vault share token (BGW).
+/// @notice Bridgeway token (BGW).
 ///         Price = totalVaultNAV / totalSupply (pure NAV share model).
 ///         - Minted only by BGWVault when a whitelisted user deposits.
 ///         - Burned by BGWVault on redemption, by protocol mint-and-burn reserve
@@ -51,7 +51,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param admin  Address that receives DEFAULT_ADMIN_ROLE (founder multisig).
-    constructor(address admin) ERC20("Bridgeway Index", "BGW") {
+    constructor(address admin) ERC20("Bridgeway", "BGW") {
         if (admin == address(0)) revert("BGW: zero admin");
         _grantRole(DEFAULT_ADMIN_ROLE,    admin);
         _grantRole(PAUSER_ROLE,           admin);
