@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "../interfaces/IAaveV3.sol";
 import "../interfaces/IAerodromeCbbtcStrategy.sol";
@@ -16,7 +17,7 @@ import "../interfaces/INativeStakingAdapter.sol";
 /// @notice Base spoke adapter for BTC exposure through cbBTC. It keeps 80% in
 ///         Aave V3 Base cbBTC and at most 20% in a dedicated Aerodrome strategy.
 ///         If Aerodrome's net APY falls below 4.5%, that leg is exited to Aave.
-contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
+contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20Metadata;
 
     uint256 public constant BPS_DENOM = 10_000;
@@ -94,7 +95,7 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     /// @notice Deploy cbBTC already transferred into this adapter.
-    function deploy(uint256 cbbtcAmount) external onlyController {
+    function deploy(uint256 cbbtcAmount) external onlyController nonReentrant {
         if (cbbtcAmount == 0) return;
 
         uint256 aerodromeAmount;
@@ -113,6 +114,7 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
     function withdraw(uint256 cbbtcAmount, address receiver)
         external
         onlyController
+        nonReentrant
         returns (uint256 cbbtcReturned)
     {
         if (receiver == address(0)) revert ZeroAddress();
@@ -137,7 +139,7 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     /// @notice Controller-only full exit used by Sleeve A emergency unwinds.
-    function withdrawAll(address receiver) external onlyController returns (uint256 cbbtcReturned) {
+    function withdrawAll(address receiver) external onlyController nonReentrant returns (uint256 cbbtcReturned) {
         if (receiver == address(0)) revert ZeroAddress();
 
         cbbtcReturned = _withdrawAllTo(receiver);
@@ -145,13 +147,13 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     /// @notice Harvest strategy rewards into cbBTC and redeploy according to policy.
-    function harvest() external onlyController returns (uint256 cbbtcHarvested) {
+    function harvest() external onlyController nonReentrant returns (uint256 cbbtcHarvested) {
         cbbtcHarvested = aerodromeStrategy.harvestToCbbtc(address(this));
         _rebalance();
         emit Harvested(cbbtcHarvested, totalAssetsAsset());
     }
 
-    function rebalance() external onlyOwner {
+    function rebalance() external onlyOwner nonReentrant {
         _rebalance();
         emit Rebalanced(totalAssetsAsset(), _aerodromeEnabled());
     }
@@ -179,7 +181,7 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step {
         emit MaxStaleUpdated(newMaxStale);
     }
 
-    function emergencyWithdrawAll() external onlyOwner returns (uint256 cbbtcReturned) {
+    function emergencyWithdrawAll() external onlyOwner nonReentrant returns (uint256 cbbtcReturned) {
         cbbtcReturned = _withdrawAllTo(rescueReceiver);
         emit EmergencyWithdrawn(cbbtcReturned, rescueReceiver);
     }

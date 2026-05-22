@@ -133,9 +133,13 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
             uint256 count = _strategies.length;
             uint256 strategyNav = nav > usdcReturned ? nav - usdcReturned : 0;
             for (uint256 i; i < count; ++i) {
+                if (remaining == 0 || strategyNav == 0) break;
                 uint256 assets = _strategyAssets(_strategies[i].vault);
                 uint256 request = remaining >= strategyNav ? assets : Math.mulDiv(assets, remaining, strategyNav);
-                usdcReturned += _withdraw(_strategies[i].vault, request);
+                uint256 withdrawn = _withdraw(_strategies[i].vault, request);
+                usdcReturned += withdrawn;
+                remaining = withdrawn >= remaining ? 0 : remaining - withdrawn;
+                strategyNav = strategyNav > assets ? strategyNav - assets : 0;
             }
         }
 

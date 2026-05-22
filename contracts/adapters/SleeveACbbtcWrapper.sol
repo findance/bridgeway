@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "../interfaces/ISleeveAdapter.sol";
 import "../interfaces/IBaseCBBTCYieldAdapter.sol";
@@ -21,7 +22,7 @@ import "../interfaces/IChainlinkAggregator.sol";
 ///
 ///         The wrapper must be set as the `controller` of BaseCBBTCYieldAdapter
 ///         at deployment time, since that role is immutable.
-contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
+contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS_DENOM = 10_000;
@@ -169,7 +170,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Vault sends USDC here → swap to cbBTC → deploy into yield adapter.
-    function deploy(uint256 usdcAmount) external onlyVault {
+    function deploy(uint256 usdcAmount) external onlyVault nonReentrant {
         if (usdcAmount == 0 || address(yieldAdapter) == address(0)) return;
 
         // Swap USDC → cbBTC
@@ -188,7 +189,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
     }
 
     /// @notice Vault requests USDC ← withdraw cbBTC from yield adapter ← swap to USDC.
-    function withdraw(uint256 usdcAmount) external onlyVault returns (uint256 usdcReturned) {
+    function withdraw(uint256 usdcAmount) external onlyVault nonReentrant returns (uint256 usdcReturned) {
         if (usdcAmount == 0 || address(yieldAdapter) == address(0)) return 0;
 
         uint256 navUSDC = totalAssetsUSDC();
@@ -229,7 +230,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
 
     /// @notice Harvest Aerodrome rewards via the yield adapter.
     ///         Any idle USDC left in the wrapper is returned to the vault.
-    function harvest() external onlyVault returns (uint256 yieldUsdc) {
+    function harvest() external onlyVault nonReentrant returns (uint256 yieldUsdc) {
         if (address(yieldAdapter) != address(0)) {
             uint256 cbbtcHarvested = yieldAdapter.harvest();
             emit Harvested(cbbtcHarvested);
@@ -244,7 +245,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step {
 
     /// @notice Owner-only full Sleeve A unwind. Pulls cbBTC back from the yield
     ///         adapter, swaps available cbBTC to USDC, and returns USDC to vault.
-    function emergencyWithdrawAll() external onlyOwner returns (uint256 usdcReturned) {
+    function emergencyWithdrawAll() external onlyOwner nonReentrant returns (uint256 usdcReturned) {
         if (address(yieldAdapter) != address(0)) {
             yieldAdapter.withdrawAll(address(this));
         }

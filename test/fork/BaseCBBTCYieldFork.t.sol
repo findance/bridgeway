@@ -186,6 +186,41 @@ contract BaseCBBTCYieldForkTest is Test {
         strategy.onERC721Received(address(this), address(this), 1, "");
     }
 
+    function test_AerodromeCbbtcStrategyBoundsMarkFreshnessAndDeltaWithoutBlockingReads() public {
+        AerodromeCbbtcStrategy strategy = new AerodromeCbbtcStrategy(
+            AerodromeCbbtcStrategy.ConstructorParams({
+                owner: address(this),
+                controller: address(this),
+                keeper: address(this),
+                cbbtc: CBBTC,
+                usdc: USDC,
+                aero: AERO,
+                positionManager: AERODROME_POSITION_MANAGER,
+                swapRouter: AERODROME_SWAP_ROUTER,
+                gauge: address(0),
+                btcUsdFeed: BTC_USD_FEED,
+                tickSpacing: 100,
+                tickLower: -887200,
+                tickUpper: 887200
+            })
+        );
+
+        strategy.markToMarket(100_000, 500);
+
+        vm.expectRevert(AerodromeCbbtcStrategy.MarkStale.selector);
+        strategy.setMaxMarkStale(73 hours);
+
+        strategy.setMaxMarkStale(72 hours);
+        assertEq(strategy.maxMarkStale(), 72 hours);
+
+        vm.expectRevert(AerodromeCbbtcStrategy.MarkMoveTooLarge.selector);
+        strategy.markToMarket(111_000, 500);
+
+        strategy.markToMarket(110_000, 500);
+        vm.warp(block.timestamp + 73 hours);
+        assertEq(strategy.totalAssetsCbbtc(), 110_000);
+    }
+
     function _selectBaseFork() internal returns (bool selected) {
         string memory rpcUrl = vm.envOr("BASE_RPC_URL", string(""));
         if (bytes(rpcUrl).length == 0) return false;

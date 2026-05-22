@@ -274,7 +274,8 @@ contract AutomationTest is Test {
         vm.warp(block.timestamp + REBALANCE_INTERVAL);
         automation.performUpkeep(abi.encode(keccak256("REBALANCE")));
 
-        assertEq(vault.sleeveAValue(), 650e6);
+        assertEq(vault.holderIdleUSDC(), 20e6);
+        assertEq(vault.sleeveAValue(), 630e6);
         assertEq(vault.sleeveBValue(), 350e6);
         assertEq(vault.sleeveCValue(), 0);
     }

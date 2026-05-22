@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -16,11 +17,13 @@ import "../interfaces/IChainlinkAggregator.sol";
 /// @notice Aerodrome Slipstream strategy wrapper for the Base cbBTC spoke.
 ///         It manages one concentrated-liquidity NFT and exposes a conservative
 ///         cbBTC-denominated surface to BaseCBBTCYieldAdapter.
-contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC721Receiver {
+contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC721Receiver, ReentrancyGuard {
     using SafeERC20 for IERC20Metadata;
 
     uint256 public constant BPS_DENOM = 10_000;
     uint256 public constant DEFAULT_MAX_MARK_STALE = 24 hours;
+    uint256 public constant MAX_MARK_STALE_LIMIT = 72 hours;
+    uint256 public constant MAX_MARK_DELTA_BPS = 1_000; // 10%
 
     IERC20Metadata public immutable cbbtc;
     IERC20Metadata public immutable usdc;
@@ -48,6 +51,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     uint256 public cbbtcToUsdcBps = 5_000;
     uint256 public deadlineDelay = 10 minutes;
     bytes public aeroToCbbtcPath;
+    uint256 public minAeroToCbbtcOut;
 
     struct ConstructorParams {
         address owner;
@@ -72,6 +76,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     event CbbtcToUsdcBpsSet(uint256 cbbtcToUsdcBps);
     event MaxMarkStaleSet(uint256 maxMarkStale);
     event AeroToCbbtcPathSet(bytes path);
+    event MinAeroToCbbtcOutSet(uint256 minAmountOut);
     event MarkedToMarket(uint256 totalAssetsCbbtc, uint256 netApyBps);
     event Deposited(uint256 cbbtcAmount, uint256 tokenId);
     event Withdrawn(uint256 requestedCbbtc, uint256 returnedCbbtc, address indexed receiver);
@@ -85,6 +90,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     error InvalidBps();
     error InvalidRange();
     error MarkStale();
+    error MarkMoveTooLarge();
 
     modifier onlyController() {
         if (msg.sender != controller) revert OnlyController();
@@ -161,7 +167,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     }
 
     function setMaxMarkStale(uint256 maxMarkStale_) external onlyOwner {
-        maxMarkStale = maxMarkStale_ == 0 ? DEFAULT_MAX_MARK_STALE : maxMarkStale_;
+        maxMarkStale = _normalizeMaxMarkStale(maxMarkStale_);
         emit MaxMarkStaleSet(maxMarkStale);
     }
 
@@ -170,14 +176,23 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         emit AeroToCbbtcPathSet(path);
     }
 
+    /// @notice One-shot minimum output for the next AERO reward conversion.
+    ///         If unset, AERO rewards are left idle rather than swapped with a
+    ///         zero slippage floor.
+    function setMinAeroToCbbtcOut(uint256 minAmountOut) external onlyKeeperOrOwner {
+        minAeroToCbbtcOut = minAmountOut;
+        emit MinAeroToCbbtcOutSet(minAmountOut);
+    }
+
     function markToMarket(uint256 totalAssetsCbbtc_, uint256 netApyBps_) external onlyKeeperOrOwner {
+        _checkMarkMove(totalAssetsCbbtc_);
         markedTotalAssetsCbbtc = totalAssetsCbbtc_;
         netApyBps = netApyBps_;
         lastMarkAt = block.timestamp;
         emit MarkedToMarket(totalAssetsCbbtc_, netApyBps_);
     }
 
-    function deposit(uint256 cbbtcAmount) external onlyController {
+    function deposit(uint256 cbbtcAmount) external onlyController nonReentrant {
         if (cbbtcAmount == 0) return;
         cbbtc.safeTransferFrom(msg.sender, address(this), cbbtcAmount);
 
@@ -196,11 +211,13 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     function withdraw(uint256 cbbtcAmount, address receiver)
         external
         onlyController
+        nonReentrant
         returns (uint256 cbbtcReturned)
     {
         if (receiver == address(0)) revert ZeroAddress();
         if (cbbtcAmount == 0) return 0;
 
+        uint256 markReduction = cbbtcAmount > markedTotalAssetsCbbtc ? markedTotalAssetsCbbtc : cbbtcAmount;
         _removeProRata(cbbtcAmount);
         _convertIdleToCbbtc();
 
@@ -208,13 +225,13 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         cbbtcReturned = available > cbbtcAmount ? cbbtcAmount : available;
         if (cbbtcReturned > 0) cbbtc.safeTransfer(receiver, cbbtcReturned);
 
-        if (markedTotalAssetsCbbtc > cbbtcReturned) markedTotalAssetsCbbtc -= cbbtcReturned;
+        if (markedTotalAssetsCbbtc > markReduction) markedTotalAssetsCbbtc -= markReduction;
         else markedTotalAssetsCbbtc = 0;
 
         emit Withdrawn(cbbtcAmount, cbbtcReturned, receiver);
     }
 
-    function withdrawAll(address receiver) external onlyController returns (uint256 cbbtcReturned) {
+    function withdrawAll(address receiver) external onlyController nonReentrant returns (uint256 cbbtcReturned) {
         if (receiver == address(0)) revert ZeroAddress();
         _removeAllLiquidity();
         _convertIdleToCbbtc();
@@ -226,16 +243,16 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         emit EmergencyWithdrawn(cbbtcReturned, receiver);
     }
 
-    function harvestToCbbtc(address) external onlyController returns (uint256 cbbtcHarvested) {
+    function harvestToCbbtc(address receiver) external onlyController nonReentrant returns (uint256 cbbtcHarvested) {
+        if (receiver == address(0)) revert ZeroAddress();
         _claimRewardsAndFees();
         _convertIdleToCbbtc();
-        _addLiquidity();
+        cbbtcHarvested = cbbtc.balanceOf(address(this));
+        if (cbbtcHarvested > 0) cbbtc.safeTransfer(receiver, cbbtcHarvested);
         emit Harvested(cbbtc.balanceOf(address(this)), usdc.balanceOf(address(this)), aero.balanceOf(address(this)));
-        return 0;
     }
 
     function totalAssetsCbbtc() external view returns (uint256) {
-        if (lastMarkAt == 0 || block.timestamp > lastMarkAt + maxMarkStale) revert MarkStale();
         return markedTotalAssetsCbbtc;
     }
 
@@ -244,7 +261,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         (,,,,,,, liquidity,,,,) = positionManager.positions(tokenId);
     }
 
-    function emergencyWithdrawAll(address receiver) external onlyOwner returns (uint256 cbbtcReturned) {
+    function emergencyWithdrawAll(address receiver) external onlyOwner nonReentrant returns (uint256 cbbtcReturned) {
         if (receiver == address(0)) revert ZeroAddress();
         _removeAllLiquidity();
         _convertIdleToCbbtc();
@@ -322,22 +339,23 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         uint128 liquidityToRemove = SafeCast.toUint128(Math.mulDiv(uint256(liquidity), numerator, markedTotalAssetsCbbtc));
         if (liquidityToRemove == 0) return;
 
-        _decreaseAndCollect(liquidityToRemove);
+        _decreaseAndCollect(liquidityToRemove, numerator);
     }
 
     function _removeAllLiquidity() internal {
         uint128 liquidity = currentLiquidity();
-        if (liquidity > 0) _decreaseAndCollect(liquidity);
+        if (liquidity > 0) _decreaseAndCollect(liquidity, markedTotalAssetsCbbtc);
     }
 
-    function _decreaseAndCollect(uint128 liquidity) internal {
+    function _decreaseAndCollect(uint128 liquidity, uint256 cbbtcValueToRemove) internal {
         _unstakeIfNeeded();
+        (uint256 amount0Min, uint256 amount1Min) = _decreaseLiquidityMinimums(cbbtcValueToRemove);
         positionManager.decreaseLiquidity(
             IAerodromeNonfungiblePositionManager.DecreaseLiquidityParams({
                 tokenId: tokenId,
                 liquidity: liquidity,
-                amount0Min: 0,
-                amount1Min: 0,
+                amount0Min: amount0Min,
+                amount1Min: amount1Min,
                 deadline: _deadline()
             })
         );
@@ -387,6 +405,9 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
 
         uint256 aeroBalance = aero.balanceOf(address(this));
         if (aeroBalance > 0 && aeroToCbbtcPath.length > 0) {
+            uint256 minimumOut = minAeroToCbbtcOut;
+            if (minimumOut == 0) return;
+            minAeroToCbbtcOut = 0;
             aero.forceApprove(address(swapRouter), aeroBalance);
             swapRouter.exactInput(
                 IAerodromeSwapRouter.ExactInputParams({
@@ -394,7 +415,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
                     recipient: address(this),
                     deadline: _deadline(),
                     amountIn: aeroBalance,
-                    amountOutMinimum: 0
+                    amountOutMinimum: minimumOut
                 })
             );
         }
@@ -436,6 +457,36 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) = btcUsdFeed.latestRoundData();
         if (answer <= 0 || answeredInRound < roundId || updatedAt == 0) revert MarkStale();
         return SafeCast.toUint256(answer);
+    }
+
+    function _decreaseLiquidityMinimums(uint256 cbbtcValueToRemove)
+        internal
+        view
+        returns (uint256 amount0Min, uint256 amount1Min)
+    {
+        if (cbbtcValueToRemove == 0) return (0, 0);
+
+        uint256 minCbbtc = Math.mulDiv(cbbtcValueToRemove, BPS_DENOM - cbbtcToUsdcBps, BPS_DENOM);
+        minCbbtc = Math.mulDiv(minCbbtc, BPS_DENOM - slippageBps, BPS_DENOM);
+
+        uint256 usdcValue = _minUsdcOut(Math.mulDiv(cbbtcValueToRemove, cbbtcToUsdcBps, BPS_DENOM));
+        if (cbbtcIsToken0) {
+            return (minCbbtc, usdcValue);
+        }
+        return (usdcValue, minCbbtc);
+    }
+
+    function _normalizeMaxMarkStale(uint256 stale) internal pure returns (uint256) {
+        if (stale == 0) return DEFAULT_MAX_MARK_STALE;
+        if (stale > MAX_MARK_STALE_LIMIT) revert MarkStale();
+        return stale;
+    }
+
+    function _checkMarkMove(uint256 newMark) internal view {
+        uint256 oldMark = markedTotalAssetsCbbtc;
+        if (oldMark == 0 || lastMarkAt == 0) return;
+        uint256 delta = newMark > oldMark ? newMark - oldMark : oldMark - newMark;
+        if (delta > Math.mulDiv(oldMark, MAX_MARK_DELTA_BPS, BPS_DENOM)) revert MarkMoveTooLarge();
     }
 
     function _deadline() internal view returns (uint256) {

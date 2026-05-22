@@ -662,8 +662,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         onlyAutomation
     {
         // Yield must not exceed actual USDC received — fundamental sanity check (C-01).
-        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
-        uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
+        uint256 availableUsdc = _availableUSDCForFees();
         if (netYieldUsdc > availableUsdc) revert YieldExceedsBalance();
 
         // Time-weighted anti-manipulation bounds (C-01).
@@ -726,14 +725,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         cycle, and no LP liquidity is touched.
     function executeBuyback(uint256 usdcAmount) external nonReentrant whenNotPaused onlyAutomation {
         if (usdcAmount == 0 || usdcAmount > buybackAccumulator) return;
-        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
-        uint256 availableUsdc = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
+        uint256 availableUsdc = _availableUSDCForBuyback();
         if (usdcAmount > availableUsdc) revert InsufficientLocalLiquidity(availableUsdc, usdcAmount);
 
         buybackAccumulator -= usdcAmount;
 
         uint256 bgwToMintAndBurn = (usdcAmount * 1e18) / navPerBGW();
-        _deployToSleeves(usdcAmount);
+        _deployToSleevesUnbuffered(usdcAmount);
         bgwToken.protocolMintAndBurn(address(this), bgwToMintAndBurn);
 
         emit BuybackExecuted(usdcAmount, bgwToMintAndBurn);
@@ -1109,6 +1107,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         usdcAmount = _retainRedemptionBuffer(usdcAmount);
         if (usdcAmount == 0) return;
 
+        _deployToSleevesUnbuffered(usdcAmount);
+    }
+
+    function _deployToSleevesUnbuffered(uint256 usdcAmount) internal {
+        if (usdcAmount == 0) return;
+
         uint256 stableOnlyThreshold = smallDepositStableOnlyThresholdUsdc;
         if (stableOnlyThreshold != 0 && usdcAmount < stableOnlyThreshold) {
             _deployToSleeve(SLEEVE_B, usdcAmount, true);
@@ -1165,18 +1169,19 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 availableUsdc = _availableUSDC();
         if (idle > availableUsdc) idle = availableUsdc;
         if (idle >= grossUsdc) {
-            idleRedemptionReserveUsdc -= grossUsdc;
+            idleRedemptionReserveUsdc = idle - grossUsdc;
             return 0;
         }
 
         uint256 remaining = grossUsdc - idle;
-        if (idle > 0) idleRedemptionReserveUsdc -= idle;
+        if (idle > 0) idleRedemptionReserveUsdc = 0;
 
         uint256 sleeveB = _sleeveValue(SLEEVE_B);
         uint256 request = sleeveB > remaining ? remaining : sleeveB;
         if (request > 0) {
             uint256 returned = _withdrawFromSleeve(SLEEVE_B, request);
             usdcReturned += returned;
+            if (returned > request) idleRedemptionReserveUsdc += returned - request;
             remaining = returned >= remaining ? 0 : remaining - returned;
         }
 
@@ -1185,12 +1190,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (request > 0) {
             uint256 returned = _withdrawFromSleeve(SLEEVE_C, request);
             usdcReturned += returned;
+            if (returned > request) idleRedemptionReserveUsdc += returned - request;
             remaining = returned >= remaining ? 0 : remaining - returned;
         }
 
         if (remaining > 0) {
             uint256 returned = _withdrawFromSleeve(SLEEVE_A, remaining);
             usdcReturned += returned;
+            if (returned > remaining) idleRedemptionReserveUsdc += returned - remaining;
         }
     }
 
@@ -1258,8 +1265,20 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return usdcBalance > reserved ? usdcBalance - reserved : 0;
     }
 
+    function _availableUSDCForFees() internal view returns (uint256) {
+        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
+        uint256 reserved = totalPendingFees + buybackAccumulator + idleRedemptionReserveUsdc;
+        return usdcBalance > reserved ? usdcBalance - reserved : 0;
+    }
+
+    function _availableUSDCForBuyback() internal view returns (uint256) {
+        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
+        uint256 reserved = totalPendingFees + idleRedemptionReserveUsdc;
+        return usdcBalance > reserved ? usdcBalance - reserved : 0;
+    }
+
     function _recoverTreasuryVaultUSDC(address to, uint256 amount) internal {
-        uint256 available = _availableUSDC();
+        uint256 available = _availableUSDCForFees();
         if (amount > available) amount = available;
         if (amount == 0) revert ZeroAmount();
 
@@ -1562,8 +1581,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 fee = (nav * feeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
         if (fee == 0) return;
 
-        uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
-        uint256 available = usdcBalance > totalPendingFees ? usdcBalance - totalPendingFees : 0;
+        uint256 available = _availableUSDCForFees();
         if (fee > available) fee = available;
         if (fee == 0) return;
 
