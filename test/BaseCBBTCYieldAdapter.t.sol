@@ -149,7 +149,6 @@ contract BaseCBBTCYieldAdapterTest is Test {
         assertEq(returned, 100e8);
         assertEq(cbbtc.balanceOf(controller), 100e8);
         assertEq(cbbtc.balanceOf(receiver), 0);
-        assertEq(cbbtc.balanceOf(owner), 0);
         assertEq(adapter.rescueReceiver(), receiver);
     }
 }

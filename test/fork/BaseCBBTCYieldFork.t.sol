@@ -187,6 +187,8 @@ contract BaseCBBTCYieldForkTest is Test {
     }
 
     function test_AerodromeCbbtcStrategyBoundsMarkFreshnessAndDeltaWithoutBlockingReads() public {
+        if (!_selectBaseFork()) return;
+
         AerodromeCbbtcStrategy strategy = new AerodromeCbbtcStrategy(
             AerodromeCbbtcStrategy.ConstructorParams({
                 owner: address(this),

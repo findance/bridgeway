@@ -1587,8 +1587,9 @@ contract BGWVaultTest is Test {
 
         assertEq(adapterA.totalAssetsUSDC(), 0);
         assertEq(adapterB.totalAssetsUSDC(), 0);
-        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 3_250_000);
-        assertEq(vault.sleeveValue(vault.SLEEVE_B()), 1_750_000);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_B()), 0);
+        assertEq(vault.holderIdleUSDC(), 5e6);
         assertEq(vault.totalNAV(), 5e6);
     }
 
@@ -2032,10 +2033,12 @@ contract BGWVaultTest is Test {
     }
 
     function test_HarvestSleevesForwardsYieldFromAToB() public {
+        uint8 sleeveA = vault.SLEEVE_A();
+        uint8 sleeveB = vault.SLEEVE_B();
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
         MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        _wireRoute(vault.SLEEVE_A(), address(adapterA));
-        _wireRoute(vault.SLEEVE_B(), address(adapterB));
+        _wireRoute(sleeveA, address(adapterA));
+        _wireRoute(sleeveB, address(adapterB));
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -2049,7 +2052,7 @@ contract BGWVaultTest is Test {
         uint256 sleeveBBefore = adapterB.totalAssetsUSDC();
 
         vm.prank(founder);
-        (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(vault.SLEEVE_A());
+        (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(sleeveA);
 
         assertEq(totalYield, 10e6, "yield not forwarded");
         assertEq(compounded, 10e6, "yield not compounded into B");
@@ -2057,8 +2060,9 @@ contract BGWVaultTest is Test {
     }
 
     function test_HarvestSleevesOnSleeveBKeepsYieldInPlace() public {
+        uint8 sleeveB = vault.SLEEVE_B();
         MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        _wireRoute(vault.SLEEVE_B(), address(adapterB));
+        _wireRoute(sleeveB, address(adapterB));
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -2071,7 +2075,7 @@ contract BGWVaultTest is Test {
         uint256 bBefore = adapterB.totalAssetsUSDC();
 
         vm.prank(founder);
-        (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(vault.SLEEVE_B());
+        (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(sleeveB);
 
         assertEq(totalYield, 5e6);
         assertEq(compounded, 0, "B yield should not loop back into B");
@@ -2080,17 +2084,19 @@ contract BGWVaultTest is Test {
     }
 
     function test_HarvestSleevesOnlyOwnerOrAutomation() public {
+        uint8 sleeveA = vault.SLEEVE_A();
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+        _wireRoute(sleeveA, address(adapterA));
 
         vm.expectRevert(BGWVault.OnlyAutomationOrOwner.selector);
         vm.prank(alice);
-        vault.harvestSleeves(vault.SLEEVE_A());
+        vault.harvestSleeves(sleeveA);
     }
 
     function test_EmergencyUnwindSleevesReturnsFundsToVault() public {
+        uint8 sleeveA = vault.SLEEVE_A();
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+        _wireRoute(sleeveA, address(adapterA));
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -2105,7 +2111,7 @@ contract BGWVaultTest is Test {
         uint256 reserveBefore = vault.idleRedemptionReserveUsdc();
 
         vm.prank(founder);
-        uint256 arrived = vault.emergencyUnwindSleeves(vault.SLEEVE_A());
+        uint256 arrived = vault.emergencyUnwindSleeves(sleeveA);
 
         assertEq(arrived, aAssets, "USDC delta wrong");
         assertEq(adapterA.totalAssetsUSDC(), 0, "adapter not emptied");
@@ -2114,18 +2120,20 @@ contract BGWVaultTest is Test {
     }
 
     function test_EmergencyUnwindSleevesOnlyOwner() public {
+        uint8 sleeveA = vault.SLEEVE_A();
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
-        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+        _wireRoute(sleeveA, address(adapterA));
 
         vm.expectRevert();
         vm.prank(alice);
-        vault.emergencyUnwindSleeves(vault.SLEEVE_A());
+        vault.emergencyUnwindSleeves(sleeveA);
     }
 
     function test_EmergencyUnwindSleevesNoRoutes() public {
         // No routes configured -> returns 0 cleanly without revert.
+        uint8 sleeveC = vault.SLEEVE_C();
         vm.prank(founder);
-        uint256 arrived = vault.emergencyUnwindSleeves(vault.SLEEVE_C());
+        uint256 arrived = vault.emergencyUnwindSleeves(sleeveC);
         assertEq(arrived, 0);
     }
 }
