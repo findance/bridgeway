@@ -213,6 +213,13 @@
           "priceFeed": "0x17CAb8FE31E32f08326e5E27412894e49B0f9D65",
           "tokenDecimals": 18,
           "feedDecimals": 8
+        },
+        "cbBTC": {
+          "token": "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
+          "priceFeed": "0x64c911996D3c6aC71f9b455B1E8E7266BcbD848F",
+          "tokenDecimals": 8,
+          "feedDecimals": 8,
+          "source": "Coinbase / Chainlink \u2014 verified row in MAINNET_ADDRESS_BOOK.md"
         }
       },
       "ccip_infra": {
@@ -235,6 +242,64 @@
           "allowBelowPeg": true,
           "neverValueAboveUsd": true,
           "method": "min(chainlink-usdc-usd, 1e8)"
+        }
+      },
+      "protocols": {
+        "note": "L-01 / BLOCK-3 \u2014 addresses below must be probed on-chain (cast code, cast call) before mainnet broadcast. Status `confirmed` is set only after that probe.",
+        "aaveV3": {
+          "pool": {
+            "address": "TODO_AAVE_V3_POOL_BASE",
+            "status": "manual_confirmation_required",
+            "source": "https://docs.aave.com/developers/deployed-contracts/v3-mainnet/base"
+          },
+          "aUSDC": {
+            "address": "TODO_A_USDC_BASE",
+            "status": "manual_confirmation_required"
+          },
+          "aCBBTC": {
+            "address": "TODO_A_CBBTC_BASE",
+            "status": "manual_confirmation_required"
+          }
+        },
+        "morpho": {
+          "usdcVault": {
+            "address": "TODO_MORPHO_USDC_VAULT_BASE",
+            "status": "manual_confirmation_required",
+            "requires_due_diligence": true,
+            "source": "https://app.morpho.org/?network=base \u2014 pick the approved curator and verify asset()==USDC, 90d uptime, no batch redemption"
+          }
+        },
+        "aerodrome": {
+          "aeroToken": {
+            "address": "TODO_AERO_TOKEN_BASE",
+            "status": "manual_confirmation_required",
+            "source": "https://aerodrome.finance \u2014 AERO token contract page"
+          },
+          "positionManager": {
+            "address": "TODO_AERODROME_POSITION_MANAGER",
+            "status": "manual_confirmation_required",
+            "note": "Slipstream NonfungiblePositionManager"
+          },
+          "swapRouter": {
+            "address": "TODO_AERODROME_SWAP_ROUTER",
+            "status": "manual_confirmation_required",
+            "note": "Slipstream SwapRouter (exactInputSingle / exactInput)"
+          },
+          "gauge": {
+            "address": "TODO_AERODROME_CL_GAUGE_OR_ZERO",
+            "status": "optional",
+            "note": "Leave address(0) if not gauging at launch"
+          },
+          "pool": {
+            "tickSpacing": "TODO_TICK_SPACING (1, 50, 100, 200, or 2000 \u2014 wrapper rejects others)",
+            "tickLower": "TODO_TICK_LOWER (must be multiple of tickSpacing)",
+            "tickUpper": "TODO_TICK_UPPER (must be multiple of tickSpacing, > tickLower)"
+          }
+        },
+        "strategyKeeper": {
+          "note": "AerodromeCbbtcStrategy.setKeeper must be rotated from DEPLOYER to this address after first smoke test (BLOCK-4).",
+          "address": "TODO_KEEPER_SERVICE_OR_BOT_WALLET",
+          "status": "manual_confirmation_required"
         }
       }
     },

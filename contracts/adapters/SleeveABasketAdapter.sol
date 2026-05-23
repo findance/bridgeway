@@ -92,6 +92,12 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         _;
     }
 
+    /// @dev L-01: lets `BGWVault.emergencyUnwindSleeves` orchestrate.
+    modifier onlyOwnerOrVault() {
+        if (msg.sender != owner() && msg.sender != vault) revert OnlyVault();
+        _;
+    }
+
     constructor(address _vault, address _owner, address _usdc, address _router) Ownable(_owner) {
         if (_vault == address(0) || _owner == address(0) || _usdc == address(0) || _router == address(0)) {
             revert ZeroAddress();
@@ -378,7 +384,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     }
 
     /// @notice Sell all configured assets to USDC without relying on oracle values.
-    function emergencyUnwindAll() external onlyOwner {
+    function emergencyUnwindAll() external onlyOwnerOrVault {
         uint256 count = _assets.length;
         for (uint256 i; i < count; ++i) {
             uint256 balance = IERC20(_assets[i].token).balanceOf(address(this));

@@ -2015,4 +2015,117 @@ contract BGWVaultTest is Test {
         vm.expectRevert();
         vault.setMaxDepositCap(100e6);
     }
+
+    // ──────────────────────────────────────────────────────────────────────
+    // L-01 + N-05 patch tests: harvestSleeves and emergencyUnwindSleeves
+    // ──────────────────────────────────────────────────────────────────────
+
+    function _wireRoute(uint8 sleeve, address adapter) internal {
+        address[] memory adapters = new address[](1);
+        adapters[0] = adapter;
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(sleeve, adapters, bps, active);
+    }
+
+    function test_HarvestSleevesForwardsYieldFromAToB() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+        _wireRoute(vault.SLEEVE_B(), address(adapterB));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        // Fund Sleeve A adapter with $10 of "realised yield".
+        MockUSDC(USDC_ADDR).mint(address(adapterA), 10e6);
+        adapterA.simulateYield(10e6);
+
+        uint256 sleeveBBefore = adapterB.totalAssetsUSDC();
+
+        vm.prank(founder);
+        (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(vault.SLEEVE_A());
+
+        assertEq(totalYield, 10e6, "yield not forwarded");
+        assertEq(compounded, 10e6, "yield not compounded into B");
+        assertEq(adapterB.totalAssetsUSDC(), sleeveBBefore + 10e6, "Sleeve B did not grow");
+    }
+
+    function test_HarvestSleevesOnSleeveBKeepsYieldInPlace() public {
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(vault.SLEEVE_B(), address(adapterB));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(adapterB), 5e6);
+        adapterB.simulateYield(5e6);
+
+        uint256 bBefore = adapterB.totalAssetsUSDC();
+
+        vm.prank(founder);
+        (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(vault.SLEEVE_B());
+
+        assertEq(totalYield, 5e6);
+        assertEq(compounded, 0, "B yield should not loop back into B");
+        // The 5 USDC arrives at the vault; B's manual `totalAssets` doesn't move.
+        assertEq(adapterB.totalAssetsUSDC(), bBefore);
+    }
+
+    function test_HarvestSleevesOnlyOwnerOrAutomation() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+
+        vm.expectRevert(BGWVault.OnlyAutomationOrOwner.selector);
+        vm.prank(alice);
+        vault.harvestSleeves(vault.SLEEVE_A());
+    }
+
+    function test_EmergencyUnwindSleevesReturnsFundsToVault() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        // Mock A holds USDC equivalent to its tracked totalAssets after deposit.
+        uint256 aAssets = adapterA.totalAssetsUSDC();
+        MockUSDC(USDC_ADDR).mint(address(adapterA), aAssets);
+
+        uint256 vaultBefore = MockUSDC(USDC_ADDR).balanceOf(address(vault));
+        uint256 reserveBefore = vault.idleRedemptionReserveUsdc();
+
+        vm.prank(founder);
+        uint256 arrived = vault.emergencyUnwindSleeves(vault.SLEEVE_A());
+
+        assertEq(arrived, aAssets, "USDC delta wrong");
+        assertEq(adapterA.totalAssetsUSDC(), 0, "adapter not emptied");
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), vaultBefore + aAssets);
+        assertEq(vault.idleRedemptionReserveUsdc(), reserveBefore + aAssets, "reserve not credited");
+    }
+
+    function test_EmergencyUnwindSleevesOnlyOwner() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+
+        vm.expectRevert();
+        vm.prank(alice);
+        vault.emergencyUnwindSleeves(vault.SLEEVE_A());
+    }
+
+    function test_EmergencyUnwindSleevesNoRoutes() public {
+        // No routes configured -> returns 0 cleanly without revert.
+        vm.prank(founder);
+        uint256 arrived = vault.emergencyUnwindSleeves(vault.SLEEVE_C());
+        assertEq(arrived, 0);
+    }
 }

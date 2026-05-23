@@ -262,6 +262,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 indexed redemptionId, uint256 amount, uint256 remainingNAVLiability
     );
     event HarvestRecorded(uint256 netYieldUsdc, uint256 perfFeeUsdc, uint256 newHighWaterMark);
+    event SleeveHarvested(uint8 indexed sleeve, uint256 totalYieldUsdc, uint256 compoundedIntoSleeveB);
+    event SleeveEmergencyUnwound(uint8 indexed sleeve, uint256 routesTriggered, uint256 usdcArrivedAtVault);
     event BuybackExecuted(uint256 usdcInjected, uint256 bgwMintedAndBurned);
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
@@ -735,6 +737,109 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         bgwToken.protocolMintAndBurn(address(this), bgwToMintAndBurn);
 
         emit BuybackExecuted(usdcAmount, bgwToMintAndBurn);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Automation-only: Sleeve adapter harvest fan-out
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Trigger `ISleeveAdapter.harvest()` on every active route in a
+    ///         sleeve. Realised yield from Sleeves A and C is compounded into
+    ///         Sleeve B's stable adapter per the protocol's compounding policy
+    ///         (C-yield must route to stable B; A-yield also routes to B so it
+    ///         doesn't drift back into volatile cbBTC exposure). Sleeve B yield
+    ///         is realised in-place — its harvest only forwards any idle USDC
+    ///         already in the adapter, which is left in the vault for the
+    ///         next deposit / `recordHarvest` cycle.
+    ///
+    ///         N-05: this is the only on-chain path that reaches the
+    ///         sleeve-adapter `harvest()` functions; without it, AERO emissions
+    ///         and other realisable rewards stay trapped in their gauges.
+    function harvestSleeves(uint8 sleeve)
+        external
+        nonReentrant
+        whenNotPaused
+        onlyAutomationOrOwner
+        returns (uint256 totalYieldUsdc, uint256 compoundedIntoSleeveB)
+    {
+        _validateSleeve(sleeve);
+        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        if (routeCount == 0) {
+            emit SleeveHarvested(sleeve, 0, 0);
+            return (0, 0);
+        }
+
+        for (uint256 i; i < routeCount; ++i) {
+            SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][i];
+            if (!route.active) continue;
+            totalYieldUsdc += ISleeveAdapter(route.adapter).harvest();
+        }
+
+        if (sleeve != SLEEVE_B && totalYieldUsdc > 0) {
+            // forceExternalDeploy = true so the small-deposit / route-min
+            // guards don't push the harvested yield back into idle.
+            _deployToSleeve(SLEEVE_B, totalYieldUsdc, true);
+            compoundedIntoSleeveB = totalYieldUsdc;
+        }
+
+        emit SleeveHarvested(sleeve, totalYieldUsdc, compoundedIntoSleeveB);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Owner-only: Emergency unwind orchestration (L-01)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Trigger `emergencyWithdrawAll()` on every active route in a
+    ///         sleeve. Each adapter swaps its underlying position back to
+    ///         USDC and ships the proceeds to the vault, so funds converge
+    ///         here even when individual adapters are misbehaving.
+    ///
+    ///         L-01: emergency unwinds must terminate at the vault. The
+    ///         adapter modifiers are widened to `onlyOwnerOrVault` so this
+    ///         vault-orchestrated path works without giving the deployer a
+    ///         new privilege — the existing owner key still works directly.
+    function emergencyUnwindSleeves(uint8 sleeve)
+        external
+        nonReentrant
+        onlyOwner
+        returns (uint256 usdcArrivedAtVault)
+    {
+        _validateSleeve(sleeve);
+        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        if (routeCount == 0) {
+            emit SleeveEmergencyUnwound(sleeve, 0, 0);
+            return 0;
+        }
+
+        uint256 balanceBefore = IERC20(USDC).balanceOf(address(this));
+        uint256 triggered;
+        for (uint256 i; i < routeCount; ++i) {
+            address adapter = _sleeveAdapterRoutes[sleeve][i].adapter;
+            if (adapter == address(0)) continue;
+            // Try the cbBTC-stack name first, then fall back to the basket
+            // adapter's distinct selector. Either call routes USDC to vault.
+            (bool ok,) = adapter.call(abi.encodeWithSignature("emergencyWithdrawAll()"));
+            if (!ok) {
+                (ok,) = adapter.call(abi.encodeWithSignature("emergencyUnwindAll()"));
+            }
+            if (ok) triggered += 1;
+        }
+
+        uint256 balanceAfter = IERC20(USDC).balanceOf(address(this));
+        usdcArrivedAtVault = balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0;
+
+        // New USDC at the vault from the unwind is holder NAV — credit the
+        // buffer so it survives the next deposit's `_retainRedemptionBuffer`
+        // and `_fundRedemptionFromLiquidSleeves` paths.
+        if (usdcArrivedAtVault > 0) {
+            idleRedemptionReserveUsdc += usdcArrivedAtVault;
+        }
+
+        // Sleeve manual accounting is left in place — the funded-adapter
+        // values it relied on have been zeroed externally, so subsequent
+        // NAV reads of `_routeAssetsUSDC(sleeve)` return ~0.
+
+        emit SleeveEmergencyUnwound(sleeve, triggered, usdcArrivedAtVault);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1308,7 +1413,13 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             }
 
             uint256 remainder = usdcAmount - allocated;
-            if (remainder > 0) _setSleeveValue(sleeve, _manualSleeveValue(sleeve) + remainder);
+            if (remainder > 0) {
+                // N-03: hold the un-routed remainder as part of the redemption
+                // buffer rather than crediting a phantom manual sleeve value.
+                // Keeps the routed-sleeve accounting honest and the buffer
+                // self-replenishes on small deposits below `minSleeveRouteDepositUsdc`.
+                idleRedemptionReserveUsdc += remainder;
+            }
             return;
         }
 

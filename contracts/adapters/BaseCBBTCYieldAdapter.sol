@@ -181,9 +181,13 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
         emit MaxStaleUpdated(newMaxStale);
     }
 
+    /// @notice Owner-triggered break-glass unwind. cbBTC is sent to the
+    ///         immutable `controller` (= SleeveACbbtcWrapper) so the wrapper
+    ///         can swap to USDC and forward to the vault. L-01: emergency
+    ///         funds must converge at the vault, not at `rescueReceiver`.
     function emergencyWithdrawAll() external onlyOwner nonReentrant returns (uint256 cbbtcReturned) {
-        cbbtcReturned = _withdrawAllTo(rescueReceiver);
-        emit EmergencyWithdrawn(cbbtcReturned, rescueReceiver);
+        cbbtcReturned = _withdrawAllTo(controller);
+        emit EmergencyWithdrawn(cbbtcReturned, controller);
     }
 
     function _withdrawAllTo(address receiver) internal returns (uint256 cbbtcReturned) {
@@ -195,8 +199,16 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
     }
 
     function _rebalance() internal {
+        // N-08: only act on the reported netApyBps when the mark is fresh.
+        // A stale mark could force an unnecessary full Aerodrome unwind
+        // every harvest cycle. If the mark is stale, leave the leg as-is
+        // and wait for the keeper to refresh.
+        uint256 lastMark = aerodromeStrategy.lastMarkAt();
+        uint256 maxStaleAero = aerodromeStrategy.maxMarkStale();
+        bool markFresh = lastMark != 0 && block.timestamp <= lastMark + maxStaleAero;
+
         uint256 netApy = aerodromeStrategy.netApyBps();
-        if (netApy < AERODROME_NET_APY_FLOOR_BPS) {
+        if (markFresh && netApy < AERODROME_NET_APY_FLOOR_BPS) {
             uint256 returned = aerodromeStrategy.withdrawAll(address(this));
             _supplyAave(cbbtc.balanceOf(address(this)));
             emit AerodromeExitedToAave(returned, netApy);

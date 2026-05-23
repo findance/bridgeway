@@ -43,6 +43,12 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
         _;
     }
 
+    /// @dev L-01: lets `BGWVault.emergencyUnwindSleeves` orchestrate.
+    modifier onlyOwnerOrVault() {
+        if (msg.sender != owner() && msg.sender != vault) revert OnlyVault();
+        _;
+    }
+
     constructor(address _vault, address _owner, address _usdc, address _aavePool, address _aUsdc, address _morphoVault)
         Ownable(_owner)
     {
@@ -138,7 +144,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
         emit Rebalanced(totalAssetsUSDC());
     }
 
-    function emergencyWithdrawAll() external onlyOwner returns (uint256 usdcReturned) {
+    function emergencyWithdrawAll() external onlyOwnerOrVault returns (uint256 usdcReturned) {
         _withdrawAave(type(uint256).max);
         _redeemMorphoShares(morphoVault.balanceOf(address(this)));
         usdcReturned = usdc.balanceOf(address(this));

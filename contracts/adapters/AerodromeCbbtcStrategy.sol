@@ -261,7 +261,14 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         (,,,,,,, liquidity,,,,) = positionManager.positions(tokenId);
     }
 
-    function emergencyWithdrawAll(address receiver) external onlyOwner nonReentrant returns (uint256 cbbtcReturned) {
+    /// @notice Owner-triggered break-glass unwind. Funds are routed back to
+    ///         the immutable `controller` (= BaseCBBTCYieldAdapter), which
+    ///         in turn routes back to the SleeveACbbtcWrapper, which in turn
+    ///         swaps to USDC and ships to the vault. This guarantees an
+    ///         emergency unwind terminates at the vault (L-01) instead of
+    ///         a runtime-named receiver.
+    function emergencyWithdrawAll() external onlyOwner nonReentrant returns (uint256 cbbtcReturned) {
+        address receiver = controller;
         if (receiver == address(0)) revert ZeroAddress();
         _removeAllLiquidity();
         _convertIdleToCbbtc();
@@ -484,7 +491,18 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
 
     function _checkMarkMove(uint256 newMark) internal view {
         uint256 oldMark = markedTotalAssetsCbbtc;
-        if (oldMark == 0 || lastMarkAt == 0) return;
+        if (oldMark == 0 || lastMarkAt == 0) {
+            // N-06: the zero-mark branch must only be reachable when the
+            // strategy actually holds no LP value. Otherwise a single keeper
+            // call after a withdrawAll could set an inflated "first" mark.
+            if (currentLiquidity() != 0) revert MarkMoveTooLarge();
+            if (cbbtc.balanceOf(address(this)) != 0) revert MarkMoveTooLarge();
+            return;
+        }
+        // N-01: when the mark is stale, allow unrestricted *downward* marks
+        // so a catastrophic LP drawdown reflects in one keeper call instead
+        // of needing three. Upward marks remain capped at MAX_MARK_DELTA_BPS.
+        if (newMark < oldMark && block.timestamp > lastMarkAt + maxMarkStale) return;
         uint256 delta = newMark > oldMark ? newMark - oldMark : oldMark - newMark;
         if (delta > Math.mulDiv(oldMark, MAX_MARK_DELTA_BPS, BPS_DENOM)) revert MarkMoveTooLarge();
     }

@@ -77,6 +77,14 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
         _;
     }
 
+    /// @dev L-01: lets the vault orchestrate emergency unwinds across every
+    ///      sleeve adapter via `BGWVault.emergencyUnwindSleeves`. Owner
+    ///      retains direct access — this is strictly additive.
+    modifier onlyOwnerOrVault() {
+        if (msg.sender != owner() && msg.sender != vault) revert OnlyVault();
+        _;
+    }
+
     constructor(
         address _vault,
         address _owner,
@@ -245,7 +253,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
 
     /// @notice Owner-only full Sleeve A unwind. Pulls cbBTC back from the yield
     ///         adapter, swaps available cbBTC to USDC, and returns USDC to vault.
-    function emergencyWithdrawAll() external onlyOwner nonReentrant returns (uint256 usdcReturned) {
+    function emergencyWithdrawAll() external onlyOwnerOrVault nonReentrant returns (uint256 usdcReturned) {
         if (address(yieldAdapter) != address(0)) {
             yieldAdapter.withdrawAll(address(this));
         }

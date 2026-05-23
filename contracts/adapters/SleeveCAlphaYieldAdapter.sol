@@ -56,6 +56,12 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         _;
     }
 
+    /// @dev L-01: lets `BGWVault.emergencyUnwindSleeves` orchestrate.
+    modifier onlyOwnerOrVault() {
+        if (msg.sender != owner() && msg.sender != vault) revert OnlyVault();
+        _;
+    }
+
     constructor(address _vault, address _owner, address _usdc) Ownable(_owner) {
         if (_vault == address(0) || _owner == address(0) || _usdc == address(0)) revert ZeroAddress();
         vault = _vault;
@@ -217,7 +223,7 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         emit Rebalanced(totalAssetsUSDC());
     }
 
-    function emergencyWithdrawAll() external onlyOwner returns (uint256 usdcReturned) {
+    function emergencyWithdrawAll() external onlyOwnerOrVault returns (uint256 usdcReturned) {
         uint256 count = _strategies.length;
         for (uint256 i; i < count; ++i) {
             _redeem(_strategies[i].vault, _strategies[i].vault.balanceOf(address(this)));

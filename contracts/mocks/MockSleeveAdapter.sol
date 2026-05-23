@@ -14,6 +14,11 @@ contract MockSleeveAdapter is ISleeveAdapter {
     IERC20 public immutable usdc;
     uint256 public totalAssets;
 
+    /// @notice Yield queued by `simulateYield` to be released on the next
+    ///         `harvest()` call. Forwarded to the vault as realised USDC,
+    ///         matching the protocol's compounding policy for Sleeves A/C.
+    uint256 public pendingHarvest;
+
     constructor(address _vault, address _usdc) {
         require(_vault != address(0), "MockSleeveAdapter: zero vault");
         require(_usdc != address(0), "MockSleeveAdapter: zero usdc");
@@ -36,8 +41,22 @@ contract MockSleeveAdapter is ISleeveAdapter {
         usdc.safeTransfer(vault, usdcReturned);
     }
 
-    function harvest() external view onlyVault returns (uint256 yieldUsdc) {
-        return 0;
+    function harvest() external onlyVault returns (uint256 yieldUsdc) {
+        yieldUsdc = pendingHarvest;
+        pendingHarvest = 0;
+        if (yieldUsdc > 0) {
+            usdc.safeTransfer(vault, yieldUsdc);
+        }
+    }
+
+    /// @notice L-01: full unwind back to the vault. Mirrors the real adapter
+    ///         emergency path used by `BGWVault.emergencyUnwindSleeves`.
+    function emergencyWithdrawAll() external returns (uint256 usdcReturned) {
+        usdcReturned = totalAssets;
+        totalAssets = 0;
+        if (usdcReturned > 0) {
+            usdc.safeTransfer(vault, usdcReturned);
+        }
     }
 
     function totalAssetsUSDC() external view returns (uint256) {
@@ -46,5 +65,12 @@ contract MockSleeveAdapter is ISleeveAdapter {
 
     function setTotalAssets(uint256 newTotalAssets) external {
         totalAssets = newTotalAssets;
+    }
+
+    /// @notice Queue `amount` of USDC yield to be realised on the next harvest.
+    ///         Caller funds the mock with the USDC up-front so harvest can
+    ///         actually transfer it through.
+    function simulateYield(uint256 amount) external {
+        pendingHarvest += amount;
     }
 }

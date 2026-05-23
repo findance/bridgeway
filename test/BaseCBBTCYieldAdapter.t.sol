@@ -136,14 +136,19 @@ contract BaseCBBTCYieldAdapterTest is Test {
         adapter.totalAssetsUSDC();
     }
 
-    function test_EmergencyWithdrawAllSendsOnlyToRescueReceiver() public {
+    /// L-01: emergency funds must converge at the controller (= wrapper),
+    /// which then swaps cbBTC to USDC and forwards to the vault. The
+    /// `rescueReceiver` field is retained for backward compatibility but is
+    /// no longer the emergency destination.
+    function test_EmergencyWithdrawAllSendsToController() public {
         cbbtc.mint(address(adapter), 100e8);
         adapter.deploy(100e8);
 
         uint256 returned = adapter.emergencyWithdrawAll();
 
         assertEq(returned, 100e8);
-        assertEq(cbbtc.balanceOf(receiver), 100e8);
+        assertEq(cbbtc.balanceOf(controller), 100e8);
+        assertEq(cbbtc.balanceOf(receiver), 0);
         assertEq(cbbtc.balanceOf(owner), 0);
         assertEq(adapter.rescueReceiver(), receiver);
     }
