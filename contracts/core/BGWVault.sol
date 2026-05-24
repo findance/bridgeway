@@ -287,6 +287,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     event MinSleeveRouteDepositUpdated(uint256 minimum);
     event SmallDepositStableOnlyThresholdUpdated(uint256 threshold);
     event RedemptionBufferUpdated(uint16 bufferBps, uint256 minimumUsdc);
+    event RedemptionReserveFunded(address indexed funder, uint256 amount);
     event SleeveRebalanced(uint8 indexed fromSleeve, uint8 indexed toSleeve, uint256 requestedUsdc, uint256 movedUsdc);
     event BootstrapFinalized();
     event TreasuryVaultUSDCRecoveryProposed(address indexed to, uint256 amount, uint256 executeAfter);
@@ -485,11 +486,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @param  recipient   Address receiving BGW and BGW-GOV on the hub chain.
     /// @param  usdcAmount  Amount of USDC (6 dec) to deposit.
     /// @param  minBgwOut   Minimum BGW to receive (slippage guard, 18 dec). Pass 0 to skip.
-    function depositFor(address recipient, uint256 usdcAmount, uint256 minBgwOut)
-        public
-        nonReentrant
-        whenNotPaused
-    {
+    function depositFor(address recipient, uint256 usdcAmount, uint256 minBgwOut) public nonReentrant whenNotPaused {
         if (recipient == address(0)) revert ZeroAddress();
         if (!whitelist[recipient]) revert NotWhitelisted(recipient);
         if (usdcAmount == 0) revert ZeroAmount();
@@ -600,6 +597,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         redemption.claimed = true;
         totalQueuedRedemptionGross -= requiredUsdc;
+        _consumeIdleRedemptionReserve(requiredUsdc);
 
         if (redemption.perfFeeUsdc > 0) {
             _distributePerfFee(redemption.perfFeeUsdc);
@@ -651,9 +649,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Automation-only: Harvest yield recording
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Called by BridgewayAutomation after claiming and converting all
-    ///         protocol rewards to USDC.
-    /// @param  netYieldUsdc  Net yield in USDC (6 dec) after gas + slippage.
+    /// @notice Called by BridgewayAutomation after sleeve harvests and reward claims.
+    /// @param  netYieldUsdc  Net realised yield in USDC terms (6 dec). This can
+    ///         be redeployed sleeve yield rather than idle vault USDC.
     /// @param  newSleeveA    Updated Sleeve A value post-harvest (6 dec).
     /// @param  newSleeveB    Updated Sleeve B value post-harvest (6 dec).
     /// @param  newSleeveC    Updated Sleeve C value post-harvest (6 dec).
@@ -663,10 +661,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         whenNotPaused
         onlyAutomation
     {
-        // Yield must not exceed actual USDC received — fundamental sanity check (C-01).
-        uint256 availableUsdc = _availableUSDCForFees();
-        if (netYieldUsdc > availableUsdc) revert YieldExceedsBalance();
-
         // Time-weighted anti-manipulation bounds (C-01).
         // lastHarvestTime is initialised in the constructor so the first harvest
         // is constrained against the deployment timestamp instead of receiving
@@ -795,12 +789,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         adapter modifiers are widened to `onlyOwnerOrVault` so this
     ///         vault-orchestrated path works without giving the deployer a
     ///         new privilege — the existing owner key still works directly.
-    function emergencyUnwindSleeves(uint8 sleeve)
-        external
-        nonReentrant
-        onlyOwner
-        returns (uint256 usdcArrivedAtVault)
-    {
+    function emergencyUnwindSleeves(uint8 sleeve) external nonReentrant onlyOwner returns (uint256 usdcArrivedAtVault) {
         _validateSleeve(sleeve);
         uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
         if (routeCount == 0) {
@@ -955,7 +944,8 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (newRecipient == address(0)) revert ZeroAddress();
         uint256 amount = pendingFees[staleWallet];
         if (amount == 0) revert NoPendingFees();
-        if (lastFeeAccrual[staleWallet] == 0 || block.timestamp < lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY) {
+        if (lastFeeAccrual[staleWallet] == 0 || block.timestamp < lastFeeAccrual[staleWallet] + FeeLib.STALE_FEE_DELAY)
+        {
             revert FeesNotStale();
         }
         pendingFees[staleWallet] = 0;
@@ -1015,6 +1005,16 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         holdbackWallet = _holdback;
         reserveFundWallet = _reserve;
         emit FeeWalletsUpdated(_team, _holdback, _reserve);
+    }
+
+    /// @notice Add USDC to the holder redemption reserve.
+    ///         Direct USDC transfers are not counted as holder NAV; use this
+    ///         function when topping up cash for redemptions.
+    function fundRedemptionReserve(uint256 amount) external nonReentrant {
+        if (amount == 0) revert ZeroAmount();
+        IERC20(USDC).safeTransferFrom(msg.sender, address(this), amount);
+        idleRedemptionReserveUsdc += amount;
+        emit RedemptionReserveFunded(msg.sender, amount);
     }
 
     /// @notice Wire the vault to a hub-chain confirmed spoke NAV cache.
@@ -1379,6 +1379,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return usdcBalance > reserved ? usdcBalance - reserved : 0;
     }
 
+    function _consumeIdleRedemptionReserve(uint256 amount) internal {
+        uint256 reserve = idleRedemptionReserveUsdc;
+        if (reserve == 0 || amount == 0) return;
+        idleRedemptionReserveUsdc = amount >= reserve ? 0 : reserve - amount;
+    }
+
     function _recoverTreasuryVaultUSDC(address to, uint256 amount) internal {
         uint256 available = _availableUSDCForFees();
         if (amount > available) amount = available;
@@ -1399,10 +1405,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
                 uint256 routeAmount = (usdcAmount * route.depositBps) / FeeLib.BPS_DENOM;
                 if (routeAmount == 0) continue;
-                if (
-                    !forceExternalDeploy && minSleeveRouteDepositUsdc > 0
-                        && routeAmount < minSleeveRouteDepositUsdc
-                ) continue;
+                if (!forceExternalDeploy && minSleeveRouteDepositUsdc > 0 && routeAmount < minSleeveRouteDepositUsdc) {
+                    continue;
+                }
 
                 allocated += routeAmount;
                 IERC20(USDC).safeTransfer(route.adapter, routeAmount);
@@ -1455,7 +1460,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return usdcReturned;
     }
 
-    function _moveSleeveValue(uint8 fromSleeve, uint8 toSleeve, uint256 usdcAmount) internal returns (uint256 movedUsdc) {
+    function _moveSleeveValue(uint8 fromSleeve, uint8 toSleeve, uint256 usdcAmount)
+        internal
+        returns (uint256 movedUsdc)
+    {
         movedUsdc = _withdrawFromSleeve(fromSleeve, usdcAmount);
         if (movedUsdc == 0) return 0;
 
@@ -1599,9 +1607,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
         FeeLib.FeeSplit memory s = FeeLib.splitPerfFee(totalFee);
 
-        _tryTransferFee(teamWallet, s.team);
-        _tryTransferFee(holdbackWallet, s.holdback);
-        _tryTransferFee(reserveFundWallet, s.reserve);
+        _tryTransferAvailableFee(teamWallet, s.team);
+        _tryTransferAvailableFee(holdbackWallet, s.holdback);
+        _tryTransferAvailableFee(reserveFundWallet, s.reserve);
 
         buybackAccumulator += s.buyback;
     }
@@ -1617,6 +1625,17 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             totalPendingFees += amount;
             lastFeeAccrual[recipient] = block.timestamp; // H-13: stale-fee clock
         }
+    }
+
+    function _tryTransferAvailableFee(address recipient, uint256 amount) internal {
+        if (amount == 0) return;
+        if (amount > _availableUSDCForFees()) {
+            pendingFees[recipient] += amount;
+            totalPendingFees += amount;
+            lastFeeAccrual[recipient] = block.timestamp;
+            return;
+        }
+        _tryTransferFee(recipient, amount);
     }
 
     /// @dev Apply the conservative USDC settlement mark for redemptions.

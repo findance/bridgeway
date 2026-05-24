@@ -12,9 +12,7 @@ import "../interfaces/IChainlinkAggregator.sol";
 
 // Inlined to avoid Chainlink package path fragility across install methods.
 interface AutomationCompatibleInterface {
-    function checkUpkeep(bytes calldata checkData)
-        external
-        returns (bool upkeepNeeded, bytes memory performData);
+    function checkUpkeep(bytes calldata checkData) external returns (bool upkeepNeeded, bytes memory performData);
     function performUpkeep(bytes calldata performData) external;
 }
 
@@ -46,15 +44,15 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
 
     /// @notice Minimum spacing for monthly jobs.
     ///         Exact calendar scheduling is handled off-chain by Automation.
-    uint256 public constant HARVEST_INTERVAL  = 30 days;
+    uint256 public constant HARVEST_INTERVAL = 30 days;
     uint256 public constant REBALANCE_INTERVAL = 30 days;
-    uint256 public constant BUYBACK_THRESHOLD = 500e6;      // 500 USDC minimum (M-07)
-    uint256 public constant BUYBACK_INTERVAL  = 30 days;    // min gap between buybacks (M-07)
-    uint256 public constant ORACLE_STALE      = 1 hours;
+    uint256 public constant BUYBACK_THRESHOLD = 500e6; // 500 USDC minimum (M-07)
+    uint256 public constant BUYBACK_INTERVAL = 30 days; // min gap between buybacks (M-07)
+    uint256 public constant ORACLE_STALE = 1 hours;
 
     // Upkeep action identifiers (packed into performData)
-    bytes32 internal constant ACTION_HARVEST  = keccak256("HARVEST");
-    bytes32 internal constant ACTION_BUYBACK  = keccak256("BUYBACK");
+    bytes32 internal constant ACTION_HARVEST = keccak256("HARVEST");
+    bytes32 internal constant ACTION_BUYBACK = keccak256("BUYBACK");
     bytes32 internal constant ACTION_REBALANCE = keccak256("REBALANCE");
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -67,9 +65,9 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     uint256 public lastBuybackTime;
     uint256 public lastRebalanceTime;
     uint256 public maxRebalanceMoveUsdc = type(uint256).max;
-    bool    public harvestEnabled = true;
-    bool    public buybackEnabled = true;
-    bool    public rebalanceEnabled = true;
+    bool public harvestEnabled = true;
+    bool public buybackEnabled = true;
+    bool public rebalanceEnabled = true;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Events
@@ -89,9 +87,9 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
 
     constructor(address _vault, address _admin, address _usdc) Ownable(_admin) {
         require(_vault != address(0), "BA: zero vault");
-        require(_usdc  != address(0), "BA: zero usdc");
+        require(_usdc != address(0), "BA: zero usdc");
         vault = BGWVault(_vault);
-        USDC  = _usdc;
+        USDC = _usdc;
         // Initialise to deployment time so neither harvest nor buyback fires immediately.
         lastHarvestTime = block.timestamp;
         lastBuybackTime = block.timestamp;
@@ -106,7 +104,9 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     ///         whether upkeep is needed.
     /// @return upkeepNeeded  True if performUpkeep should be called.
     /// @return performData   Encoded action identifier.
-    function checkUpkeep(bytes calldata /* checkData */)
+    function checkUpkeep(
+        bytes calldata /* checkData */
+    )
         external
         view
         override
@@ -127,9 +127,10 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
         // Priority 3: Buyback — both conditions must be met (M-07):
         //   accumulator >= 500 USDC  AND  >= 30 days since last buyback.
         //   "Whichever is last" — neither condition alone is sufficient.
-        if (buybackEnabled &&
-            vault.buybackAccumulator() >= BUYBACK_THRESHOLD &&
-            block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL) {
+        if (
+            buybackEnabled && vault.buybackAccumulator() >= BUYBACK_THRESHOLD
+                && block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL
+        ) {
             return (true, abi.encode(ACTION_BUYBACK));
         }
 
@@ -148,14 +149,8 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
             require(_rebalanceDue(), "BA: rebalance not due");
             _rebalance(maxRebalanceMoveUsdc);
         } else if (action == ACTION_BUYBACK) {
-            require(
-                vault.buybackAccumulator() >= BUYBACK_THRESHOLD,
-                "BA: buyback threshold not met"
-            );
-            require(
-                block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL,
-                "BA: buyback interval not elapsed"
-            );
+            require(vault.buybackAccumulator() >= BUYBACK_THRESHOLD, "BA: buyback threshold not met");
+            require(block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL, "BA: buyback interval not elapsed");
             _buyback();
         } else {
             revert("BA: unknown action");
@@ -169,10 +164,7 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     /// @notice Owner-triggered harvest. Enforces the same MIN_HARVEST_GAP as
     ///         the vault to prevent management-fee spam via repeated manual calls (H-01).
     function manualHarvest() external onlyOwner {
-        require(
-            block.timestamp >= lastHarvestTime + FeeLib.MIN_HARVEST_GAP,
-            "BA: harvest too soon"
-        );
+        require(block.timestamp >= lastHarvestTime + FeeLib.MIN_HARVEST_GAP, "BA: harvest too soon");
         _harvest();
     }
 
@@ -180,10 +172,7 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     ///         checks as performUpkeep to prevent bypassing the 30-day cooldown (H-01).
     function manualBuyback() external onlyOwner {
         require(vault.buybackAccumulator() >= BUYBACK_THRESHOLD, "BA: accumulator too low");
-        require(
-            block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL,
-            "BA: buyback interval not elapsed"
-        );
+        require(block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL, "BA: buyback interval not elapsed");
         _buyback();
     }
 
@@ -230,21 +219,24 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     ///      - Sleeve A compounds back into Sleeve A.
     ///      - Sleeve B compounds back into Sleeve B.
     ///      - Sleeve C realised yield routes into Sleeve B.
-    ///   2. Calculate any extra USDC that arrived at the vault from external
+    ///   2. Count the realised sleeve yield returned by each harvest call,
+    ///      even when it is immediately redeployed into a sleeve.
+    ///   3. Calculate any extra USDC that arrived at the vault from external
     ///      reward claims not handled by sleeve adapters.
-    ///   3. Call vault.recordHarvest() so management fees and sleeve-value
-    ///      sanity checks run on the refreshed adapter NAV.
+    ///   4. Call vault.recordHarvest() so performance fees, management fees,
+    ///      and sleeve-value sanity checks run on the refreshed adapter NAV.
     function _harvest() internal {
         lastHarvestTime = block.timestamp;
 
         uint256 usdcBefore = IERC20(USDC).balanceOf(address(vault));
 
-        vault.harvestSleeves(0);
-        vault.harvestSleeves(1);
-        vault.harvestSleeves(2);
+        (uint256 yieldA,) = vault.harvestSleeves(0);
+        (uint256 yieldB,) = vault.harvestSleeves(1);
+        (uint256 yieldC,) = vault.harvestSleeves(2);
 
-        uint256 usdcAfter   = IERC20(USDC).balanceOf(address(vault));
-        uint256 netYieldUsdc = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0;
+        uint256 usdcAfter = IERC20(USDC).balanceOf(address(vault));
+        uint256 externalYieldUsdc = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0;
+        uint256 netYieldUsdc = yieldA + yieldB + yieldC + externalYieldUsdc;
 
         uint256 nav = vault.totalNAV();
         uint256 newA = vault.sleeveAValue();
@@ -254,8 +246,8 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
         // Any non-adapter USDC reward still observed at the vault is treated as
         // stable compounding capital for manual-sleeve accounting. Routed
         // adapters report their own NAV directly in vault.recordHarvest().
-        if (netYieldUsdc > 0 && nav > 0) {
-            newB += netYieldUsdc;
+        if (externalYieldUsdc > 0 && nav > 0) {
+            newB += externalYieldUsdc;
         }
 
         vault.recordHarvest(netYieldUsdc, newA, newB, newC);

@@ -75,16 +75,8 @@ contract AutomationTest is Test {
         MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
 
-        vault = new BGWVault(
-            address(bgwToken),
-            address(govToken),
-            team,
-            holdback,
-            reserve,
-            founder,
-            USDC_ADDR,
-            address(2)
-        );
+        vault =
+            new BGWVault(address(bgwToken), address(govToken), team, holdback, reserve, founder, USDC_ADDR, address(2));
 
         // Wire roles
         vm.startPrank(founder);
@@ -250,6 +242,11 @@ contract AutomationTest is Test {
         _wireRoute(vault.SLEEVE_B(), address(adapterB));
         _wireRoute(vault.SLEEVE_C(), address(adapterC));
 
+        vm.startPrank(alice);
+        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
         MockUSDCAutomation(USDC_ADDR).mint(address(adapterA), 10e6);
         MockUSDCAutomation(USDC_ADDR).mint(address(adapterB), 5e6);
         MockUSDCAutomation(USDC_ADDR).mint(address(adapterC), 7e6);
@@ -267,6 +264,39 @@ contract AutomationTest is Test {
         assertEq(adapterA.totalAssetsUSDC(), aBefore + 10e6, "A yield must compound into A");
         assertEq(adapterB.totalAssetsUSDC(), bBefore + 12e6, "B must receive B yield plus C yield");
         assertEq(adapterC.totalAssetsUSDC(), cBefore, "C yield must leave C");
+    }
+
+    function test_PerformUpkeepHarvestReportsRedeployedSleeveYieldForPerformanceFee() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterC = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+        _wireRoute(vault.SLEEVE_B(), address(adapterB));
+        _wireRoute(vault.SLEEVE_C(), address(adapterC));
+
+        vm.prank(founder);
+        vault.setManagementFeeBps(0);
+
+        vm.startPrank(alice);
+        MockUSDCAutomation(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDCAutomation(USDC_ADDR).mint(address(adapterA), 4e6);
+        MockUSDCAutomation(USDC_ADDR).mint(address(adapterB), 3e6);
+        MockUSDCAutomation(USDC_ADDR).mint(address(adapterC), 3e6);
+        adapterA.simulateYield(4e6);
+        adapterB.simulateYield(3e6);
+        adapterC.simulateYield(3e6);
+
+        vm.warp(block.timestamp + HARVEST_INTERVAL + 1);
+        automation.performUpkeep(abi.encode(keccak256("HARVEST")));
+
+        uint256 expectedPerfFee = FeeLib.calcPerfFee(10e6);
+        uint256 expectedBuyback = FeeLib.splitPerfFee(expectedPerfFee).buyback;
+        assertEq(vault.buybackAccumulator(), expectedBuyback);
+        assertGt(vault.totalPendingFees(), 0);
     }
 
     function test_PerformUpkeepHarvestRevertsIfNotDue() public {
