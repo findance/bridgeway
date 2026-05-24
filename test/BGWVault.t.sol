@@ -1048,6 +1048,33 @@ contract BGWVaultTest is Test {
         assertGt(MockUSDC(USDC_ADDR).balanceOf(team), teamBefore);
     }
 
+    function test_MgmtFeeAccruesWhenVaultIsFullyInvested() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+        _wireRoute(vault.SLEEVE_B(), address(adapterB));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
+
+        address automationAddr = _setupAutomation();
+        uint256 navBefore = vault.totalNAV();
+
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(automationAddr);
+        vault.recordHarvest(0, 0, 0, 0);
+
+        uint256 accruedFee = vault.totalPendingFees() + vault.buybackAccumulator();
+        assertGt(accruedFee, 0);
+        assertApproxEqAbs(vault.totalNAV(), navBefore - accruedFee, 1);
+        assertApproxEqAbs(MockUSDC(USDC_ADDR).balanceOf(address(vault)), accruedFee, 1);
+        assertGt(vault.pendingFees(team), 0);
+    }
+
     function test_MgmtFeeReducedWhenBelowHWM() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);

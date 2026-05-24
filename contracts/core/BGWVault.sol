@@ -1776,10 +1776,6 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 fee = (nav * feeBps * elapsed) / (FeeLib.BPS_DENOM * 365 days);
         if (fee == 0) return;
 
-        uint256 available = _availableUSDCForFees();
-        if (fee > available) fee = available;
-        if (fee == 0) return;
-
         _distributePerfFee(fee);
         _reduceSleevesProRata(fee);
         emit ManagementFeeCharged(fee, elapsed);
