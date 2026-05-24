@@ -861,12 +861,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 actualB = _reportedOrAdapterValue(SLEEVE_B, newSleeveB);
         uint256 actualC = _reportedOrAdapterValue(SLEEVE_C, newSleeveC);
 
-        _checkSleeveMove(sleeveAValue, actualA, elapsed);
-        _checkSleeveMove(sleeveBValue, actualB, elapsed);
-        _checkSleeveMove(sleeveCValue, actualC, elapsed);
-        sleeveAValue = actualA;
-        sleeveBValue = actualB;
-        sleeveCValue = actualC;
+        _checkSleeveMove(_sleeveValue(SLEEVE_A), actualA, elapsed);
+        _checkSleeveMove(_sleeveValue(SLEEVE_B), actualB, elapsed);
+        _checkSleeveMove(_sleeveValue(SLEEVE_C), actualC, elapsed);
+        _setReportedSleeveValue(SLEEVE_A, actualA);
+        _setReportedSleeveValue(SLEEVE_B, actualB);
+        _setReportedSleeveValue(SLEEVE_C, actualC);
         emit SleeveValuesUpdated(actualA, actualB, actualC);
     }
 

@@ -1442,6 +1442,29 @@ contract BGWVaultTest is Test {
         vault.rebalanceSleevesOneWay(1e6);
     }
 
+    function test_UpdateSleeveValuesDoesNotDoubleCountRoutedSleeves() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        address automationAddr = _setupAutomation();
+        uint256 routedA = adapterA.totalAssetsUSDC();
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), routedA);
+        uint256 sleeveB = vault.sleeveValue(vault.SLEEVE_B());
+        uint256 sleeveC = vault.sleeveValue(vault.SLEEVE_C());
+
+        vm.prank(automationAddr);
+        vault.updateSleeveValues(routedA, sleeveB, sleeveC);
+
+        assertEq(vault.sleeveAValue(), 0);
+        assertEq(vault.sleeveValue(vault.SLEEVE_A()), routedA);
+        assertEq(vault.totalNAV(), 1_000e6);
+    }
+
     function test_LiveVaultCannotRemoveFundedSleeveAdapterRoute() public {
         MockSleeveAdapter adapterA1 = new MockSleeveAdapter(address(vault), USDC_ADDR);
         MockSleeveAdapter adapterA2 = new MockSleeveAdapter(address(vault), USDC_ADDR);
