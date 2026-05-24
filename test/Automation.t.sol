@@ -7,6 +7,7 @@ import "../contracts/tokens/BGWGovToken.sol";
 import "../contracts/core/BGWVault.sol";
 import "../contracts/core/BridgewayAutomation.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
+import "../contracts/mocks/MockSleeveAdapter.sol";
 import "../contracts/libraries/FeeLib.sol";
 
 /// @notice Minimal mock USDC (duplicated to avoid test-file coupling).
@@ -240,6 +241,34 @@ contract AutomationTest is Test {
         assertGt(automation.lastHarvestTime(), timeBefore);
     }
 
+    function test_PerformUpkeepHarvestCallsSleevesBeforeRecordHarvest() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterC = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        _wireRoute(vault.SLEEVE_A(), address(adapterA));
+        _wireRoute(vault.SLEEVE_B(), address(adapterB));
+        _wireRoute(vault.SLEEVE_C(), address(adapterC));
+
+        MockUSDCAutomation(USDC_ADDR).mint(address(adapterA), 10e6);
+        MockUSDCAutomation(USDC_ADDR).mint(address(adapterB), 5e6);
+        MockUSDCAutomation(USDC_ADDR).mint(address(adapterC), 7e6);
+        adapterA.simulateYield(10e6);
+        adapterB.simulateYield(5e6);
+        adapterC.simulateYield(7e6);
+
+        uint256 aBefore = adapterA.totalAssetsUSDC();
+        uint256 bBefore = adapterB.totalAssetsUSDC();
+        uint256 cBefore = adapterC.totalAssetsUSDC();
+
+        vm.warp(block.timestamp + HARVEST_INTERVAL + 1);
+        automation.performUpkeep(abi.encode(keccak256("HARVEST")));
+
+        assertEq(adapterA.totalAssetsUSDC(), aBefore + 10e6, "A yield must compound into A");
+        assertEq(adapterB.totalAssetsUSDC(), bBefore + 12e6, "B must receive B yield plus C yield");
+        assertEq(adapterC.totalAssetsUSDC(), cBefore, "C yield must leave C");
+    }
+
     function test_PerformUpkeepHarvestRevertsIfNotDue() public {
         // Execute harvest to reset timer
         vm.prank(founder);
@@ -364,6 +393,17 @@ contract AutomationTest is Test {
 
         vm.prank(founder);
         automation.manualHarvest(); // must succeed after the gap
+    }
+
+    function _wireRoute(uint8 sleeve, address adapter) internal {
+        address[] memory adapters = new address[](1);
+        adapters[0] = adapter;
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(sleeve, adapters, bps, active);
     }
 
     function test_ManualBuybackRevertsIfIntervalNotElapsed() public {

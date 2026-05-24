@@ -744,13 +744,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Trigger `ISleeveAdapter.harvest()` on every active route in a
-    ///         sleeve. Realised yield from Sleeves A and C is compounded into
-    ///         Sleeve B's stable adapter per the protocol's compounding policy
-    ///         (C-yield must route to stable B; A-yield also routes to B so it
-    ///         doesn't drift back into volatile cbBTC exposure). Sleeve B yield
-    ///         is realised in-place — its harvest only forwards any idle USDC
-    ///         already in the adapter, which is left in the vault for the
-    ///         next deposit / `recordHarvest` cycle.
+    ///         sleeve. Sleeve A yield compounds back into Sleeve A, Sleeve B
+    ///         yield compounds back into Sleeve B, and realised Sleeve C yield
+    ///         is redirected into Sleeve B's stable adapter.
     ///
     ///         N-05: this is the only on-chain path that reaches the
     ///         sleeve-adapter `harvest()` functions; without it, AERO emissions
@@ -775,11 +771,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             totalYieldUsdc += ISleeveAdapter(route.adapter).harvest();
         }
 
-        if (sleeve != SLEEVE_B && totalYieldUsdc > 0) {
+        if (totalYieldUsdc > 0) {
             // forceExternalDeploy = true so the small-deposit / route-min
             // guards don't push the harvested yield back into idle.
-            _deployToSleeve(SLEEVE_B, totalYieldUsdc, true);
-            compoundedIntoSleeveB = totalYieldUsdc;
+            uint8 destination = sleeve == SLEEVE_C ? SLEEVE_B : sleeve;
+            _deployToSleeve(destination, totalYieldUsdc, true);
+            if (destination == SLEEVE_B) compoundedIntoSleeveB = totalYieldUsdc;
         }
 
         emit SleeveHarvested(sleeve, totalYieldUsdc, compoundedIntoSleeveB);

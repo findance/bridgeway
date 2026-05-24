@@ -15,8 +15,8 @@ contract MockSleeveAdapter is ISleeveAdapter {
     uint256 public totalAssets;
 
     /// @notice Yield queued by `simulateYield` to be released on the next
-    ///         `harvest()` call. Forwarded to the vault as realised USDC,
-    ///         matching the protocol's compounding policy for Sleeves A/C.
+    ///         `harvest()` call. Forwarded to the vault as realised USDC so
+    ///         BGWVault can redeploy it according to each sleeve's policy.
     uint256 public pendingHarvest;
 
     constructor(address _vault, address _usdc) {

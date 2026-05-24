@@ -23,8 +23,8 @@ interface AutomationCompatibleInterface {
 ///
 ///         Triggers:
 ///           1. Monthly harvest — intended to run from a Chainlink Automation
-///              time-based schedule during a low-activity window. Claim all
-///              protocol rewards, swap to USDC, call vault.recordHarvest().
+///              time-based schedule during a low-activity window. Trigger each
+///              sleeve adapter harvest, then call vault.recordHarvest().
 ///           2. Buyback check    — any call, if accumulator >= threshold,
 ///              call vault.executeBuyback().
 ///           3. Rebalance policy — A/B rebalance toward configured vault targets.
@@ -226,54 +226,34 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     }
 
     /// @dev
-    ///   1. Read current Aave/Morpho/Lido balances from vault positions.
-    ///   2. Claim any pending rewards (this must be wired up per protocol).
-    ///   3. Swap reward tokens → USDC via Camelot.
-    ///   4. Route realised Sleeve C yield into Sleeve B for stablecoin compounding.
-    ///   5. Compute sleeve values post-harvest.
-    ///   6. Call vault.recordHarvest() with net yield + new sleeve values.
-    ///
-    ///   NOTE: For MVP testnet phase, step 1-4 are stubs.
-    ///         The vault tracks sleeve values via the amounts we report back.
+    ///   1. Trigger every sleeve adapter's harvest path.
+    ///      - Sleeve A compounds back into Sleeve A.
+    ///      - Sleeve B compounds back into Sleeve B.
+    ///      - Sleeve C realised yield routes into Sleeve B.
+    ///   2. Calculate any extra USDC that arrived at the vault from external
+    ///      reward claims not handled by sleeve adapters.
+    ///   3. Call vault.recordHarvest() so management fees and sleeve-value
+    ///      sanity checks run on the refreshed adapter NAV.
     function _harvest() internal {
         lastHarvestTime = block.timestamp;
 
-        // ── Step 1: Read current NAV from on-chain positions ────────────────
-        // In production: query aToken balances, Morpho position shares, etc.
-        // For MVP, we report the existing vault sleeve values unchanged,
-        // plus any USDC that arrived in the vault from external reward claims.
-
         uint256 usdcBefore = IERC20(USDC).balanceOf(address(vault));
 
-        // ── Step 2: Claim rewards ────────────────────────────────────────────
-        // TODO (per protocol):
-        //   - Aave: no explicit claim needed (aToken auto-accrues)
-        //   - Morpho Blue: call morpho.accrueInterest(marketParams)
-        //   - Pendle: claim yield
-        //   - GMX GLP: call rewardRouter.handleRewards(...)
-        //   - Symbiotic/Karak: claim restaking rewards
+        vault.harvestSleeves(0);
+        vault.harvestSleeves(1);
+        vault.harvestSleeves(2);
 
-        // ── Step 3: Swap rewards → USDC ──────────────────────────────────────
-        // (rewards are in ETH/WETH/GLP/etc — swap on Camelot)
-        // TODO: add per-reward-token swap logic
-
-        // ── Step 4: Calculate net yield ──────────────────────────────────────
         uint256 usdcAfter   = IERC20(USDC).balanceOf(address(vault));
         uint256 netYieldUsdc = usdcAfter > usdcBefore ? usdcAfter - usdcBefore : 0;
 
-        // ── Step 6: Report to vault ──────────────────────────────────────────
-        // Sleeve values: use existing + realised yield. Policy requires
-        // realised Sleeve C yield to be converted to USDC and compounded in
-        // Sleeve B, not compounded back into Sleeve C.
         uint256 nav = vault.totalNAV();
         uint256 newA = vault.sleeveAValue();
         uint256 newB = vault.sleeveBValue();
         uint256 newC = vault.sleeveCValue();
 
-        // MVP placeholder: all USDC rewards observed at the vault are treated
-        // as stable compounding capital and credited to Sleeve B. Production
-        // adapters should report source-specific values so non-C yield can be
-        // handled by its approved adapter policy while C yield always flows to B.
+        // Any non-adapter USDC reward still observed at the vault is treated as
+        // stable compounding capital for manual-sleeve accounting. Routed
+        // adapters report their own NAV directly in vault.recordHarvest().
         if (netYieldUsdc > 0 && nav > 0) {
             newB += netYieldUsdc;
         }

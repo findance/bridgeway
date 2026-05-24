@@ -2032,7 +2032,7 @@ contract BGWVaultTest is Test {
         vault.configureSleeveAdapterRoutes(sleeve, adapters, bps, active);
     }
 
-    function test_HarvestSleevesForwardsYieldFromAToB() public {
+    function test_HarvestSleevesCompoundsYieldFromABackIntoA() public {
         uint8 sleeveA = vault.SLEEVE_A();
         uint8 sleeveB = vault.SLEEVE_B();
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
@@ -2049,17 +2049,19 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(adapterA), 10e6);
         adapterA.simulateYield(10e6);
 
+        uint256 sleeveABefore = adapterA.totalAssetsUSDC();
         uint256 sleeveBBefore = adapterB.totalAssetsUSDC();
 
         vm.prank(founder);
         (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(sleeveA);
 
         assertEq(totalYield, 10e6, "yield not forwarded");
-        assertEq(compounded, 10e6, "yield not compounded into B");
-        assertEq(adapterB.totalAssetsUSDC(), sleeveBBefore + 10e6, "Sleeve B did not grow");
+        assertEq(compounded, 0, "A yield should not report B compounding");
+        assertEq(adapterA.totalAssetsUSDC(), sleeveABefore + 10e6, "Sleeve A did not compound");
+        assertEq(adapterB.totalAssetsUSDC(), sleeveBBefore, "Sleeve B should not receive A yield");
     }
 
-    function test_HarvestSleevesOnSleeveBKeepsYieldInPlace() public {
+    function test_HarvestSleevesCompoundsYieldFromBBackIntoB() public {
         uint8 sleeveB = vault.SLEEVE_B();
         MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
         _wireRoute(sleeveB, address(adapterB));
@@ -2078,9 +2080,40 @@ contract BGWVaultTest is Test {
         (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(sleeveB);
 
         assertEq(totalYield, 5e6);
-        assertEq(compounded, 0, "B yield should not loop back into B");
-        // The 5 USDC arrives at the vault; B's manual `totalAssets` doesn't move.
-        assertEq(adapterB.totalAssetsUSDC(), bBefore);
+        assertEq(compounded, 5e6, "B yield should report B compounding");
+        assertEq(adapterB.totalAssetsUSDC(), bBefore + 5e6);
+    }
+
+    function test_HarvestSleevesRoutesYieldFromCIntoB() public {
+        uint8 sleeveB = vault.SLEEVE_B();
+        uint8 sleeveC = vault.SLEEVE_C();
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterC = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(sleeveB, address(adapterB));
+        _wireRoute(sleeveC, address(adapterC));
+
+        vm.startPrank(founder);
+        vault.setSleeveDepositWeights(0, 0, 10_000);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(adapterC), 7e6);
+        adapterC.simulateYield(7e6);
+
+        uint256 bBefore = adapterB.totalAssetsUSDC();
+        uint256 cBefore = adapterC.totalAssetsUSDC();
+
+        vm.prank(founder);
+        (uint256 totalYield, uint256 compounded) = vault.harvestSleeves(sleeveC);
+
+        assertEq(totalYield, 7e6);
+        assertEq(compounded, 7e6, "C yield should report B compounding");
+        assertEq(adapterB.totalAssetsUSDC(), bBefore + 7e6);
+        assertEq(adapterC.totalAssetsUSDC(), cBefore);
     }
 
     function test_HarvestSleevesOnlyOwnerOrAutomation() public {
