@@ -161,17 +161,11 @@ contract AutomationTest is Test {
         vault.deposit(1_000_000e6, 0);
         vm.stopPrank();
 
-        // Step 2: after 30 days, 40,000e6 yield is within the 50% APR cap.
-        // perfFee 15% = 6,000e6 → buyback gross 900e6.
+        // Step 2: after 30 days, 25,000e6 yield is within the 50% APR cap.
+        // perfFee 15% = 3,750e6 -> buyback gross 562.5e6.
         vm.warp(block.timestamp + BUYBACK_INTERVAL);
-        MockUSDCAutomation(USDC_ADDR).mint(address(vault), 40_000e6);
         vm.prank(address(automation));
-        vault.recordHarvest(
-            40_000e6,
-            700_000e6 + (40_000e6 * 70) / 100,
-            250_000e6 + (40_000e6 * 25) / 100,
-            50_000e6 + (40_000e6 * 5) / 100
-        );
+        vault.recordHarvest(25_000e6, 703_500e6, 251_250e6, 50_250e6);
 
         uint256 acc = vault.buybackAccumulator();
         assertGe(acc, BUYBACK_THRESHOLD, "accumulator should be above 500 USDC threshold");
@@ -201,14 +195,8 @@ contract AutomationTest is Test {
         // Step 3: bounded harvest after 27 days fills the accumulator while
         // keeping lastBuybackTime below the 30-day interval.
         vm.warp(block.timestamp + 27 days);
-        MockUSDCAutomation(USDC_ADDR).mint(address(vault), 35_000e6);
         vm.prank(address(automation));
-        vault.recordHarvest(
-            35_000e6,
-            700_000e6 + (35_000e6 * 70) / 100,
-            250_000e6 + (35_000e6 * 25) / 100,
-            50_000e6 + (35_000e6 * 5) / 100
-        );
+        vault.recordHarvest(25_000e6, 703_500e6, 251_250e6, 50_250e6);
 
         assertGe(vault.buybackAccumulator(), BUYBACK_THRESHOLD);
 
@@ -261,8 +249,10 @@ contract AutomationTest is Test {
         vm.warp(block.timestamp + HARVEST_INTERVAL + 1);
         automation.performUpkeep(abi.encode(keccak256("HARVEST")));
 
-        assertEq(adapterA.totalAssetsUSDC(), aBefore + 10e6, "A yield must compound into A");
-        assertEq(adapterB.totalAssetsUSDC(), bBefore + 12e6, "B must receive B yield plus C yield");
+        assertGt(adapterA.totalAssetsUSDC(), aBefore, "A yield must compound into A before fee settlement");
+        assertLt(adapterA.totalAssetsUSDC(), aBefore + 10e6, "performance fee reduces A pro rata");
+        assertGt(adapterB.totalAssetsUSDC(), bBefore, "B must receive B yield plus C yield before fee settlement");
+        assertLt(adapterB.totalAssetsUSDC(), bBefore + 12e6, "performance fee reduces B pro rata");
         assertEq(adapterC.totalAssetsUSDC(), cBefore, "C yield must leave C");
     }
 
@@ -445,14 +435,8 @@ contract AutomationTest is Test {
         vm.stopPrank();
 
         vm.warp(block.timestamp + 27 days);
-        MockUSDCAutomation(USDC_ADDR).mint(address(vault), 35_000e6);
         vm.prank(address(automation));
-        vault.recordHarvest(
-            35_000e6,
-            700_000e6 + (35_000e6 * 70) / 100,
-            250_000e6 + (35_000e6 * 25) / 100,
-            50_000e6 + (35_000e6 * 5) / 100
-        );
+        vault.recordHarvest(25_000e6, 703_500e6, 251_250e6, 50_250e6);
 
         assertGe(vault.buybackAccumulator(), BUYBACK_THRESHOLD);
 

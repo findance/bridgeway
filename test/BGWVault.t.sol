@@ -474,8 +474,8 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         assertEq(vault.sleeveAValue(), 1_300e6);
-        assertEq(vault.sleeveBValue(), 650e6);
-        assertEq(vault.sleeveCValue(), 50e6);
+        assertEq(vault.sleeveBValue(), 600e6);
+        assertEq(vault.sleeveCValue(), 100e6);
     }
 
     function test_SleeveDepositWeightsMustSumToOneHundredPercent() public {
@@ -810,6 +810,40 @@ contract BGWVaultTest is Test {
         assertGt(vault.highWaterMark(), hwmBefore);
         // Some USDC went to team wallet
         assertGt(MockUSDC(USDC_ADDR).balanceOf(team), 0);
+    }
+
+    function test_RecordHarvestChargesPerfFeeOnInternalNAVGrowth() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        address[] memory routeA = new address[](1);
+        routeA[0] = address(adapterA);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(0, routeA, bps, active);
+        vm.prank(founder);
+        vault.setManagementFeeBps(0);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        MockUSDC(USDC_ADDR).mint(address(adapterA), 10e6);
+        adapterA.setTotalAssets(adapterA.totalAssets() + 10e6);
+
+        address automationAddr = _setupAutomation();
+        uint256 sleeveBValue = vault.sleeveValue(1);
+        uint256 sleeveCValue = vault.sleeveValue(2);
+        vm.prank(automationAddr);
+        vault.recordHarvest(0, 0, sleeveBValue, sleeveCValue);
+
+        uint256 expectedPerfFee = FeeLib.calcPerfFee(10e6);
+        uint256 expectedBuyback = FeeLib.splitPerfFee(expectedPerfFee).buyback;
+        assertEq(vault.buybackAccumulator(), expectedBuyback);
+        assertGt(vault.performanceFeeProfitCheckpointUsdc(), 0);
     }
 
     // ── Stress mode ───────────────────────────────────────────────────────────
@@ -1554,8 +1588,8 @@ contract BGWVaultTest is Test {
 
         assertEq(vault.holderIdleUSDC(), 1e6);
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 1e6);
-        assertEq(adapterA.totalAssetsUSDC(), 63_700_000);
-        assertEq(adapterB.totalAssetsUSDC(), 34_300_000);
+        assertEq(adapterA.totalAssetsUSDC(), 63_000_000);
+        assertEq(adapterB.totalAssetsUSDC(), 35_000_000);
         assertGt(MockUSDC(USDC_ADDR).balanceOf(alice), usdcBefore);
     }
 
@@ -1608,6 +1642,36 @@ contract BGWVaultTest is Test {
         assertEq(adapterB.totalAssetsUSDC(), sleeveBBefore);
         assertLt(vault.holderIdleUSDC(), 20e6);
         assertGt(vault.holderIdleUSDC(), 0);
+    }
+
+    function test_NewDepositsRefillDrainedSleeveBBeforeNormalWeights() public {
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        address[] memory routeA = new address[](1);
+        routeA[0] = address(adapterA);
+        address[] memory routeB = new address[](1);
+        routeB[0] = address(adapterB);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.startPrank(founder);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
+        vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
+        vault.setExitFeeBps(0);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 200e6);
+        vault.deposit(100e6, 0);
+        vault.redeem(35e18, 0);
+        vault.deposit(100e6, 0);
+        vm.stopPrank();
+
+        assertEq(adapterA.totalAssetsUSDC(), 107_250_000);
+        assertEq(adapterB.totalAssetsUSDC(), 57_750_000);
     }
 
     function test_OwnerCanDisableStableOnlySmallDepositRouting() public {
@@ -1867,11 +1931,10 @@ contract BGWVaultTest is Test {
         vault.recordHarvest(200e6, 840e6, 300e6, 60e6);
         uint256 hwmAfterFirst = vault.highWaterMark();
 
-        // Warp 180 days — keeps HWM in no-decay zone and ensures rate-bound is loose enough
-        // for the second 200e6 yield on a ~1174e6 NAV:
-        //   maxYield = 1174e6 × 50% × (180/365) ≈ 289e6 > 200e6 ✓
+        // Warp 365 days — keeps the feeable-profit delta inside the 50% APR bound
+        // after the first performance-fee checkpoint.
         MockUSDC(USDC_ADDR).mint(address(vault), 200e6);
-        vm.warp(block.timestamp + 180 days);
+        vm.warp(block.timestamp + 365 days);
         vm.prank(alice);
         bgwToken.transfer(CAMELOT_ADDR, 5e18);
 

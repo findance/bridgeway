@@ -124,6 +124,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     uint256 public highWaterMark;
     uint256 public lastHWMUpdateTime;
 
+    /// @notice Net portfolio profit already considered for periodic performance fees.
+    ///         This is adjusted pro-rata on redemptions so new deposits are not
+    ///         charged for pre-entry gains.
+    uint256 public performanceFeeProfitCheckpointUsdc;
+
     /// @notice Annual management fee in basis points (default 50 = 0.50 %).
     uint256 public managementFeeBps = FeeLib.MANAGEMENT_FEE_BPS;
 
@@ -674,32 +679,42 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             if (netYieldUsdc > maxYield) revert YieldRateTooHigh();
         }
 
+        uint256 oldA = _sleeveValue(SLEEVE_A);
+        uint256 oldB = _sleeveValue(SLEEVE_B);
+        uint256 oldC = _sleeveValue(SLEEVE_C);
         uint256 actualA = _reportedOrAdapterValue(SLEEVE_A, newSleeveA);
         uint256 actualB = _reportedOrAdapterValue(SLEEVE_B, newSleeveB);
         uint256 actualC = _reportedOrAdapterValue(SLEEVE_C, newSleeveC);
 
-        _checkSleeveMove(sleeveAValue, actualA, sinceLastHarvest);
-        _checkSleeveMove(sleeveBValue, actualB, sinceLastHarvest);
-        _checkSleeveMove(sleeveCValue, actualC, sinceLastHarvest);
+        _checkSleeveMove(oldA, actualA, sinceLastHarvest);
+        _checkSleeveMove(oldB, actualB, sinceLastHarvest);
+        _checkSleeveMove(oldC, actualC, sinceLastHarvest);
 
-        sleeveAValue = actualA;
-        sleeveBValue = actualB;
-        sleeveCValue = actualC;
+        _setReportedSleeveValue(SLEEVE_A, actualA);
+        _setReportedSleeveValue(SLEEVE_B, actualB);
+        _setReportedSleeveValue(SLEEVE_C, actualC);
         emit SleeveValuesUpdated(actualA, actualB, actualC);
 
         _chargeManagementFee();
 
         lastHarvestTime = block.timestamp;
 
-        if (netYieldUsdc == 0) return;
-
         uint256 currentNav18 = navPerBGW18();
         uint256 effectiveHwm = _decayedHWM();
         uint256 perfFeeUsdc;
         if (currentNav18 > effectiveHwm) {
-            perfFeeUsdc = FeeLib.calcPerfFee(netYieldUsdc);
-            _distributePerfFee(perfFeeUsdc);
-            _reduceSleevesProRata(perfFeeUsdc);
+            uint256 feeableProfitUsdc = _feeablePerformanceProfitUsdc();
+            if (nav > 0 && feeableProfitUsdc > 0) {
+                uint256 maxYield = (nav * FeeLib.MAX_YIELD_APR_BPS * sinceLastHarvest) / (FeeLib.BPS_DENOM * 365 days);
+                if (feeableProfitUsdc > maxYield) revert YieldRateTooHigh();
+            }
+
+            perfFeeUsdc = FeeLib.calcPerfFee(feeableProfitUsdc);
+            if (perfFeeUsdc > 0) {
+                _distributePerfFee(perfFeeUsdc);
+                _reduceSleevesProRata(perfFeeUsdc);
+                performanceFeeProfitCheckpointUsdc = _currentPerformanceProfitUsdc();
+            }
             // H-03/H-14: only crystallise when NAV is at least 1% above effective HWM,
             // preventing choppy markets from resetting the 1-year decay clock on every tick.
             if (currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
@@ -1221,13 +1236,45 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             return;
         }
 
-        uint256 toA = (usdcAmount * sleeveADepositBps) / FeeLib.BPS_DENOM;
-        uint256 toB = (usdcAmount * sleeveBDepositBps) / FeeLib.BPS_DENOM;
-        uint256 toC = usdcAmount - toA - toB;
+        uint256 postDepositNav = totalLocalNAV() + usdcAmount;
+        uint256 targetA = (postDepositNav * sleeveADepositBps) / FeeLib.BPS_DENOM;
+        uint256 targetB = (postDepositNav * sleeveBDepositBps) / FeeLib.BPS_DENOM;
+        uint256 targetC = postDepositNav - targetA - targetB;
+
+        uint256 remaining = usdcAmount;
+        (uint256 toB, uint256 afterB) = _allocateDepositDeficit(targetB, _sleeveValue(SLEEVE_B), remaining);
+        remaining = afterB;
+
+        uint256 allocation;
+        (allocation, remaining) = _allocateDepositDeficit(targetA, _sleeveValue(SLEEVE_A), remaining);
+        uint256 toA = allocation;
+
+        (allocation, remaining) = _allocateDepositDeficit(targetC, _sleeveValue(SLEEVE_C), remaining);
+        uint256 toC = allocation;
+
+        if (remaining > 0) {
+            uint256 extraA = (remaining * sleeveADepositBps) / FeeLib.BPS_DENOM;
+            uint256 extraB = (remaining * sleeveBDepositBps) / FeeLib.BPS_DENOM;
+            uint256 extraC = remaining - extraA - extraB;
+            toA += extraA;
+            toB += extraB;
+            toC += extraC;
+        }
 
         _deployToSleeve(SLEEVE_A, toA, false);
         _deployToSleeve(SLEEVE_B, toB, false);
         _deployToSleeve(SLEEVE_C, toC, false);
+    }
+
+    function _allocateDepositDeficit(uint256 target, uint256 current, uint256 remaining)
+        internal
+        pure
+        returns (uint256 allocation, uint256 newRemaining)
+    {
+        if (remaining == 0 || current >= target) return (0, remaining);
+        uint256 deficit = target - current;
+        allocation = deficit > remaining ? remaining : deficit;
+        newRemaining = remaining - allocation;
     }
 
     function _retainRedemptionBuffer(uint256 availableToDeploy) internal returns (uint256 deployableUsdc) {
@@ -1359,6 +1406,10 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
             uint256 principalSlice = (bgwAmount * cumulativePrincipal) / supply;
             cumulativePrincipal -= principalSlice;
         }
+        if (supply > 0 && performanceFeeProfitCheckpointUsdc > 0) {
+            uint256 profitSlice = (bgwAmount * performanceFeeProfitCheckpointUsdc) / supply;
+            performanceFeeProfitCheckpointUsdc -= profitSlice;
+        }
     }
 
     function _availableUSDC() internal view returns (uint256) {
@@ -1377,6 +1428,17 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint256 usdcBalance = IERC20(USDC).balanceOf(address(this));
         uint256 reserved = totalPendingFees + idleRedemptionReserveUsdc;
         return usdcBalance > reserved ? usdcBalance - reserved : 0;
+    }
+
+    function _currentPerformanceProfitUsdc() internal view returns (uint256) {
+        uint256 nav = totalNAV();
+        return nav > cumulativePrincipal ? nav - cumulativePrincipal : 0;
+    }
+
+    function _feeablePerformanceProfitUsdc() internal view returns (uint256) {
+        uint256 currentProfit = _currentPerformanceProfitUsdc();
+        uint256 checkpoint = performanceFeeProfitCheckpointUsdc;
+        return currentProfit > checkpoint ? currentProfit - checkpoint : 0;
     }
 
     function _consumeIdleRedemptionReserve(uint256 amount) internal {
@@ -1474,6 +1536,12 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     function _reportedOrAdapterValue(uint8 sleeve, uint256 reportedValue) internal view returns (uint256) {
         if (_sleeveAdapterRoutes[sleeve].length > 0) return _sleeveValue(sleeve);
         return reportedValue;
+    }
+
+    function _setReportedSleeveValue(uint8 sleeve, uint256 reportedValue) internal {
+        if (_sleeveAdapterRoutes[sleeve].length == 0) {
+            _setSleeveValue(sleeve, reportedValue);
+        }
     }
 
     function _sleeveValue(uint8 sleeve) internal view returns (uint256) {
