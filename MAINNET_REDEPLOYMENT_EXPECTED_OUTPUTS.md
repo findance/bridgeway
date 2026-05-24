@@ -1,4 +1,4 @@
-# Bridgeway Base Mainnet Redeployment Expected Outputs
+# Clearcrest Base Mainnet Redeployment Expected Outputs
 
 Use this file as the checklist while running `MAINNET_REDEPLOYMENT_COMMANDS.md`.
 
@@ -140,7 +140,7 @@ If the RPC returns delegated-account in-flight/gapped-nonce errors, resume one t
 
 ## Phase 5 Expected Output
 
-After BGW Safe role grants:
+After CCR Safe role grants:
 
 ```text
 BGW_MINTER_VAULT=true
@@ -278,7 +278,7 @@ USDC returned should be roughly `0.999` USDC after exit fee and redemption prici
 
 Dashboard:
 
-- `NAV Per BGW` displays a value near 1 USDC.
+- `NAV Per CCR` displays a value near 1 USDC.
 - `Total NAV` displays the post-smoke NAV.
 - `Sleeve Summary` shows Sleeve A and Sleeve B values.
 - Deep Refresh populates:
@@ -298,9 +298,8 @@ pendingOwner() = 0x0000000000000000000000000000000000000000
 
 Do not accept ownership until:
 
-- BGW roles are granted to the new vault.
-- GOV vault reference points to the new vault.
+- CCR roles are granted to the new vault.
+- CGOV vault reference points to the new vault.
 - Deposit static call returns `0x`.
 - Redeem static call returns `0x`.
 - Dashboard deep refresh populates.
-

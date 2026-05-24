@@ -6,21 +6,21 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title  FounderVesting
-/// @notice Vests 70,000,000 BGW-GOV tokens to the founder over 4 years
+/// @notice Vests 70,000,000 CGOV tokens to the founder over 4 years
 ///         with a 1-year cliff.
 ///
 ///         Vesting schedule (cumulative, measured from `vestingStart`):
 ///           Year 0–1 : 0 %         (cliff — nothing available)
-///           Year 1–2 : 25 %  →  17,500,000 BGW-GOV
-///           Year 2–3 : 50 %  →  35,000,000 BGW-GOV
-///           Year 3–4 : 100 % →  70,000,000 BGW-GOV
+///           Year 1–2 : 25 %  →  17,500,000 CGOV
+///           Year 2–3 : 50 %  →  35,000,000 CGOV
+///           Year 3–4 : 100 % →  70,000,000 CGOV
 ///
 ///         Founder can transfer the entire vesting stake to a designated
 ///         successor (irreversible, requires the new address to accept).
 ///
 ///         Legacy helper retained for standalone vesting schedules. The current
-///         BGW-GOV design mints founder governance allocations directly to the
-///         founder treasury on every BGW deposit.
+///         CGOV design mints founder governance allocations directly to the
+///         founder treasury on every CCR deposit.
 contract FounderVesting is Ownable2Step {
     using SafeERC20 for IERC20;
 

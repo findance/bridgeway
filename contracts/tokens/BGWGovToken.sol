@@ -12,15 +12,15 @@ interface IWhitelistVault {
 }
 
 /// @title  BGWGovToken
-/// @notice Bridgeway Governance Token (BGW-GOV).
+/// @notice Clearcrest Governance Token (CGOV).
 ///
-///         Inflationary governance token minted alongside BGW vault shares:
-///           • For every 1 BGW minted, 1 BGW-GOV is minted.
-///           • 30 % of each BGW-GOV mint goes to the depositor.
-///           • 70 % of each BGW-GOV mint goes to the founder treasury.
+///         Inflationary governance token minted alongside CCR vault shares:
+///           • For every 1 CCR minted, 1 CGOV is minted.
+///           • 30 % of each CGOV mint goes to the depositor.
+///           • 70 % of each CGOV mint goes to the founder treasury.
 ///
 ///         Founder control is therefore replenished pro-rata with every deposit,
-///         while depositor governance exposure scales with BGW ownership.
+///         while depositor governance exposure scales with CCR ownership.
 ///
 ///         Supports ERC20Votes (on-chain governance snapshots).
 contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
@@ -29,7 +29,7 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     uint256 public constant DEPOSITOR_GOV_BPS = 3_000;
     uint256 public constant FOUNDER_GOV_BPS = 7_000;
 
-    /// @notice Reference minimum primary-sale price for one whole BGW-GOV.
+    /// @notice Reference minimum primary-sale price for one whole CGOV.
     /// @dev ERC-20 transfers cannot enforce secondary-market consideration.
     uint256 public constant FOUNDER_PRIMARY_SALE_PRICE_USDC = 100_000e6;
 
@@ -37,7 +37,7 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     /// @notice MINTER_ROLE is granted to BGWVault inside initVault().
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-    /// @notice BGWToken moves/burns depositor GOV alongside BGW transfers/burns.
+    /// @notice BGWToken moves/burns depositor CGOV alongside CCR transfers/burns.
     bytes32 public constant BGW_COMPANION_ROLE = keccak256("BGW_COMPANION_ROLE");
 
     // ── State ────────────────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     /// @notice BGWVault address — set once by initVault(), updatable via timelock.
     address public vault;
-    bool    public vaultInitialized;
+    bool public vaultInitialized;
 
     // ── Vault-reference timelock (H-05) ──────────────────────────────────────
     uint256 public constant VAULT_REF_DELAY = 48 hours;
@@ -72,19 +72,15 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param _founderTreasury Founder / treasury wallet receiving 70 % of each mint.
-    /// @param _bgwToken        BGW share token that moves depositor GOV.
+    /// @param _bgwToken        CCR share token that moves depositor CGOV.
     /// @param _admin           Governance admin (founder wallet / multisig)
-    constructor(
-        address _founderTreasury,
-        address _bgwToken,
-        address _admin
-    )
-        ERC20("Bridgeway Governance", "BGW-GOV")
-        ERC20Permit("Bridgeway Governance")
+    constructor(address _founderTreasury, address _bgwToken, address _admin)
+        ERC20("Clearcrest-GOV", "CGOV")
+        ERC20Permit("Clearcrest-GOV")
     {
         if (_founderTreasury == address(0)) revert("GOV: zero treasury");
-        if (_bgwToken == address(0))         revert("GOV: zero bgw");
-        if (_admin == address(0))           revert("GOV: zero admin");
+        if (_bgwToken == address(0)) revert("GOV: zero ccr");
+        if (_admin == address(0)) revert("GOV: zero admin");
 
         founderTreasury = _founderTreasury;
         bgwToken = _bgwToken;
@@ -112,11 +108,11 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     // ── Distribution ─────────────────────────────────────────────────────────
 
-    /// @notice Mint BGW-GOV alongside a BGW deposit.
+    /// @notice Mint CGOV alongside a CCR deposit.
     /// @param depositor   User receiving the depositor governance share.
-    /// @param bgwMinted   BGW minted by the vault for the same deposit.
-    /// @return depositorAmount BGW-GOV minted to the depositor.
-    /// @return founderAmount   BGW-GOV minted to the founder treasury.
+    /// @param bgwMinted   CCR minted by the vault for the same deposit.
+    /// @return depositorAmount CGOV minted to the depositor.
+    /// @return founderAmount   CGOV minted to the founder treasury.
     function mintForDeposit(address depositor, uint256 bgwMinted)
         external
         onlyRole(MINTER_ROLE)
@@ -132,21 +128,12 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
         if (depositorAmount > 0) _mint(depositor, depositorAmount);
         if (founderAmount > 0) _mint(founderTreasury, founderAmount);
 
-        emit GovernanceMintedForDeposit(
-            depositor,
-            founderTreasury,
-            bgwMinted,
-            depositorAmount,
-            founderAmount
-        );
+        emit GovernanceMintedForDeposit(depositor, founderTreasury, bgwMinted, depositorAmount, founderAmount);
     }
 
-    /// @notice Move or burn depositor BGW-GOV when BGW moves or burns.
+    /// @notice Move or burn depositor CGOV when CCR moves or burns.
     /// @dev Founder treasury allocations are not touched by this companion path.
-    function syncWithBGWTransfer(address from, address to, uint256 bgwAmount)
-        external
-        onlyRole(BGW_COMPANION_ROLE)
-    {
+    function syncWithBGWTransfer(address from, address to, uint256 bgwAmount) external onlyRole(BGW_COMPANION_ROLE) {
         if (from == address(0) || bgwAmount == 0) return;
 
         uint256 govAmount = (bgwAmount * DEPOSITOR_GOV_BPS) / BPS_DENOM;
@@ -161,32 +148,17 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     // ── ERC20Votes overrides (required by OZ) ────────────────────────────────
 
-    /// @dev H-11: restrict GOV transfers to vault-whitelisted addresses and
-    ///      prevent depositor GOV from moving independently of BGW.
+    /// @dev H-11: restrict CGOV transfers to vault-whitelisted addresses and
+    ///      prevent depositor CGOV from moving independently of CCR.
     ///      Exempt paths that must move tokens outside normal user transfers:
     ///        - Mints/burns (from or to == address(0))
     ///        - BGWToken companion movement
     ///        - Founder treasury primary allocations/sales
-    function _update(address from, address to, uint256 amount)
-        internal
-        override(ERC20, ERC20Votes)
-    {
+    function _update(address from, address to, uint256 amount) internal override(ERC20, ERC20Votes) {
         address operator = _msgSender();
-        if (
-            vaultInitialized       &&
-            from != address(0)     &&
-            to   != address(0)     &&
-            from != address(this)  &&
-            from != vault
-        ) {
-            require(
-                operator == bgwToken || from == founderTreasury,
-                "GOV: transfers follow BGW"
-            );
-            require(
-                IWhitelistVault(vault).whitelist(to),
-                "GOV: recipient not whitelisted"
-            );
+        if (vaultInitialized && from != address(0) && to != address(0) && from != address(this) && from != vault) {
+            require(operator == bgwToken || from == founderTreasury, "CGOV: transfers follow CCR");
+            require(IWhitelistVault(vault).whitelist(to), "GOV: recipient not whitelisted");
         }
         super._update(from, to, amount);
     }
@@ -195,10 +167,7 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     /// @notice Propose replacing the vault whitelist reference (48-hour timelock).
     ///         Required when the vault is redeployed so GOV token transfers remain usable.
-    function proposeVaultReference(address _vault)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function proposeVaultReference(address _vault) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(vaultInitialized, "GOV: vault not initialized yet");
         require(_vault != address(0), "GOV: zero vault");
         uint256 eta = block.timestamp + VAULT_REF_DELAY;
@@ -228,12 +197,7 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
         emit VaultReferenceCancelled(candidate);
     }
 
-    function nonces(address owner)
-        public
-        view
-        override(ERC20Permit, Nonces)
-        returns (uint256)
-    {
+    function nonces(address owner) public view override(ERC20Permit, Nonces) returns (uint256) {
         return super.nonces(owner);
     }
 }

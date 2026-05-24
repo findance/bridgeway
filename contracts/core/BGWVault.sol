@@ -17,7 +17,7 @@ import "../interfaces/ISleeveAdapter.sol";
 import "../libraries/FeeLib.sol";
 
 /// @title  BGWVault
-/// @notice Bridgeway Protocol — standalone vault (no Enzyme).
+/// @notice Clearcrest Protocol — standalone vault (no Enzyme).
 ///
 ///         Holds all assets across three sleeves:
 ///           A  65 %  Growth     — top non-stable cryptos through approved routes
@@ -28,8 +28,8 @@ import "../libraries/FeeLib.sol";
 ///         The owner can move to 65/30/5 through the config timelock once Sleeve C
 ///         routes are ready.
 ///
-///         BGW share price  = totalNAV / BGW.totalSupply()
-///         BGW-GOV issued   = (bgwMinted / newTotalBGW) × communityPool
+///         CCR share price  = totalNAV / CCR.totalSupply()
+///         CGOV issued      = (bgwMinted / newTotalBGW) × communityPool
 ///
 ///         Access:
 ///           • deposit() / redeem() → whitelisted addresses only
@@ -37,7 +37,7 @@ import "../libraries/FeeLib.sol";
 ///           • admin functions → owner (founder multisig)
 ///
 /// @dev    NAV is denominated in USDC with 6-decimal precision throughout.
-///         BGW and BGW-GOV tokens use 18-decimal precision.
+///         CCR and CGOV tokens use 18-decimal precision.
 contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     using SafeERC20 for IERC20;
     using FeeLib for uint256;
@@ -120,7 +120,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @dev Number of sleeves that currently trust a token.
     mapping(address => uint256) public trustedAssetUseCount;
 
-    /// @notice High-water mark — NAV per BGW at last fee crystallisation (18 dec scale).
+    /// @notice High-water mark — NAV per CCR at last fee crystallisation (18 dec scale).
     uint256 public highWaterMark;
     uint256 public lastHWMUpdateTime;
 
@@ -132,7 +132,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Annual management fee in basis points (default 50 = 0.50 %).
     uint256 public managementFeeBps = FeeLib.MANAGEMENT_FEE_BPS;
 
-    /// @notice USDC accumulated for next BGW reserve injection and burn (6 dec).
+    /// @notice USDC accumulated for next CCR reserve injection and burn (6 dec).
     uint256 public buybackAccumulator;
 
     /// @notice Timestamp of last monthly harvest.
@@ -180,7 +180,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     /// @notice Minimum idle USDC buffer kept for routine redemptions.
     uint256 public minRedemptionBufferUsdc = 2e6;
 
-    /// @notice Tracked idle USDC that belongs to BGW holders and is reserved for routine redemptions.
+    /// @notice Tracked idle USDC that belongs to CCR holders and is reserved for routine redemptions.
     uint256 public idleRedemptionReserveUsdc;
 
     /// @notice Max age for the USDC/USD redemption feed. 0 = no age-based block.
@@ -218,7 +218,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     mapping(address => uint256) public pendingFees;
 
     /// @notice Sum of all escrowed pendingFees. This is deliberately excluded
-    ///         from totalNAV() because it belongs to fee recipients, not BGW holders.
+    ///         from totalNAV() because it belongs to fee recipients, not CCR holders.
     uint256 public totalPendingFees;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -412,11 +412,11 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // NAV & Pricing
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Portfolio NAV attributable to BGW holders.
+    /// @notice Portfolio NAV attributable to CCR holders.
     ///         Pending fees are excluded because they are liabilities owed to fee
     ///         recipients, even when their USDC is still held by the vault.
     ///         The buyback accumulator is also excluded because it is reserved
-    ///         for future BGW buyback-and-burn actions, not ordinary redeemable NAV.
+    ///         for future CCR buyback-and-burn actions, not ordinary redeemable NAV.
     function totalNAV() public view returns (uint256) {
         uint256 grossNav = totalLocalNAV() + totalSpokeNAV();
         uint256 queued = totalQueuedRedemptionNAVLiability;
@@ -428,7 +428,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return _sleeveValue(SLEEVE_A) + _sleeveValue(SLEEVE_B) + _sleeveValue(SLEEVE_C) + holderIdleUSDC();
     }
 
-    /// @notice Idle vault USDC attributable to BGW holders, excluding fee/buyback reserves.
+    /// @notice Idle vault USDC attributable to CCR holders, excluding fee/buyback reserves.
     function holderIdleUSDC() public view returns (uint256) {
         return idleRedemptionReserveUsdc;
     }
@@ -451,14 +451,14 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
         return _sleeveValue(sleeve);
     }
 
-    /// @notice NAV per BGW token in USDC (6 dec). Returns 1e6 ($1.00) if no BGW minted.
+    /// @notice NAV per CCR token in USDC (6 dec). Returns 1e6 ($1.00) if no CCR minted.
     function navPerBGW() public view returns (uint256) {
         uint256 supply = bgwToken.totalSupply();
         if (supply == 0) return 1e6;
         return (totalNAV() * 1e18) / supply;
     }
 
-    /// @notice NAV per BGW expressed in 18 dec (for HWM comparison).
+    /// @notice NAV per CCR expressed in 18 dec (for HWM comparison).
     function navPerBGW18() public view returns (uint256) {
         return navPerBGW() * 1e12;
     }
@@ -479,18 +479,18 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Deposit USDC into the vault for the caller. Must be whitelisted.
-    ///         Mints BGW at current NAV. Distributes proportional BGW-GOV.
+    ///         Mints CCR at current NAV. Distributes proportional CGOV.
     /// @param  usdcAmount  Amount of USDC (6 dec) to deposit.
-    /// @param  minBgwOut   Minimum BGW to receive (slippage guard, 18 dec). Pass 0 to skip.
+    /// @param  minBgwOut   Minimum CCR to receive (slippage guard, 18 dec). Pass 0 to skip.
     function deposit(uint256 usdcAmount, uint256 minBgwOut) external {
         depositFor(msg.sender, usdcAmount, minBgwOut);
     }
 
-    /// @notice Deposit USDC into the vault and mint BGW/BGW-GOV to `recipient`.
+    /// @notice Deposit USDC into the vault and mint CCR/CGOV to `recipient`.
     ///         This supports external zaps/aggregators that deliver hub-chain USDC.
-    /// @param  recipient   Address receiving BGW and BGW-GOV on the hub chain.
+    /// @param  recipient   Address receiving CCR and CGOV on the hub chain.
     /// @param  usdcAmount  Amount of USDC (6 dec) to deposit.
-    /// @param  minBgwOut   Minimum BGW to receive (slippage guard, 18 dec). Pass 0 to skip.
+    /// @param  minBgwOut   Minimum CCR to receive (slippage guard, 18 dec). Pass 0 to skip.
     function depositFor(address recipient, uint256 usdcAmount, uint256 minBgwOut) public nonReentrant whenNotPaused {
         if (recipient == address(0)) revert ZeroAddress();
         if (!whitelist[recipient]) revert NotWhitelisted(recipient);
@@ -523,9 +523,9 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     // Redeem
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Redeem BGW for USDC. Applies exit fee + perf fee if above HWM.
+    /// @notice Redeem CCR for USDC. Applies exit fee + perf fee if above HWM.
     ///         No whitelist check — holders must always be able to exit (H-02).
-    /// @param  bgwAmount  BGW to burn (18 dec).
+    /// @param  bgwAmount  CCR to burn (18 dec).
     /// @param  minUSDC    Minimum USDC to accept (slippage guard, 6 dec).
     function redeem(uint256 bgwAmount, uint256 minUSDC) external nonReentrant whenNotPaused {
         if (bgwAmount == 0) revert ZeroAmount();
@@ -732,7 +732,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     /// @notice Spend `usdcAmount` from the buyback accumulator by injecting it
     ///         into portfolio sleeves, then minting and immediately burning the
-    ///         corresponding BGW. No BGW-GOV is minted for this protocol-only
+    ///         corresponding CCR. No CGOV is minted for this protocol-only
     ///         cycle, and no LP liquidity is touched.
     function executeBuyback(uint256 usdcAmount) external nonReentrant whenNotPaused onlyAutomation {
         if (usdcAmount == 0 || usdcAmount > buybackAccumulator) return;
@@ -1203,7 +1203,7 @@ contract BGWVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Emergency: recover tokens accidentally sent to the vault.
-    ///         Blocked for USDC (vault funds), BGW, BGW-GOV, and any token
+    ///         Blocked for USDC (vault funds), CCR, CGOV, and any token
     ///         registered as a vault position via setProtectedToken (C-02).
     function recoverToken(address token, uint256 amount, address to) external onlyOwner {
         if (to == address(0)) revert ZeroAddress();

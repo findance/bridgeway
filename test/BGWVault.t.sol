@@ -109,13 +109,13 @@ contract BGWVaultTest is Test {
         bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
         bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault)); // H-11
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
-        // Vault must be whitelisted to receive temporary BGW during reserve injection.
+        // Vault must be whitelisted to receive temporary CCR during reserve injection.
         vault.setWhitelisted(address(vault), true);
-        // Camelot mock holds real BGW liquidity during swap simulation.
+        // Camelot mock holds real CCR liquidity during swap simulation.
         bgwToken.setWhitelisted(CAMELOT_ADDR, true);
         vault.setWhitelisted(CAMELOT_ADDR, true);
 
-        // Grant the vault BGW-GOV minting authority.
+        // Grant the vault CGOV minting authority.
         govToken.initVault(address(vault));
 
         // Whitelist users on vault (also updates BGWToken whitelist via WHITELIST_ADMIN_ROLE).
@@ -222,7 +222,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        // At $1.00 NAV: 1000 USDC → 1000 BGW
+        // At $1.00 NAV: 1000 USDC -> 1000 CCR
         assertEq(bgwToken.balanceOf(alice), 1_000e18);
         assertEq(vault.totalNAV(), 1_000e6);
     }
@@ -239,7 +239,7 @@ contract BGWVaultTest is Test {
         vm.prank(automationAddr);
         vault.updateSleeveValues(770e6, 275e6, 55e6); // total = 1100; NAV = $1.10/BGW
 
-        // Bob deposits 1100 USDC at $1.10 NAV → should receive ~1000 BGW
+        // Bob deposits 1100 USDC at $1.10 NAV -> should receive ~1000 CCR
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_100e6);
         vault.deposit(1_100e6, 0);
@@ -314,7 +314,7 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
     }
 
-    // ── BGW-GOV distribution ──────────────────────────────────────────────────
+    // ── CGOV distribution ─────────────────────────────────────────────────────
 
     function test_GovMintedAtThirtySeventySplit() public {
         vm.startPrank(alice);
@@ -386,7 +386,7 @@ contract BGWVaultTest is Test {
         govToken.transfer(outsider, 1e18);
     }
 
-    // ── BGW-GOV transfer restrictions (H-11) ─────────────────────────────────
+    // ── CGOV transfer restrictions (H-11) ────────────────────────────────────
 
     function test_BgwTransferMovesCorrespondingGov() public {
         vm.startPrank(alice);
@@ -411,7 +411,7 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(alice);
-        vm.expectRevert("GOV: transfers follow BGW");
+        vm.expectRevert("CGOV: transfers follow CCR");
         govToken.transfer(bob, 1e18);
     }
 
@@ -425,7 +425,7 @@ contract BGWVaultTest is Test {
         uint256 aliceGov = govToken.balanceOf(alice); // capture before prank (vm.prank is one-shot)
 
         vm.prank(alice);
-        vm.expectRevert("GOV: transfers follow BGW");
+        vm.expectRevert("CGOV: transfers follow CCR");
         govToken.transfer(outsider, aliceGov);
     }
 
@@ -931,7 +931,7 @@ contract BGWVaultTest is Test {
         uint256 navPerBgwBefore = vault.navPerBGW();
 
         // Execute buyback: no LP swap. The reserve is injected into sleeves, then
-        // temporary BGW is minted to the vault and burned without GOV minting.
+        // temporary CCR is minted to the vault and burned without CGOV minting.
         vm.prank(automationAddr);
         vault.executeBuyback(accumulator);
 
@@ -2121,7 +2121,7 @@ contract BGWVaultTest is Test {
         vm.prank(founder);
         vault.setWhitelisted(alice, false);
 
-        // Alice must still be able to burn her BGW and exit with USDC
+        // Alice must still be able to burn her CCR and exit with USDC
         uint256 bgwBalance = bgwToken.balanceOf(alice);
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
 

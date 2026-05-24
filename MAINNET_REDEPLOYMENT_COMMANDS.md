@@ -1,15 +1,16 @@
-# Bridgeway Base Mainnet Redeployment Commands
+# Clearcrest Base Mainnet Redeployment Commands
 
 This file is the operator runbook for redeploying the fixed Base vault/sleeve stack from commit `d74ceb0`.
 
-Important: the BGW and BGW-GOV token bytecode/salts did not change. On Base, the deterministic token addresses are already occupied, so do not rerun `01_DeployTokens` unless the token salts/code are intentionally changed. The practical path is:
+Important: the token bytecode/salts now changed for Clearcrest CCR and Clearcrest-GOV CGOV. Start with `01_DeployTokens`; do not reuse the old pre-Clearcrest token addresses.
 
 1. Clean up the old smoke-test config.
-2. Deploy a new `BGWVault` with existing tokens.
-3. Deploy and wire new Sleeve A/Sleeve B stack.
-4. Use the Protocol Owner Safe to grant BGW roles to the new vault.
-5. Use the BGW-GOV vault-reference timelock to point GOV mint/whitelist checks at the new vault.
-6. Smoke-test deposit and redeem.
+2. Deploy new Clearcrest CCR and Clearcrest-GOV CGOV tokens.
+3. Deploy a new `BGWVault` with the new tokens.
+4. Deploy and wire new Sleeve A/Sleeve B stack.
+5. Use the Protocol Owner Safe to grant CCR token roles to the new vault.
+6. Use the CGOV vault-reference timelock to point governance mint/whitelist checks at the new vault.
+7. Smoke-test deposit and redeem.
 
 ## Phase 0 - Confirm Code And Branch
 
@@ -261,13 +262,13 @@ export BGW_BURNER_ROLE=$(cast call $BGW_TOKEN "BURNER_ROLE()(bytes32)" --rpc-url
 export BGW_WHITELIST_ADMIN_ROLE=$(cast call $BGW_TOKEN "WHITELIST_ADMIN_ROLE()(bytes32)" --rpc-url $BASE_RPC_URL)
 export BGW_DEFAULT_ADMIN_ROLE=$(cast call $BGW_TOKEN "DEFAULT_ADMIN_ROLE()(bytes32)" --rpc-url $BASE_RPC_URL)
 
-echo "BGW grant MINTER new vault calldata:"
+echo "CCR grant MINTER new vault calldata:"
 cast calldata "grantRole(bytes32,address)" $BGW_MINTER_ROLE $VAULT
 
-echo "BGW grant BURNER new vault calldata:"
+echo "CCR grant BURNER new vault calldata:"
 cast calldata "grantRole(bytes32,address)" $BGW_BURNER_ROLE $VAULT
 
-echo "BGW grant WHITELIST_ADMIN new vault calldata:"
+echo "CCR grant WHITELIST_ADMIN new vault calldata:"
 cast calldata "grantRole(bytes32,address)" $BGW_WHITELIST_ADMIN_ROLE $VAULT
 ```
 
@@ -296,13 +297,13 @@ After the new vault is proven, revoke old vault token roles from the Safe:
 ```bash
 export OLD_VAULT=0x62f60d6C5bcdf76B0Dd086526B9e18f99d5a8B5a
 
-echo "BGW revoke MINTER old vault calldata:"
+echo "CCR revoke MINTER old vault calldata:"
 cast calldata "revokeRole(bytes32,address)" $BGW_MINTER_ROLE $OLD_VAULT
 
-echo "BGW revoke BURNER old vault calldata:"
+echo "CCR revoke BURNER old vault calldata:"
 cast calldata "revokeRole(bytes32,address)" $BGW_BURNER_ROLE $OLD_VAULT
 
-echo "BGW revoke WHITELIST_ADMIN old vault calldata:"
+echo "CCR revoke WHITELIST_ADMIN old vault calldata:"
 cast calldata "revokeRole(bytes32,address)" $BGW_WHITELIST_ADMIN_ROLE $OLD_VAULT
 ```
 
@@ -358,7 +359,7 @@ export AUTOMATION=<BridgewayAutomation>
 
 ## Phase 8 - Smoke Deposit
 
-Only run after BGW roles are granted and GOV vault reference has executed.
+Only run after CCR roles are granted and CGOV vault reference has executed.
 
 ```bash
 cast call $USDC \
@@ -396,13 +397,13 @@ cast send $VAULT \
 
 ## Phase 9 - Smoke Redeem
 
-Test 1 BGW redeem. If idle vault USDC is below the buffer, seed 2 USDC first.
+Test 1 CCR redeem. If idle vault USDC is below the buffer, seed 2 USDC first.
 
 ```bash
 {
   echo "VAULT_USDC=$(cast call $USDC 'balanceOf(address)(uint256)' $VAULT --rpc-url $BASE_RPC_URL)"
   echo "TOTAL_PENDING_FEES=$(cast call $VAULT 'totalPendingFees()(uint256)' --rpc-url $BASE_RPC_URL)"
-  echo "NAV_PER_BGW=$(cast call $VAULT 'navPerBGW()(uint256)' --rpc-url $BASE_RPC_URL)"
+  echo "NAV_PER_CCR=$(cast call $VAULT 'navPerBGW()(uint256)' --rpc-url $BASE_RPC_URL)"
   echo "EXIT_FEE_BPS=$(cast call $VAULT 'exitFeeBps()(uint16)' --rpc-url $BASE_RPC_URL)"
 } 2>&1 | tee -a $REDEPLOY_LOG
 

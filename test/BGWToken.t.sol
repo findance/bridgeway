@@ -7,11 +7,11 @@ import "../contracts/tokens/BGWToken.sol";
 contract BGWTokenTest is Test {
     BGWToken token;
 
-    address admin    = makeAddr("admin");
-    address minter   = makeAddr("minter");   // simulates vault
-    address alice    = makeAddr("alice");
-    address bob      = makeAddr("bob");
-    address charlie  = makeAddr("charlie");  // not whitelisted
+    address admin = makeAddr("admin");
+    address minter = makeAddr("minter"); // simulates vault
+    address alice = makeAddr("alice");
+    address bob = makeAddr("bob");
+    address charlie = makeAddr("charlie"); // not whitelisted
 
     function setUp() public {
         vm.prank(admin);
@@ -21,10 +21,15 @@ contract BGWTokenTest is Test {
         vm.startPrank(admin);
         token.grantRole(token.MINTER_ROLE(), minter);
         token.grantRole(token.BURNER_ROLE(), minter); // H-11: separate burn role
-        token.setWhitelisted(alice,  true);
-        token.setWhitelisted(bob,    true);
+        token.setWhitelisted(alice, true);
+        token.setWhitelisted(bob, true);
         token.setWhitelisted(minter, true);
         vm.stopPrank();
+    }
+
+    function test_MetadataUsesClearcrestBranding() public view {
+        assertEq(token.name(), "Clearcrest");
+        assertEq(token.symbol(), "CCR");
     }
 
     // ── Minting ───────────────────────────────────────────────────────────────
@@ -66,7 +71,7 @@ contract BGWTokenTest is Test {
         token.transfer(bob, 50e18);
 
         assertEq(token.balanceOf(alice), 50e18);
-        assertEq(token.balanceOf(bob),   50e18);
+        assertEq(token.balanceOf(bob), 50e18);
     }
 
     function test_TransferRevertsIfRecipientNotWhitelisted() public {
@@ -125,7 +130,7 @@ contract BGWTokenTest is Test {
         token.burn(40e18);
 
         assertEq(token.balanceOf(alice), 60e18);
-        assertEq(token.totalSupply(),     60e18);
+        assertEq(token.totalSupply(), 60e18);
     }
 
     function test_AdminBurnByBurner() public {

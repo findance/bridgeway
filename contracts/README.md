@@ -24,7 +24,7 @@ The v1.3 spec is a substantial redesign. The v10 file is a useful reference for 
 | `adapters/GMXGLPAdapter.sol` | GLP mint/burn + reward claim |
 | `adapters/MorphoBlueAdapter.sol` | Morpho Blue isolated market deposit/withdraw |
 | `adapters/SymbioticAdapter.sol` | Unlevered restaking position management (custom dev, 2–3 weeks) |
-| `mocks/` | Mock Enzyme vault, USDC, BGW token, Camelot router, Chainlink price feed for local testing |
+| `mocks/` | Mock Enzyme vault, USDC, CCR token, Camelot router, Chainlink price feed for local testing |
 
 ## Suggested prompt for VSCode (Claude Code extension)
 
@@ -37,11 +37,11 @@ Open VSCode in this folder and start with:
 > - `scripts/deploy.js` that deploys BGWToken first, then the wrapper proxy, then grants MINTER_ROLE
 > - `test/` skeleton with one passing test per major function
 >
-> Don't implement the strategy adapters yet — leave interfaces for them. Target Arbitrum Sepolia for deployment. Build the genesis-bootstrap path (first deposit = $1.00 per BGW) into the wrapper's deposit logic.
+> Don't implement the strategy adapters yet — leave interfaces for them. Target Arbitrum Sepolia for deployment. Build the genesis-bootstrap path (first deposit = $1.00 per CCR) into the wrapper's deposit logic.
 
 ## Things to remember when implementing
 
-- **Genesis bootstrap rule** (§4): first deposit mints BGW 1:1 with USDC value (NAV per BGW starts at $1.00). All later deposits use the pro-rata formula. Handle the `totalSupply == 0` case in deposit logic.
+- **Genesis bootstrap rule** (§4): first deposit mints CCR 1:1 with USDC value (NAV per CCR starts at $1.00). All later deposits use the pro-rata formula. Handle the `totalSupply == 0` case in deposit logic.
 - **`recordStakingYield`**: for testnet, owner-trusted is acceptable. Spec §8.1 requires on-chain derivation before mainnet — design the interface so the verification path can be added later without breaking ABI compatibility.
 - **UUPS upgrade**: spec §8.1 requires a 48h timelock on `upgradeTo()` for mainnet. For testnet a single owner is fine, but write the contract so the owner address can be swapped to a `TimelockController` later without storage layout changes.
 - **Monthly rebalance**: run automatically on the 15th. Sleeve A/B rebalance around configured targets; Sleeve C is one-way during automatic rebalancing and must not be topped up from A/B until its routes are enabled.

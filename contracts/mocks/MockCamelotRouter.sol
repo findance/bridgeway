@@ -6,10 +6,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 /// @notice Mock Camelot router for tests.
 ///         Implements the ICamelotRouter interface used by BGWVault.
-///         Swap logic: pulls USDC from caller, transfers existing BGW from this
+///         Swap logic: pulls USDC from caller, transfers existing CCR from this
 ///         contract's balance to recipient (simulating market liquidity).
-///         Rate: 1e12 → 1 USDC (6 dec) = 1 BGW (18 dec) at $1.00 per BGW.
-///         Tests must pre-fund this address with BGW before triggering swaps.
+///         Rate: 1e12 → 1 USDC (6 dec) = 1 CCR (18 dec) at $1.00 per CCR.
+///         Tests must pre-fund this address with CCR before triggering swaps.
 contract MockCamelotRouter {
     using SafeERC20 for IERC20;
 
@@ -18,16 +18,12 @@ contract MockCamelotRouter {
 
     constructor(address _bgwToken, uint256 _rate) {
         bgwToken = _bgwToken;
-        rate     = _rate;
+        rate = _rate;
     }
 
     // ── ICamelotRouter (used by BGWVault) ────────────────────────────────────
 
-    function getAmountsOut(uint256 amountIn, address[] calldata path)
-        external
-        view
-        returns (uint256[] memory amounts)
-    {
+    function getAmountsOut(uint256 amountIn, address[] calldata path) external view returns (uint256[] memory amounts) {
         amounts = new uint256[](path.length);
         amounts[0] = amountIn;
         amounts[path.length - 1] = amountIn * rate;
@@ -39,14 +35,14 @@ contract MockCamelotRouter {
         address[] calldata path,
         address to,
         address, // referrer
-        uint256  // deadline
+        uint256 // deadline
     ) external {
         IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
 
         uint256 amountOut = amountIn * rate;
         require(amountOut >= amountOutMin, "MockCamelot: slippage");
 
-        // Transfer existing BGW from this contract's balance (pre-funded in test setUp).
+        // Transfer existing CCR from this contract's balance (pre-funded in test setUp).
         // Using transfer instead of mint keeps swap simulations supply-neutral.
         IERC20(path[path.length - 1]).safeTransfer(to, amountOut);
     }
@@ -57,7 +53,7 @@ contract MockCamelotRouter {
         address[] calldata path,
         address to,
         address, // referrer
-        uint256  // deadline
+        uint256 // deadline
     ) external returns (uint256[] memory amounts) {
         IERC20(path[0]).safeTransferFrom(msg.sender, address(this), amountIn);
 

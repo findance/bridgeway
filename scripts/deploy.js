@@ -13,7 +13,7 @@ async function main() {
   const network    = await ethers.provider.getNetwork();
 
   console.log("================================================================");
-  console.log("BRIDGEWAY (BGW) — Deploying BridgewayAutomationWrapper");
+  console.log("CLEARCREST (CCR) — Deploying BridgewayAutomationWrapper");
   console.log("================================================================");
   console.log("Deployer: ", deployer.address);
   console.log("Network:  ", network.name);

@@ -13,7 +13,7 @@ async function main() {
   const deployments = require("../deployments.json");
 
   console.log("================================================================");
-  console.log("BRIDGEWAY (BGW) — Upgrading BridgewayAutomationWrapper");
+  console.log("CLEARCREST (CCR) — Upgrading BridgewayAutomationWrapper");
   console.log("================================================================");
   console.log("Deployer:      ", deployer.address);
   console.log("Proxy address: ", deployments.proxyAddress);

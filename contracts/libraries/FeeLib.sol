@@ -2,45 +2,45 @@
 pragma solidity 0.8.24;
 
 /// @title  FeeLib
-/// @notice Pure fee-math helpers for the Bridgeway Protocol.
+/// @notice Pure fee-math helpers for the Clearcrest Protocol.
 ///         All USD amounts use 6 decimal precision (USDC-denominated).
-///         All BGW amounts use 18 decimal precision.
+///         All CCR amounts use 18 decimal precision.
 library FeeLib {
     // ── Basis-point constants ────────────────────────────────────────────────
-    uint256 internal constant BPS_DENOM        = 10_000;
+    uint256 internal constant BPS_DENOM = 10_000;
 
-    uint256 internal constant PERF_FEE_BPS     = 1_500;   // 15 %  performance fee
-    uint256 internal constant EXIT_FEE_BPS     = 10;      // 0.10% normal exit fee
-    uint256 internal constant STRESS_EXIT_BPS  = 75;      // 0.75% stress exit fee
+    uint256 internal constant PERF_FEE_BPS = 1_500; // 15 %  performance fee
+    uint256 internal constant EXIT_FEE_BPS = 10; // 0.10% normal exit fee
+    uint256 internal constant STRESS_EXIT_BPS = 75; // 0.75% stress exit fee
 
     // ── Management fee ───────────────────────────────────────────────────────
-    uint256 internal constant MANAGEMENT_FEE_BPS      = 50; // 0.50% annual when NAV > HWM
-    uint256 internal constant BASE_MGMT_FEE_BPS       = 10; // 0.10% annual floor, always charged
+    uint256 internal constant MANAGEMENT_FEE_BPS = 50; // 0.50% annual when NAV > HWM
+    uint256 internal constant BASE_MGMT_FEE_BPS = 10; // 0.10% annual floor, always charged
 
     // ── HWM decay ────────────────────────────────────────────────────────────
     // If NAV stays below the HWM for HWM_DECAY_START, the HWM begins to slide
     // linearly from its crystallised value toward HWM_FLOOR over HWM_DECAY_PERIOD.
     // Fees can resume once NAV > effective (decayed) HWM.
-    uint256 internal constant HWM_DECAY_START  = 365 days; // 1 year grace before decay
+    uint256 internal constant HWM_DECAY_START = 365 days; // 1 year grace before decay
     uint256 internal constant HWM_DECAY_PERIOD = 730 days; // 2 years to reach HWM_FLOOR
-    uint256 internal constant HWM_FLOOR        = 1e18;     // $1.00 — minimum HWM floor
+    uint256 internal constant HWM_FLOOR = 1e18; // $1.00 — minimum HWM floor
 
     // ── Performance-fee distribution (must sum to BPS_DENOM) ─────────────────
-    uint256 internal constant TEAM_BPS         = 4_500;   // 45 %
-    uint256 internal constant HOLDBACK_BPS     = 3_000;   // 30 %
-    uint256 internal constant BUYBACK_BPS      = 1_500;   // 15 %
-    uint256 internal constant RESERVE_BPS      = 1_000;   // 10 %
+    uint256 internal constant TEAM_BPS = 4_500; // 45 %
+    uint256 internal constant HOLDBACK_BPS = 3_000; // 30 %
+    uint256 internal constant BUYBACK_BPS = 1_500; // 15 %
+    uint256 internal constant RESERVE_BPS = 1_000; // 10 %
 
     // ── Final sleeve targets (must sum to BPS_DENOM) ─────────────────────────
     // BGWVault has configurable deposit weights. Launch defaults route Sleeve C's
     // 5% allocation to Sleeve B (65/35/0) until alpha routes are enabled.
-    uint256 internal constant SLEEVE_A_BPS     = 6_500;   // 65 %
-    uint256 internal constant SLEEVE_B_BPS     = 3_000;   // 30 %
-    uint256 internal constant SLEEVE_C_BPS     = 500;     //  5 %
+    uint256 internal constant SLEEVE_A_BPS = 6_500; // 65 %
+    uint256 internal constant SLEEVE_B_BPS = 3_000; // 30 %
+    uint256 internal constant SLEEVE_C_BPS = 500; //  5 %
 
     // ── Drift triggers ───────────────────────────────────────────────────────
-    uint256 internal constant DRIFT_AB_BPS     = 800;     // legacy drift helper; scheduled rebalance is monthly
-    uint256 internal constant DRIFT_C_BPS      = 200;     // legacy drift helper; monthly rebalance never tops up C
+    uint256 internal constant DRIFT_AB_BPS = 800; // legacy drift helper; scheduled rebalance is monthly
+    uint256 internal constant DRIFT_C_BPS = 200; // legacy drift helper; monthly rebalance never tops up C
 
     // ── Redemption thresholds ────────────────────────────────────────────────
     uint256 internal constant LARGE_REDEEM_USD = 10_000e6; // $10,000 in USDC (6 dec)
@@ -54,10 +54,10 @@ library FeeLib {
     // Sleeve growth: 10 %/day  — BTC's worst week was ~50% in 7d (2013); 70% room.
     // Sleeve shrink: 25 %/day  — asymmetric; sudden real losses can exceed 10%.
     //   Larger write-downs require governance to acknowledge realised loss.
-    uint256 internal constant MAX_YIELD_APR_BPS         = 5_000; // 50 %/yr
+    uint256 internal constant MAX_YIELD_APR_BPS = 5_000; // 50 %/yr
     uint256 internal constant MAX_SLEEVE_GROWTH_BPS_DAY = 1_000; // 10 %/day
     uint256 internal constant MAX_SLEEVE_SHRINK_BPS_DAY = 2_500; // 25 %/day
-    uint256 internal constant MIN_HARVEST_GAP           = 12 hours;
+    uint256 internal constant MIN_HARVEST_GAP = 12 hours;
     uint256 internal constant AUTOMATION_TIMELOCK_DELAY = 48 hours;
 
     // ── HWM crystallisation minimum delta (H-03/H-14) ────────────────────────
@@ -88,35 +88,24 @@ library FeeLib {
     /// @notice Split a total performance fee into its 4 components.
     ///         All values in the same denomination as `totalFee`.
     function splitPerfFee(uint256 totalFee) internal pure returns (FeeSplit memory s) {
-        s.team       = (totalFee * TEAM_BPS)        / BPS_DENOM;
-        s.holdback   = (totalFee * HOLDBACK_BPS)    / BPS_DENOM;
-        s.buyback    = (totalFee * BUYBACK_BPS)     / BPS_DENOM;
-        s.reserve    = totalFee
-            - s.team
-            - s.holdback
-            - s.buyback;
+        s.team = (totalFee * TEAM_BPS) / BPS_DENOM;
+        s.holdback = (totalFee * HOLDBACK_BPS) / BPS_DENOM;
+        s.buyback = (totalFee * BUYBACK_BPS) / BPS_DENOM;
+        s.reserve = totalFee - s.team - s.holdback - s.buyback;
     }
 
     /// @notice Calculate exit fee on gross redemption amount.
     /// @param  grossUSDC  Gross USDC value of the redemption (6 dec)
     /// @param  feeBps     Fee in basis points (use EXIT_FEE_BPS or STRESS_EXIT_BPS)
     /// @return fee        Amount of USDC to withhold
-    function calcExitFee(uint256 grossUSDC, uint256 feeBps)
-        internal
-        pure
-        returns (uint256 fee)
-    {
+    function calcExitFee(uint256 grossUSDC, uint256 feeBps) internal pure returns (uint256 fee) {
         fee = (grossUSDC * feeBps) / BPS_DENOM;
     }
 
     /// @notice Calculate target allocation for a sleeve given total NAV.
     /// @param  totalNAV  Total vault NAV in USDC (6 dec)
     /// @param  sleeveBps Target weight in basis points
-    function targetAlloc(uint256 totalNAV, uint256 sleeveBps)
-        internal
-        pure
-        returns (uint256)
-    {
+    function targetAlloc(uint256 totalNAV, uint256 sleeveBps) internal pure returns (uint256) {
         return (totalNAV * sleeveBps) / BPS_DENOM;
     }
 
@@ -125,34 +114,22 @@ library FeeLib {
     /// @param  target  Target sleeve value  (same denom as total)
     /// @param  total   Total NAV            (same denom)
     /// @return driftBps  Absolute drift in basis points (0 if total==0)
-    function driftBps(uint256 actual, uint256 target, uint256 total)
-        internal
-        pure
-        returns (uint256)
-    {
+    function driftBps(uint256 actual, uint256 target, uint256 total) internal pure returns (uint256) {
         if (total == 0) return 0;
         uint256 diff = actual > target ? actual - target : target - actual;
         return (diff * BPS_DENOM) / total;
     }
 
     /// @notice Legacy helper: true when Sleeve A or B has drifted beyond 8 %.
-    function needsRebalanceAB(
-        uint256 sleeveAVal,
-        uint256 sleeveBVal,
-        uint256 total
-    ) internal pure returns (bool) {
+    function needsRebalanceAB(uint256 sleeveAVal, uint256 sleeveBVal, uint256 total) internal pure returns (bool) {
         uint256 targetA = targetAlloc(total, SLEEVE_A_BPS);
         uint256 targetB = targetAlloc(total, SLEEVE_B_BPS);
-        return driftBps(sleeveAVal, targetA, total) > DRIFT_AB_BPS
-            || driftBps(sleeveBVal, targetB, total) > DRIFT_AB_BPS;
+        return
+            driftBps(sleeveAVal, targetA, total) > DRIFT_AB_BPS || driftBps(sleeveBVal, targetB, total) > DRIFT_AB_BPS;
     }
 
     /// @notice Legacy helper: true when Sleeve C has drifted beyond 2 %.
-    function needsRebalanceC(uint256 sleeveCVal, uint256 total)
-        internal
-        pure
-        returns (bool)
-    {
+    function needsRebalanceC(uint256 sleeveCVal, uint256 total) internal pure returns (bool) {
         uint256 targetC = targetAlloc(total, SLEEVE_C_BPS);
         return driftBps(sleeveCVal, targetC, total) > DRIFT_C_BPS;
     }

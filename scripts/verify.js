@@ -6,7 +6,7 @@ async function main() {
   const deployments = require("../deployments.json");
 
   console.log("================================================================");
-  console.log("BRIDGEWAY (BGW) — Verifying on Arbiscan");
+  console.log("CLEARCREST (CCR) — Verifying on Arbiscan");
   console.log("================================================================");
   console.log("Implementation: ", deployments.implAddress);
 

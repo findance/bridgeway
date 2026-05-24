@@ -79,6 +79,10 @@ contract DeployTest is Test {
     function test_Script01_TokensDeployCorrectly() public {
         _deployTokens();
 
+        assertEq(bgwToken.name(), "Clearcrest");
+        assertEq(bgwToken.symbol(), "CCR");
+        assertEq(govToken.name(), "Clearcrest-GOV");
+        assertEq(govToken.symbol(), "CGOV");
         assertEq(govToken.totalSupply(), 0);
         assertEq(govToken.founderTreasury(), founder);
         assertEq(govToken.bgwToken(), address(bgwToken));
@@ -100,7 +104,7 @@ contract DeployTest is Test {
         assertEq(
             predictedBGW,
             BridgewayDeterministicDeploy.predictBGWToken(factory, founder),
-            "BGW prediction must be stable"
+            "CCR prediction must be stable"
         );
         assertEq(
             predictedGov,
@@ -113,16 +117,8 @@ contract DeployTest is Test {
 
     function _deployVault() internal {
         _deployTokens();
-        vault = new BGWVault(
-            address(bgwToken),
-            address(govToken),
-            team,
-            holdback,
-            reserve,
-            founder,
-            USDC_ADDR,
-            usdcFeed
-        );
+        vault =
+            new BGWVault(address(bgwToken), address(govToken), team, holdback, reserve, founder, USDC_ADDR, usdcFeed);
 
         vm.startPrank(founder);
         bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));

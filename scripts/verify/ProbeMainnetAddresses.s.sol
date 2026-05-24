@@ -10,7 +10,7 @@ interface IERC20MetadataProbe {
     function decimals() external view returns (uint8);
 }
 
-/// @notice Probes confirmed Bridgeway token and oracle inputs on the active chain.
+/// @notice Probes confirmed Clearcrest token and oracle inputs on the active chain.
 /// @dev Run against a live RPC or fork before using any address book for deploys.
 contract ProbeMainnetAddresses is Script {
     struct AssetProbe {

@@ -28,12 +28,12 @@ describe("BridgewayAutomationWrapper", function () {
     mockUSDC   = await (await ethers.getContractFactory("MockUSDC")).deploy();
     mockBGW    = await (await ethers.getContractFactory("MockBGWToken")).deploy();
 
-    // 1 USDC (6 dec) → 1e12 units = 1 BGW (18 dec)
+    // 1 USDC (6 dec) -> 1e12 units = 1 CCR (18 dec)
     mockRouter = await (await ethers.getContractFactory("MockCamelotRouter")).deploy(
       await mockBGW.getAddress(), 10n ** 12n
     );
 
-    // BGW price = $1.00, 8-decimal feed
+    // CCR price = $1.00, 8-decimal feed
     mockFeed   = await (await ethers.getContractFactory("MockPriceFeed")).deploy(1n * 10n ** 8n, 8);
 
     await mockBGW.mint(await mockRouter.getAddress(), bgw(1_000_000));
@@ -378,7 +378,7 @@ describe("BridgewayAutomationWrapper", function () {
       expect(await extra.balanceOf(owner.address)).to.equal(usdc(100));
     });
 
-    it("cannot rescue USDC or BGW", async function () {
+    it("cannot rescue USDC or CCR", async function () {
       await expect(
         wrapper.connect(owner).rescueTokens(
           await mockUSDC.getAddress(), owner.address, usdc(100)

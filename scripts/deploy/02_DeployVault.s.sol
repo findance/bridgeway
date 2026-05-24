@@ -7,7 +7,7 @@ import "../../contracts/tokens/BGWToken.sol";
 import "../../contracts/tokens/BGWGovToken.sol";
 
 /// @title  02_DeployVault
-/// @notice Deploy BGWVault and wire up token roles.
+/// @notice Deploy BGWVault and wire up Clearcrest token roles.
 ///         Run AFTER 01_DeployTokens.s.sol.
 ///
 ///         Required env vars:
@@ -15,7 +15,7 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///           TOKEN_ADMIN        final token admin Safe
 ///           VAULT_OWNER        final vault owner Safe
 ///           FOUNDER_TREASURY
-///           BGW_TOKEN          (from script 01 output)
+///           BGW_TOKEN          CCR token address from script 01 output
 ///           GOV_TOKEN          (from script 01 output)
 ///           TEAM_WALLET
 ///           HOLDBACK_WALLET
@@ -61,19 +61,19 @@ contract DeployVault is Script {
         console.log("BGWVault:", address(vault));
 
         bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
-        console.log("Granted MINTER_ROLE to vault on BGWToken");
+        console.log("Granted MINTER_ROLE to vault on CCR token");
 
         bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault));
-        console.log("Granted BURNER_ROLE to vault on BGWToken");
+        console.log("Granted BURNER_ROLE to vault on CCR token");
 
         bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
-        console.log("Granted WHITELIST_ADMIN_ROLE to vault on BGWToken");
+        console.log("Granted WHITELIST_ADMIN_ROLE to vault on CCR token");
 
         vault.setWhitelisted(address(vault), true);
         console.log("Whitelisted vault for protocol reserve mint-and-burn");
 
         govToken.initVault(address(vault));
-        console.log("Initialized vault in BGWGovToken (vault can mint deposit GOV)");
+        console.log("Initialized vault in CGOV token (vault can mint deposit governance)");
 
         vault.setWhitelisted(founderTreasury, true);
         console.log("Whitelisted founder treasury:", founderTreasury);
@@ -101,8 +101,8 @@ contract DeployVault is Script {
         console.log("VAULT=", address(vault));
         console.log("Vault owner must accept ownership from Safe before owner-only configuration.");
         console.log("\n=== Optional liquidity step ===");
-        console.log("After seeding BGW/USDC liquidity for secondary-market trading, call:");
+        console.log("After seeding CCR/USDC liquidity for secondary-market trading, call:");
         console.log("  vault.setWhitelisted(<pair_address>, true)");
-        console.log("This whitelists the pair for BGW transfers; buybacks do not require LP liquidity.");
+        console.log("This whitelists the pair for CCR transfers; buybacks do not require LP liquidity.");
     }
 }

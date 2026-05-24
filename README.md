@@ -1,4 +1,4 @@
-# Bridgeway Protocol (BGW) — v1.22
+# Clearcrest Protocol (CCR) — v1.22
 
 A whitelist-only, founder-operated crypto index vault with a Base hub.
 Standalone smart contracts — no Enzyme Finance, no third-party vault infrastructure.
@@ -15,8 +15,8 @@ LI.FI / Socket / CCTP / Across / deBridge
         │  settles as Base USDC
         ▼
     BGWVault  ──────────────────────────────────────────────────┐
-    │  Mints BGW (share token) 1:1 at first deposit            │
-    │  Distributes BGW-GOV governance tokens to depositors      │
+    │  Mints CCR (share token) 1:1 at first deposit            │
+    │  Distributes CGOV governance tokens to depositors         │
     │  Tracks three portfolio sleeves:                          │
     │    A — 65%  Growth     (BTC, ETH, SOL … via approved routes)│
     │    B — 30%  Stability  (USDC, USDT, DAI … via Aave/Morpho)  │
@@ -26,14 +26,14 @@ LI.FI / Socket / CCTP / Across / deBridge
     │  Buyback & burn   ◄── BridgewayAutomation (Chainlink)    │
     └───────────────────────────────────────────────────────────┘
 
-BGWToken      — ERC-20 vault share (18 dec), whitelist-transfer-only;
-                moves/burns paired depositor BGW-GOV on transfer/burn
-BGWGovToken   — Inflationary governance token minted with BGW deposits:
+BGWToken      — ERC-20 Clearcrest share token (CCR, 18 dec), whitelist-transfer-only;
+                moves/burns paired depositor CGOV on transfer/burn
+BGWGovToken   — Inflationary governance token minted with CCR deposits:
                 30% to depositor, 70% to founder treasury. Depositor GOV
-                cannot transfer independently of BGW.
+                cannot transfer independently of CCR.
 ```
 
-Bridgeway may support omnichain user ingress through frontend routing, but the
+Clearcrest may support omnichain user ingress through frontend routing, but the
 vault contract itself accepts and accounts in Base USDC. After USDC reaches
 the vault, launch deposits route 65/35/0 across Growth/Stability/Alpha so the
 deferred Sleeve C allocation stays in Sleeve B. Once Sleeve C routes are ready,
@@ -135,8 +135,8 @@ All findings from an independent security audit (v1.22) have been resolved:
 | H-08 | `setWhitelistedBatch` capped at 200 entries |
 | H-09 | Redeem uses `adminBurn` (MINTER_ROLE) not allowance-based `burnFrom` |
 | H-10 | `lastHarvestTime` initialised to `block.timestamp` at deploy |
-| H-11 | Depositor BGW-GOV moves/burns with corresponding BGW; standalone GOV transfers are restricted to founder treasury sales |
-| H-12 | BGW-GOV mints 30% to depositors and 70% to founder treasury on every BGW mint |
+| H-11 | Depositor CGOV moves/burns with corresponding CCR; standalone CGOV transfers are restricted to founder treasury sales |
+| H-12 | CGOV mints 30% to depositors and 70% to founder treasury on every CCR mint |
 | M-01 | `ReentrancyGuard` on `executeBuyback` |
 | M-03 | 48-hour timelock on all fee-level and wallet-address setters |
 | M-04 | Management fee accrual capped at 90 days elapsed |
@@ -193,14 +193,14 @@ forge script scripts/deploy/03_SetupAutomation.s.sol \
 ## Governance
 
 - Founder multisig: 3-of-5 Gnosis Safe
-- BGW-GOV voting: founder treasury receives 70% of every deposit-linked GOV mint
+- CGOV voting: founder treasury receives 70% of every deposit-linked governance mint
 - Critical decisions (upgrades, fee changes, whitelist policy): founder veto
 
 ---
 
 ## Known Risks (read before mainnet)
 
-1. **Regulatory** — BGW may be classified as a security. Get legal advice before any public launch.
+1. **Regulatory** — CCR may be classified as a security. Get legal advice before any public launch.
 2. **Owner trust** — harvest yield is reported by the automation contract. Wire vault-introspection or use a multi-sig before mainnet.
 3. **Audit scope** — one independent audit completed on v1.22. Additional review recommended before mainnet.
 4. **Testnet first** — never deploy directly to mainnet. Deploy to Arbitrum Sepolia and run full integration tests.

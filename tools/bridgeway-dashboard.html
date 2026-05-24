@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bridgeway Operator Dashboard</title>
+  <title>Clearcrest Operator Dashboard</title>
   <style>
     :root {
       color-scheme: light;
@@ -245,7 +245,7 @@
 <body>
   <header>
     <div class="topline">
-      <h1>Bridgeway Operator Dashboard</h1>
+      <h1>Clearcrest Operator Dashboard</h1>
       <div class="pill">Base Mainnet</div>
     </div>
   </header>
@@ -268,18 +268,18 @@
 
     <div class="buy-panel">
       <label>
-        Buy BGW With USDC
+        Buy CCR With USDC
         <input id="buyAmount" inputmode="decimal" type="number" min="1" step="0.000001" value="1">
       </label>
       <button id="connectWallet" class="secondary">Connect Wallet</button>
-      <button id="buyBgw">Buy BGW</button>
+      <button id="buyBgw">Buy CCR</button>
     </div>
 
     <div class="grid">
       <div class="metric">
-        <span>NAV Per BGW</span>
+        <span>NAV Per CCR</span>
         <strong id="navPerBgw">-</strong>
-        <small>USDC per BGW</small>
+        <small>USDC per CCR</small>
       </div>
       <div class="metric">
         <span>Total NAV</span>
@@ -287,12 +287,12 @@
         <small>USDC</small>
       </div>
       <div class="metric">
-        <span>BGW Supply</span>
+        <span>CCR Supply</span>
         <strong id="bgwSupply">-</strong>
-        <small>BGW</small>
+        <small>CCR</small>
       </div>
       <div class="metric">
-        <span>Wallet BGW</span>
+        <span>Wallet CCR</span>
         <strong id="walletBgw">-</strong>
         <small>Selected wallet</small>
       </div>
@@ -373,7 +373,7 @@
     <div class="links">
       <a href="https://app.morpho.org/base/vault/0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61" target="_blank" rel="noreferrer">Morpho USDC Vault</a>
       <a href="https://basescan.org/address/0x62f60d6C5bcdf76B0Dd086526B9e18f99d5a8B5a" target="_blank" rel="noreferrer">Vault On BaseScan</a>
-      <a href="https://basescan.org/address/0x60529BA0958a35AD64FC31523B51D194b4D78A7f" target="_blank" rel="noreferrer">BGW Token</a>
+      <a href="https://basescan.org/address/0x60529BA0958a35AD64FC31523B51D194b4D78A7f" target="_blank" rel="noreferrer">CCR Token</a>
       <a href="https://basescan.org/address/0xb2a8A466F018573AA69b9F2C33140603cd5EE049" target="_blank" rel="noreferrer">Aerodrome Strategy</a>
     </div>
   </main>
@@ -713,7 +713,7 @@
           await sleep(4500);
         }
 
-        $("status").textContent = "Confirm BGW purchase in your wallet...";
+        $("status").textContent = "Confirm CCR purchase in your wallet...";
         const depositHash = await sendTransaction(ADDR.vault, data(SIG.deposit, [uintArg(amount), uintArg(0)]));
         $("status").textContent = `Buy transaction sent: ${depositHash}`;
       } catch (error) {
@@ -780,16 +780,16 @@
 
         $("walletRows").innerHTML = [
           ["Wallet USDC", `${fmtUsdc(asUint(walletUsdc))} USDC`],
-          ["Wallet BGW", `${fmtToken18(asUint(walletBgw))} BGW`],
-          ["Wallet BGW-GOV", `${fmtToken18(asUint(walletGov))} BGW-GOV`],
-          ["Founder BGW-GOV", `${fmtToken18(asUint(founderGov))} BGW-GOV`],
+          ["Wallet CCR", `${fmtToken18(asUint(walletBgw))} CCR`],
+          ["Wallet CGOV", `${fmtToken18(asUint(walletGov))} CGOV`],
+          ["Founder CGOV", `${fmtToken18(asUint(founderGov))} CGOV`],
           ["Vault whitelist", asBool(whitelisted) ? "true" : "false"]
         ].map(([k, v]) => `<tr><td>${k}</td><td class="right mono">${v}</td></tr>`).join("");
 
         $("configRows").innerHTML = [
           ["Vault", ADDR.vault],
-          ["BGW token", ADDR.bgw],
-          ["BGW-GOV token", ADDR.gov],
+          ["CCR token", ADDR.bgw],
+          ["CGOV token", ADDR.gov],
           ["Sleeve A wrapper", ADDR.sleeveA],
           ["Base cbBTC yield adapter", ADDR.yield],
           ["Aerodrome strategy", ADDR.strategy],
@@ -990,9 +990,9 @@
 
         $("walletRows").innerHTML = [
           ["Wallet USDC", `${fmtUsdc(asUint(walletUsdc))} USDC`],
-          ["Wallet BGW", `${fmtToken18(asUint(walletBgw))} BGW`],
-          ["Wallet BGW-GOV", `${fmtToken18(asUint(walletGov))} BGW-GOV`],
-          ["Founder BGW-GOV", `${fmtToken18(asUint(founderGov))} BGW-GOV`],
+          ["Wallet CCR", `${fmtToken18(asUint(walletBgw))} CCR`],
+          ["Wallet CGOV", `${fmtToken18(asUint(walletGov))} CGOV`],
+          ["Founder CGOV", `${fmtToken18(asUint(founderGov))} CGOV`],
           ["Vault whitelist", asBool(whitelisted) ? "true" : "false"],
           ["USDC redemption feed max age", fmtSeconds(asUint(usdcMaxStale)), "configurable"],
           ["Bootstrap mode", asBool(bootstrapMode) ? "true" : "false"],
@@ -1006,8 +1006,8 @@
 
         $("configRows").innerHTML = [
           ["Vault", ADDR.vault],
-          ["BGW token", ADDR.bgw],
-          ["BGW-GOV token", ADDR.gov],
+          ["CCR token", ADDR.bgw],
+          ["CGOV token", ADDR.gov],
           ["Sleeve A route", `${decodedRouteA.adapter} / ${decodedRouteA.bps} bps / ${decodedRouteA.active ? "active" : "inactive"}`],
           ["Sleeve B route", `${decodedRouteB.adapter} / ${decodedRouteB.bps} bps / ${decodedRouteB.active ? "active" : "inactive"}`],
           ["Sleeve A route count", `${asUint(routeACount).toString()} route, ${asUint(routeAActiveBps).toString()} active bps`],
