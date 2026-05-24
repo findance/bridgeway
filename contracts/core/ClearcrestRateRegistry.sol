@@ -6,10 +6,10 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 
 import "../interfaces/ICCIPReceiver.sol";
 
-/// @title BridgewayRateRegistry
+/// @title ClearcrestRateRegistry
 /// @notice CCIP receiver for cross-chain rate data used by
 ///         isolated asset accounting paths for optional future wrappers.
-contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
+contract ClearcrestRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     uint8 public constant EXPECTED_VERSION = 1;
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
     uint256 public constant DEFAULT_MAX_STALENESS = 24 hours;
@@ -200,11 +200,7 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
     function proposeRateBounds(uint256 minRate_, uint256 maxRate_) external onlyOwner {
         if (minRate_ == 0 || minRate_ > maxRate_) revert InvalidRateBounds();
         uint256 eta = block.timestamp + CONFIG_TIMELOCK_DELAY;
-        pendingRateBoundsChange = PendingRateBoundsChange({
-            minRate: minRate_,
-            maxRate: maxRate_,
-            executeAfter: eta
-        });
+        pendingRateBoundsChange = PendingRateBoundsChange({minRate: minRate_, maxRate: maxRate_, executeAfter: eta});
         emit RateBoundsProposed(minRate_, maxRate_, eta);
     }
 
@@ -242,12 +238,8 @@ contract BridgewayRateRegistry is ICCIPReceiver, Ownable2Step, Pausable {
         if (incomingRate == previous.rate && l1Block == previous.l1BlockNumber) return;
         if (l1Block <= previous.l1BlockNumber) revert NonIncreasingL1Block(l1Block, previous.l1BlockNumber);
 
-        _assetRates[targetL2Asset] = RateData({
-            rate: incomingRate,
-            lastUpdated: block.timestamp,
-            l1BlockNumber: l1Block,
-            l1Timestamp: l1Time
-        });
+        _assetRates[targetL2Asset] =
+            RateData({rate: incomingRate, lastUpdated: block.timestamp, l1BlockNumber: l1Block, l1Timestamp: l1Time});
 
         emit RateUpdated(targetL2Asset, incomingRate, l1Block, l1Time);
     }

@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-import "../../contracts/core/BridgewayHubNAV.sol";
+import "../../contracts/core/ClearcrestHubNAV.sol";
 
 /// @title 05_DeployHubNAV
 /// @notice Deploys the hub-chain confirmed spoke NAV cache.
@@ -13,8 +13,8 @@ import "../../contracts/core/BridgewayHubNAV.sol";
 ///   HUB_NAV_OWNER
 ///
 /// Optional next step:
-///   Configure each spoke with BridgewayHubNAV.configureSpoke(), then wire the
-///   resulting Hub NAV address into BGWVault through setHubNAV() from the
+///   Configure each spoke with ClearcrestHubNAV.configureSpoke(), then wire the
+///   resulting Hub NAV address into ClearcrestVault through setHubNAV() from the
 ///   vault owner Safe/controller.
 contract DeployHubNAV is Script {
     function run() external {
@@ -24,8 +24,8 @@ contract DeployHubNAV is Script {
 
         vm.startBroadcast(deployerKey);
 
-        BridgewayHubNAV hub = new BridgewayHubNAV(deployer);
-        console.log("BridgewayHubNAV:", address(hub));
+        ClearcrestHubNAV hub = new ClearcrestHubNAV(deployer);
+        console.log("ClearcrestHubNAV:", address(hub));
 
         if (hubOwner != deployer) {
             hub.transferOwnership(hubOwner);

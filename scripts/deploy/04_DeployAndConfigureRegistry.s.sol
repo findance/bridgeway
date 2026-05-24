@@ -3,11 +3,11 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-import "../../contracts/core/BridgewayRegistry.sol";
-import "../../contracts/libraries/BridgewayChainConfig.sol";
+import "../../contracts/core/ClearcrestRegistry.sol";
+import "../../contracts/libraries/ClearcrestChainConfig.sol";
 
 /// @title 04_DeployAndConfigureRegistry
-/// @notice Deploys a chain-local BridgewayRegistry and seeds approved token/feed configs.
+/// @notice Deploys a chain-local ClearcrestRegistry and seeds approved token/feed configs.
 ///
 /// Required env vars:
 ///   DEPLOYER_PRIVATE_KEY
@@ -22,22 +22,17 @@ contract DeployAndConfigureRegistry is Script {
         address deployer = vm.addr(deployerKey);
         address registryOwner = vm.envAddress("REGISTRY_OWNER");
 
-        BridgewayChainConfig.AssetSeed[] memory seeds = BridgewayChainConfig.seeds(block.chainid);
+        ClearcrestChainConfig.AssetSeed[] memory seeds = ClearcrestChainConfig.seeds(block.chainid);
 
         vm.startBroadcast(deployerKey);
 
-        BridgewayRegistry registry = new BridgewayRegistry(deployer);
-        console.log("BridgewayRegistry:", address(registry));
+        ClearcrestRegistry registry = new ClearcrestRegistry(deployer);
+        console.log("ClearcrestRegistry:", address(registry));
 
         for (uint256 i; i < seeds.length; ++i) {
-            BridgewayChainConfig.AssetSeed memory seed = seeds[i];
+            ClearcrestChainConfig.AssetSeed memory seed = seeds[i];
             registry.setAsset(
-                seed.assetId,
-                seed.token,
-                seed.priceFeed,
-                seed.tokenDecimals,
-                seed.feedDecimals,
-                seed.trusted
+                seed.assetId, seed.token, seed.priceFeed, seed.tokenDecimals, seed.feedDecimals, seed.trusted
             );
             console.logBytes32(seed.assetId);
             console.log("  token:", seed.token);

@@ -8,7 +8,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../interfaces/ICamelotRouter.sol";
-import "../interfaces/IBridgewayRegistry.sol";
+import "../interfaces/IClearcrestRegistry.sol";
 import "../interfaces/IChainlinkAggregator.sol";
 import "../interfaces/ISleeveAdapter.sol";
 
@@ -57,7 +57,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     address public immutable vault;
     IERC20 public immutable usdc;
     ICamelotRouter public immutable router;
-    IBridgewayRegistry public registry;
+    IClearcrestRegistry public registry;
 
     AssetConfig[] private _assets;
     mapping(uint256 => address[]) private _buyPaths;
@@ -92,7 +92,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         _;
     }
 
-    /// @dev L-01: lets `BGWVault.emergencyUnwindSleeves` orchestrate.
+    /// @dev L-01: lets `ClearcrestVault.emergencyUnwindSleeves` orchestrate.
     modifier onlyOwnerOrVault() {
         if (msg.sender != owner() && msg.sender != vault) revert OnlyVault();
         _;
@@ -132,7 +132,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     function setRegistry(address newRegistry) external onlyOwner {
         if (_adapterHasValue()) revert AdapterNotEmpty();
         if (newRegistry == address(0)) revert ZeroAddress();
-        registry = IBridgewayRegistry(newRegistry);
+        registry = IClearcrestRegistry(newRegistry);
         emit RegistrySet(newRegistry);
     }
 
@@ -197,7 +197,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         AssetInput[] memory resolvedAssets = new AssetInput[](count);
         for (uint256 i; i < count; ++i) {
             RegistryAssetInput calldata input = newAssets[i];
-            IBridgewayRegistry.AssetConfig memory config = registry.getAsset(input.assetId);
+            IClearcrestRegistry.AssetConfig memory config = registry.getAsset(input.assetId);
             if (!config.trusted) revert AssetNotTrusted(input.assetId);
 
             resolvedAssets[i] = AssetInput({

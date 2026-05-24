@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 
-import "../contracts/core/BridgewayL1RateReporter.sol";
-import "../contracts/core/BridgewayRateRegistry.sol";
+import "../contracts/core/ClearcrestL1RateReporter.sol";
+import "../contracts/core/ClearcrestRateRegistry.sol";
 import "../contracts/interfaces/ICCIPReceiver.sol";
 import "../contracts/interfaces/ICCIPRouterClient.sol";
 
@@ -56,7 +56,7 @@ contract MockCCIPRouter is ICCIPRouterClient {
     }
 }
 
-contract BridgewayRateReporterTest is Test {
+contract ClearcrestRateReporterTest is Test {
     uint64 constant ETH_SELECTOR = 5_009_297_550_715_157_269;
     uint64 constant ARB_SELECTOR = 4_949_039_107_694_359_620;
 
@@ -66,14 +66,14 @@ contract BridgewayRateReporterTest is Test {
 
     MockWstLinkRateSource source;
     MockCCIPRouter router;
-    BridgewayL1RateReporter reporter;
-    BridgewayRateRegistry registry;
+    ClearcrestL1RateReporter reporter;
+    ClearcrestRateRegistry registry;
 
     function setUp() public {
         source = new MockWstLinkRateSource();
         router = new MockCCIPRouter();
-        reporter = new BridgewayL1RateReporter(owner, address(router), address(source), wstLinkL2, ARB_SELECTOR);
-        registry = new BridgewayRateRegistry(owner, address(router), address(reporter), ETH_SELECTOR);
+        reporter = new ClearcrestL1RateReporter(owner, address(router), address(source), wstLinkL2, ARB_SELECTOR);
+        registry = new ClearcrestRateRegistry(owner, address(router), address(reporter), ETH_SELECTOR);
         reporter.setReceiver(address(registry));
         registry.setApprovedRateAsset(wstLinkL2, true);
         vm.deal(address(reporter), 1 ether);
@@ -104,28 +104,28 @@ contract BridgewayRateReporterTest is Test {
         vm.warp(1 hours);
         reporter.reportRate();
 
-        vm.expectRevert(BridgewayL1RateReporter.CooldownActive.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.CooldownActive.selector);
         reporter.reportRate();
 
         vm.warp(block.timestamp + 1 hours);
         reporter.withdrawETH(payable(makeAddr("sink")), address(reporter).balance);
         router.setFee(0.004 ether);
-        vm.expectRevert(BridgewayL1RateReporter.InsufficientFees.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.InsufficientFees.selector);
         reporter.reportRate();
     }
 
     function test_ReportRateGuardsPauseIntervalAndFeeCeiling() public {
-        vm.expectRevert(BridgewayL1RateReporter.InvalidUpdateInterval.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.InvalidUpdateInterval.selector);
         reporter.proposeMinUpdateInterval(5 minutes - 1);
 
         uint256 tooLongInterval = reporter.MAX_UPDATE_INTERVAL() + 1;
-        vm.expectRevert(BridgewayL1RateReporter.InvalidUpdateInterval.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.InvalidUpdateInterval.selector);
         reporter.proposeMinUpdateInterval(tooLongInterval);
 
         vm.warp(1 hours);
         router.setFee(0.006 ether);
         vm.expectRevert(
-            abi.encodeWithSelector(BridgewayL1RateReporter.FeeExceedsMaximum.selector, 0.006 ether, 0.005 ether)
+            abi.encodeWithSelector(ClearcrestL1RateReporter.FeeExceedsMaximum.selector, 0.006 ether, 0.005 ether)
         );
         reporter.reportRate();
 
@@ -138,7 +138,7 @@ contract BridgewayRateReporterTest is Test {
     function test_ReportRateTimelocksReceiverAndMinUpdateInterval() public {
         address newReceiver = makeAddr("newReceiver");
 
-        vm.expectRevert(BridgewayL1RateReporter.ReceiverAlreadyConfigured.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.ReceiverAlreadyConfigured.selector);
         reporter.setReceiver(newReceiver);
 
         reporter.proposeReceiverUpdate(newReceiver);
@@ -160,10 +160,10 @@ contract BridgewayRateReporterTest is Test {
     }
 
     function test_ReportRateTimelocksAndBoundsFeeCap() public {
-        vm.expectRevert(BridgewayL1RateReporter.InvalidFeeCap.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.InvalidFeeCap.selector);
         reporter.proposeMaxFeePerReport(0);
 
-        vm.expectRevert(BridgewayL1RateReporter.InvalidFeeCap.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.InvalidFeeCap.selector);
         reporter.proposeMaxFeePerReport(0.051 ether);
 
         reporter.proposeMaxFeePerReport(0.01 ether);
@@ -183,13 +183,14 @@ contract BridgewayRateReporterTest is Test {
         assertEq(messageId, bytes32(0));
         assertEq(reporter.lastReportedTimestamp(), block.timestamp);
 
-        vm.expectRevert(BridgewayL1RateReporter.CooldownActive.selector);
+        vm.expectRevert(ClearcrestL1RateReporter.CooldownActive.selector);
         reporter.reportRate();
     }
 
     function test_RateRegistryAcceptsTrustedMessageAndReturnsRate() public {
         uint256 rate = source.rate();
-        ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+        ICCIPReceiver.Any2EVMMessage memory message =
+            _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
 
         vm.prank(address(router));
         registry.ccipReceive(message);
@@ -206,37 +207,45 @@ contract BridgewayRateReporterTest is Test {
     }
 
     function test_RateRegistryReportsNonRevertingStatusForFrontend() public {
-        (,,,,,, BridgewayRateRegistry.RateState state) = registry.rateStatus(makeAddr("unknown"));
-        assertEq(uint256(state), uint256(BridgewayRateRegistry.RateState.Unapproved));
+        (,,,,,, ClearcrestRateRegistry.RateState state) = registry.rateStatus(makeAddr("unknown"));
+        assertEq(uint256(state), uint256(ClearcrestRateRegistry.RateState.Unapproved));
 
         address approvedNoData = makeAddr("approvedNoData");
         registry.setApprovedRateAsset(approvedNoData, true);
         (,,,,,, state) = registry.rateStatus(approvedNoData);
-        assertEq(uint256(state), uint256(BridgewayRateRegistry.RateState.NoData));
+        assertEq(uint256(state), uint256(ClearcrestRateRegistry.RateState.NoData));
 
         uint256 rate = source.rate();
-        ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+        ICCIPReceiver.Any2EVMMessage memory message =
+            _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
 
         vm.prank(address(router));
         registry.ccipReceive(message);
 
-        (uint256 statusRate, uint256 lastUpdated, uint256 settlesAt, uint256 staleAt, uint256 l1Block, uint256 l1Time, BridgewayRateRegistry.RateState statusState) =
-            registry.rateStatus(wstLinkL2);
+        (
+            uint256 statusRate,
+            uint256 lastUpdated,
+            uint256 settlesAt,
+            uint256 staleAt,
+            uint256 l1Block,
+            uint256 l1Time,
+            ClearcrestRateRegistry.RateState statusState
+        ) = registry.rateStatus(wstLinkL2);
         assertEq(statusRate, rate);
         assertEq(lastUpdated, block.timestamp);
         assertEq(settlesAt, block.timestamp + registry.minRateSettleTime());
         assertEq(staleAt, block.timestamp + registry.DEFAULT_MAX_STALENESS());
         assertEq(l1Block, 123);
         assertEq(l1Time, 456);
-        assertEq(uint256(statusState), uint256(BridgewayRateRegistry.RateState.Settling));
+        assertEq(uint256(statusState), uint256(ClearcrestRateRegistry.RateState.Settling));
 
         vm.warp(settlesAt);
         (,,,,,, statusState) = registry.rateStatus(wstLinkL2);
-        assertEq(uint256(statusState), uint256(BridgewayRateRegistry.RateState.Valid));
+        assertEq(uint256(statusState), uint256(ClearcrestRateRegistry.RateState.Valid));
 
         registry.setAssetPaused(wstLinkL2, true);
         (,,,,,, statusState) = registry.rateStatus(wstLinkL2);
-        assertEq(uint256(statusState), uint256(BridgewayRateRegistry.RateState.Paused));
+        assertEq(uint256(statusState), uint256(ClearcrestRateRegistry.RateState.Paused));
     }
 
     function test_RateRegistryExposesKnownRateAssetsForOps() public {
@@ -262,43 +271,45 @@ contract BridgewayRateReporterTest is Test {
 
     function test_RateRegistryRejectsBadRouterSenderAssetAndBounds() public {
         uint256 rate = source.rate();
-        ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+        ICCIPReceiver.Any2EVMMessage memory message =
+            _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
 
-        vm.expectRevert(BridgewayRateRegistry.InvalidRouter.selector);
+        vm.expectRevert(ClearcrestRateRegistry.InvalidRouter.selector);
         registry.ccipReceive(message);
 
         message = _message(makeAddr("wrongReporter"), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
         vm.prank(address(router));
-        vm.expectRevert(BridgewayRateRegistry.InvalidSourceSender.selector);
+        vm.expectRevert(ClearcrestRateRegistry.InvalidSourceSender.selector);
         registry.ccipReceive(message);
 
         address unapprovedAsset = makeAddr("unapproved");
         message = _message(address(reporter), abi.encode(uint8(1), unapprovedAsset, rate, 123, 456));
         vm.prank(address(router));
-        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.UnapprovedRateAsset.selector, unapprovedAsset));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestRateRegistry.UnapprovedRateAsset.selector, unapprovedAsset));
         registry.ccipReceive(message);
 
         message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, 1e18 - 1, 123, 456));
         vm.prank(address(router));
-        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.RateBelowBaseline.selector, 1e18 - 1));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestRateRegistry.RateBelowBaseline.selector, 1e18 - 1));
         registry.ccipReceive(message);
 
         message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, 2e18 + 1, 123, 456));
         vm.prank(address(router));
-        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.RateExceedsMaximum.selector, 2e18 + 1));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestRateRegistry.RateExceedsMaximum.selector, 2e18 + 1));
         registry.ccipReceive(message);
     }
 
     function test_RateRegistryRejectsOutOfOrderRateUpdates() public {
         uint256 rate = source.rate();
-        ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+        ICCIPReceiver.Any2EVMMessage memory message =
+            _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
 
         vm.prank(address(router));
         registry.ccipReceive(message);
 
         message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate + 1, 122, 455));
         vm.prank(address(router));
-        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.NonIncreasingL1Block.selector, 122, 123));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestRateRegistry.NonIncreasingL1Block.selector, 122, 123));
         registry.ccipReceive(message);
 
         message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
@@ -328,11 +339,11 @@ contract BridgewayRateReporterTest is Test {
         assertEq(registry.minRate(), 1e18 - 1);
         assertEq(registry.maxReasonableRate(), 3e18);
 
-        vm.expectRevert(BridgewayRateRegistry.InvalidSettleTime.selector);
+        vm.expectRevert(ClearcrestRateRegistry.InvalidSettleTime.selector);
         registry.proposeMinRateSettleTime(0);
 
         uint256 tooLongSettleTime = registry.MAX_RATE_SETTLE_TIME() + 1;
-        vm.expectRevert(BridgewayRateRegistry.InvalidSettleTime.selector);
+        vm.expectRevert(ClearcrestRateRegistry.InvalidSettleTime.selector);
         registry.proposeMinRateSettleTime(tooLongSettleTime);
 
         registry.proposeMinRateSettleTime(5 minutes);
@@ -345,30 +356,31 @@ contract BridgewayRateReporterTest is Test {
 
     function test_RateRegistryIsolatesPauseAndStalenessByAsset() public {
         uint256 rate = source.rate();
-        ICCIPReceiver.Any2EVMMessage memory message = _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
+        ICCIPReceiver.Any2EVMMessage memory message =
+            _message(address(reporter), abi.encode(uint8(1), wstLinkL2, rate, 123, 456));
 
         vm.prank(address(router));
         registry.ccipReceive(message);
 
         registry.setAssetPaused(wstLinkL2, true);
-        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.AssetRatePaused.selector, wstLinkL2));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestRateRegistry.AssetRatePaused.selector, wstLinkL2));
         registry.getValidatedRate(wstLinkL2);
 
         registry.setAssetPaused(wstLinkL2, false);
-        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.RateStillSettling.selector, wstLinkL2));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestRateRegistry.RateStillSettling.selector, wstLinkL2));
         registry.getValidatedRate(wstLinkL2);
 
         vm.warp(block.timestamp + registry.minRateSettleTime());
         assertEq(registry.getValidatedRate(wstLinkL2), rate);
 
         vm.warp(block.timestamp + 24 hours + 1);
-        vm.expectRevert(abi.encodeWithSelector(BridgewayRateRegistry.StaleRate.selector, wstLinkL2));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestRateRegistry.StaleRate.selector, wstLinkL2));
         registry.getValidatedRate(wstLinkL2);
     }
 
     function test_RateRegistryRejectsImpossibleStalenessWindow() public {
         uint256 impossibleWindow = registry.minRateSettleTime() + registry.MIN_VALID_READ_WINDOW();
-        vm.expectRevert(BridgewayRateRegistry.InvalidDuration.selector);
+        vm.expectRevert(ClearcrestRateRegistry.InvalidDuration.selector);
         registry.setMaxStaleness(wstLinkL2, impossibleWindow);
 
         registry.setMaxStaleness(wstLinkL2, impossibleWindow + 1);
@@ -384,10 +396,7 @@ contract BridgewayRateReporterTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                BridgewayRateRegistry.MisconfiguredStaleness.selector,
-                tightAsset,
-                90 minutes,
-                2 hours
+                ClearcrestRateRegistry.MisconfiguredStaleness.selector, tightAsset, 90 minutes, 2 hours
             )
         );
         registry.executeMinRateSettleTime();
@@ -401,7 +410,7 @@ contract BridgewayRateReporterTest is Test {
             _message(address(reporter), abi.encode(uint8(1), wstLinkL2, source.rate(), 123, 456));
 
         vm.prank(address(router));
-        vm.expectRevert(BridgewayRateRegistry.SourceSenderRevoked.selector);
+        vm.expectRevert(ClearcrestRateRegistry.SourceSenderRevoked.selector);
         registry.ccipReceive(message);
     }
 

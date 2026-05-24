@@ -4,7 +4,7 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "./BGWVault.sol";
+import "./ClearcrestVault.sol";
 import "../libraries/FeeLib.sol";
 import "../interfaces/IAaveV3.sol";
 import "../interfaces/ICamelotRouter.sol";
@@ -16,7 +16,7 @@ interface AutomationCompatibleInterface {
     function performUpkeep(bytes calldata performData) external;
 }
 
-/// @title  BridgewayAutomation
+/// @title  ClearcrestAutomation
 /// @notice Chainlink Automation-compatible upkeep contract.
 ///
 ///         Triggers:
@@ -32,7 +32,7 @@ interface AutomationCompatibleInterface {
 /// @dev    This contract is intentionally thin — it reads Aave/Morpho balances
 ///         and instructs the vault. It does NOT hold user funds.
 ///         All USDC from rewards flows through the vault.
-contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
+contract ClearcrestAutomation is AutomationCompatibleInterface, Ownable2Step {
     using SafeERC20 for IERC20;
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     // State
     // ─────────────────────────────────────────────────────────────────────────
 
-    BGWVault public immutable vault;
+    ClearcrestVault public immutable vault;
 
     uint256 public lastHarvestTime;
     uint256 public lastBuybackTime;
@@ -88,7 +88,7 @@ contract BridgewayAutomation is AutomationCompatibleInterface, Ownable2Step {
     constructor(address _vault, address _admin, address _usdc) Ownable(_admin) {
         require(_vault != address(0), "BA: zero vault");
         require(_usdc != address(0), "BA: zero usdc");
-        vault = BGWVault(_vault);
+        vault = ClearcrestVault(_vault);
         USDC = _usdc;
         // Initialise to deployment time so neither harvest nor buyback fires immediately.
         lastHarvestTime = block.timestamp;

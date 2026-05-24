@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-import "../../contracts/core/BridgewayL1RateReporter.sol";
+import "../../contracts/core/ClearcrestL1RateReporter.sol";
 
 /// @title 10_SetWstLINKRateReporterReceiver
 /// @notice Points the Ethereum reporter at the deployed Arbitrum rate registry.
@@ -22,8 +22,8 @@ contract SetWstLINKRateReporterReceiver is Script {
 
         vm.startBroadcast(deployerKey);
 
-        BridgewayL1RateReporter(payable(reporterAddress)).setReceiver(l2Registry);
-        console.log("BridgewayL1RateReporter receiver:", l2Registry);
+        ClearcrestL1RateReporter(payable(reporterAddress)).setReceiver(l2Registry);
+        console.log("ClearcrestL1RateReporter receiver:", l2Registry);
 
         vm.stopBroadcast();
     }

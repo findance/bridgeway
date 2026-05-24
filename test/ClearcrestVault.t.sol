@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "../contracts/tokens/BGWToken.sol";
-import "../contracts/tokens/BGWGovToken.sol";
-import "../contracts/core/BGWVault.sol";
-import "../contracts/core/BridgewayHubNAV.sol";
-import "../contracts/core/BridgewaySpokeReporter.sol";
+import "../contracts/tokens/CCRToken.sol";
+import "../contracts/tokens/CGOVToken.sol";
+import "../contracts/core/ClearcrestVault.sol";
+import "../contracts/core/ClearcrestHubNAV.sol";
+import "../contracts/core/ClearcrestSpokeReporter.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
 import "../contracts/mocks/MockPriceFeed.sol";
 import "../contracts/mocks/MockSleeveAdapter.sol";
@@ -54,10 +54,10 @@ contract MockUSDC {
 /// @dev Minimal contract so setAutomation's code-length check passes.
 contract MockAutomationStub {}
 
-contract BGWVaultTest is Test {
-    BGWToken bgwToken;
-    BGWGovToken govToken;
-    BGWVault vault;
+contract ClearcrestVaultTest is Test {
+    CCRToken ccrToken;
+    CGOVToken cgovToken;
+    ClearcrestVault vault;
     MockPriceFeed usdcUsdFeed;
 
     address founder = makeAddr("founder");
@@ -80,20 +80,20 @@ contract BGWVaultTest is Test {
         vm.etch(USDC_ADDR, address(mockUsdc).code);
 
         // ── Deploy tokens ──────────────────────────────────────────────────────
-        bgwToken = new BGWToken(founder);
-        govToken = new BGWGovToken(founder, address(bgwToken), founder);
+        ccrToken = new CCRToken(founder);
+        cgovToken = new CGOVToken(founder, address(ccrToken), founder);
 
         // ── Mock Camelot router ────────────────────────────────────────────────
         // Etch MockCamelotRouter bytecode at CAMELOT_ADDR for tests that model
         // secondary-market transfers around a pair-like address.
-        MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
+        MockCamelotRouter mockCamelot = new MockCamelotRouter(address(ccrToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
         usdcUsdFeed = new MockPriceFeed(1e8, 8);
 
         // ── Deploy vault ───────────────────────────────────────────────────────
-        vault = new BGWVault(
-            address(bgwToken),
-            address(govToken),
+        vault = new ClearcrestVault(
+            address(ccrToken),
+            address(cgovToken),
             team,
             holdback,
             reserve,
@@ -105,20 +105,20 @@ contract BGWVaultTest is Test {
         // ── Wire roles ─────────────────────────────────────────────────────────
         vm.startPrank(founder);
 
-        bgwToken.setGovernanceCompanion(address(govToken));
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
-        bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault)); // H-11
-        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
+        ccrToken.setGovernanceCompanion(address(cgovToken));
+        ccrToken.grantRole(ccrToken.MINTER_ROLE(), address(vault));
+        ccrToken.grantRole(ccrToken.BURNER_ROLE(), address(vault)); // H-11
+        ccrToken.grantRole(ccrToken.WHITELIST_ADMIN_ROLE(), address(vault));
         // Vault must be whitelisted to receive temporary CCR during reserve injection.
         vault.setWhitelisted(address(vault), true);
         // Camelot mock holds real CCR liquidity during swap simulation.
-        bgwToken.setWhitelisted(CAMELOT_ADDR, true);
+        ccrToken.setWhitelisted(CAMELOT_ADDR, true);
         vault.setWhitelisted(CAMELOT_ADDR, true);
 
         // Grant the vault CGOV minting authority.
-        govToken.initVault(address(vault));
+        cgovToken.initVault(address(vault));
 
-        // Whitelist users on vault (also updates BGWToken whitelist via WHITELIST_ADMIN_ROLE).
+        // Whitelist users on vault (also updates CCRToken whitelist via WHITELIST_ADMIN_ROLE).
         vault.setWhitelisted(founder, true);
         vault.setWhitelisted(alice, true);
         vault.setWhitelisted(bob, true);
@@ -142,9 +142,9 @@ contract BGWVaultTest is Test {
         vm.warp(block.timestamp + 180 days);
     }
 
-    function _wireHubNAV(uint256 spokeNav18) internal returns (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) {
-        hub = new BridgewayHubNAV(founder);
-        spoke = new BridgewaySpokeReporter(founder, BASE_CHAIN_ID);
+    function _wireHubNAV(uint256 spokeNav18) internal returns (ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke) {
+        hub = new ClearcrestHubNAV(founder);
+        spoke = new ClearcrestSpokeReporter(founder, BASE_CHAIN_ID);
 
         vm.prank(founder);
         hub.configureSpoke(BASE_CHAIN_ID, address(spoke), 7 days, 1_000, true, true);
@@ -164,10 +164,10 @@ contract BGWVaultTest is Test {
 
     function _wireHubNAVWithMoveLimit(uint256 spokeNav18, uint256 maxNavMoveBps)
         internal
-        returns (BridgewayHubNAV hub, BridgewaySpokeReporter spoke)
+        returns (ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke)
     {
-        hub = new BridgewayHubNAV(founder);
-        spoke = new BridgewaySpokeReporter(founder, BASE_CHAIN_ID);
+        hub = new ClearcrestHubNAV(founder);
+        spoke = new ClearcrestSpokeReporter(founder, BASE_CHAIN_ID);
 
         vm.prank(founder);
         hub.configureSpoke(BASE_CHAIN_ID, address(spoke), 7 days, maxNavMoveBps, true, true);
@@ -181,7 +181,7 @@ contract BGWVaultTest is Test {
         vault.setHubNAV(address(hub));
     }
 
-    function _relaySpokeReport(BridgewayHubNAV hub, BridgewaySpokeReporter spoke) internal {
+    function _relaySpokeReport(ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke) internal {
         (uint64 chainId, uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
             abi.decode(spoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
 
@@ -189,7 +189,7 @@ contract BGWVaultTest is Test {
         hub.reportSpokeNAV(chainId, navUsd18, reportedAt, sourceBlockNumber, nonce);
     }
 
-    function _stepSpokeNAVDownWithinMoveLimit(BridgewayHubNAV hub, BridgewaySpokeReporter spoke, uint256 targetNav18)
+    function _stepSpokeNAVDownWithinMoveLimit(ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke, uint256 targetNav18)
         internal
     {
         (uint256 currentNav18,,,) = hub.spokeReports(BASE_CHAIN_ID);
@@ -211,19 +211,19 @@ contract BGWVaultTest is Test {
     // ── NAV bootstrapping ────────────────────────────────────────────────────
 
     function test_NavIsOneBeforeDeposit() public view {
-        assertEq(vault.navPerBGW(), 1e6); // $1.00
+        assertEq(vault.navPerCCR(), 1e6); // $1.00
     }
 
     // ── Deposit ──────────────────────────────────────────────────────────────
 
-    function test_FirstDepositMintsBGW1to1() public {
+    function test_FirstDepositMintsCCR1to1() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
         // At $1.00 NAV: 1000 USDC -> 1000 CCR
-        assertEq(bgwToken.balanceOf(alice), 1_000e18);
+        assertEq(ccrToken.balanceOf(alice), 1_000e18);
         assertEq(vault.totalNAV(), 1_000e6);
     }
 
@@ -237,7 +237,7 @@ contract BGWVaultTest is Test {
         // Simulate NAV growth via sleeve value update (no yield = no perf fee = no Camelot)
         address automationAddr = _setupAutomation();
         vm.prank(automationAddr);
-        vault.updateSleeveValues(770e6, 275e6, 55e6); // total = 1100; NAV = $1.10/BGW
+        vault.updateSleeveValues(770e6, 275e6, 55e6); // total = 1100; NAV = $1.10/CCR
 
         // Bob deposits 1100 USDC at $1.10 NAV -> should receive ~1000 CCR
         vm.startPrank(bob);
@@ -245,7 +245,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_100e6, 0);
         vm.stopPrank();
 
-        assertApproxEqRel(bgwToken.balanceOf(bob), 1_000e18, 0.01e18);
+        assertApproxEqRel(ccrToken.balanceOf(bob), 1_000e18, 0.01e18);
     }
 
     function test_DepositRevertsIfNotWhitelisted() public {
@@ -254,21 +254,21 @@ contract BGWVaultTest is Test {
 
         vm.startPrank(outsider);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.NotWhitelisted.selector, outsider));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.NotWhitelisted.selector, outsider));
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
     }
 
     function test_DepositRevertsOnZero() public {
         vm.prank(alice);
-        vm.expectRevert(BGWVault.ZeroAmount.selector);
+        vm.expectRevert(ClearcrestVault.ZeroAmount.selector);
         vault.deposit(0, 0);
     }
 
     function test_DepositRevertsBelowMinimum() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 999_999);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.DepositBelowMinimum.selector, 999_999, 1e6));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.DepositBelowMinimum.selector, 999_999, 1e6));
         vault.deposit(999_999, 0);
         vm.stopPrank();
     }
@@ -282,7 +282,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1, 0);
         vm.stopPrank();
 
-        assertEq(bgwToken.balanceOf(alice), 1e12);
+        assertEq(ccrToken.balanceOf(alice), 1e12);
         assertEq(vault.totalNAV(), 1);
     }
 
@@ -295,10 +295,10 @@ contract BGWVaultTest is Test {
         vault.depositFor(alice, 1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(bgwToken.balanceOf(alice), 1_000e18);
-        assertEq(govToken.balanceOf(alice), 300e18);
-        assertEq(bgwToken.balanceOf(router), 0);
-        assertEq(govToken.balanceOf(router), 0);
+        assertEq(ccrToken.balanceOf(alice), 1_000e18);
+        assertEq(cgovToken.balanceOf(alice), 300e18);
+        assertEq(ccrToken.balanceOf(router), 0);
+        assertEq(cgovToken.balanceOf(router), 0);
         assertEq(vault.totalNAV(), 1_000e6);
     }
 
@@ -309,7 +309,7 @@ contract BGWVaultTest is Test {
 
         vm.startPrank(router);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.NotWhitelisted.selector, outsider));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.NotWhitelisted.selector, outsider));
         vault.depositFor(outsider, 1_000e6, 0);
         vm.stopPrank();
     }
@@ -322,9 +322,9 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(govToken.balanceOf(alice), 300e18);
-        assertEq(govToken.balanceOf(founder), 700e18);
-        assertEq(govToken.totalSupply(), 1_000e18);
+        assertEq(cgovToken.balanceOf(alice), 300e18);
+        assertEq(cgovToken.balanceOf(founder), 700e18);
+        assertEq(cgovToken.totalSupply(), 1_000e18);
     }
 
     function test_GovRateIsEqualForAllDepositors() public {
@@ -334,7 +334,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        uint256 aliceGov = govToken.balanceOf(alice);
+        uint256 aliceGov = cgovToken.balanceOf(alice);
 
         // Bob deposits the same amount later (NAV unchanged)
         vm.startPrank(bob);
@@ -343,33 +343,33 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         // Both should receive the same amount — no first-depositor advantage
-        assertEq(govToken.balanceOf(bob), aliceGov);
+        assertEq(cgovToken.balanceOf(bob), aliceGov);
     }
 
-    function test_GovSupplyInflatesWithBgwMinted() public {
+    function test_GovSupplyInflatesWithCcrMinted() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(govToken.balanceOf(address(vault)), 0);
-        assertEq(govToken.totalSupply(), bgwToken.balanceOf(alice));
-        assertEq(govToken.balanceOf(founder), 700e18);
+        assertEq(cgovToken.balanceOf(address(vault)), 0);
+        assertEq(cgovToken.totalSupply(), ccrToken.balanceOf(alice));
+        assertEq(cgovToken.balanceOf(founder), 700e18);
     }
 
     function test_StrangerCannotMintGovForDeposit() public {
         vm.prank(alice);
         vm.expectRevert();
-        govToken.mintForDeposit(alice, 1_000e18);
+        cgovToken.mintForDeposit(alice, 1_000e18);
     }
 
     function test_GovMinterCannotMintToNonWhitelistedDepositor() public {
         address outsider = makeAddr("outsider");
 
         vm.startPrank(founder);
-        govToken.grantRole(govToken.MINTER_ROLE(), founder);
-        vm.expectRevert("GOV: depositor not whitelisted");
-        govToken.mintForDeposit(outsider, 1_000e18);
+        cgovToken.grantRole(cgovToken.MINTER_ROLE(), founder);
+        vm.expectRevert("CGOV: depositor not whitelisted");
+        cgovToken.mintForDeposit(outsider, 1_000e18);
         vm.stopPrank();
     }
 
@@ -382,29 +382,29 @@ contract BGWVaultTest is Test {
         address outsider = makeAddr("outsider");
 
         vm.prank(founder);
-        vm.expectRevert("GOV: recipient not whitelisted");
-        govToken.transfer(outsider, 1e18);
+        vm.expectRevert("CGOV: recipient not whitelisted");
+        cgovToken.transfer(outsider, 1e18);
     }
 
     // ── CGOV transfer restrictions (H-11) ────────────────────────────────────
 
-    function test_BgwTransferMovesCorrespondingGov() public {
+    function test_CcrTransferMovesCorrespondingGov() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        uint256 aliceGovBefore = govToken.balanceOf(alice);
+        uint256 aliceGovBefore = cgovToken.balanceOf(alice);
 
         vm.prank(alice);
-        bgwToken.transfer(bob, 50e18);
+        ccrToken.transfer(bob, 50e18);
 
-        assertEq(bgwToken.balanceOf(bob), 50e18);
-        assertEq(govToken.balanceOf(bob), 15e18);
-        assertEq(govToken.balanceOf(alice), aliceGovBefore - 15e18);
+        assertEq(ccrToken.balanceOf(bob), 50e18);
+        assertEq(cgovToken.balanceOf(bob), 15e18);
+        assertEq(cgovToken.balanceOf(alice), aliceGovBefore - 15e18);
     }
 
-    function test_GovCannotTransferWithoutCorrespondingBgw() public {
+    function test_GovCannotTransferWithoutCorrespondingCcr() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -412,7 +412,7 @@ contract BGWVaultTest is Test {
 
         vm.prank(alice);
         vm.expectRevert("CGOV: transfers follow CCR");
-        govToken.transfer(bob, 1e18);
+        cgovToken.transfer(bob, 1e18);
     }
 
     function test_GovTransferToNonWhitelistedReverts() public {
@@ -422,11 +422,11 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         address outsider = makeAddr("outsider");
-        uint256 aliceGov = govToken.balanceOf(alice); // capture before prank (vm.prank is one-shot)
+        uint256 aliceGov = cgovToken.balanceOf(alice); // capture before prank (vm.prank is one-shot)
 
         vm.prank(alice);
         vm.expectRevert("CGOV: transfers follow CCR");
-        govToken.transfer(outsider, aliceGov);
+        cgovToken.transfer(outsider, aliceGov);
     }
 
     // ── Sleeve allocation ─────────────────────────────────────────────────────
@@ -480,7 +480,7 @@ contract BGWVaultTest is Test {
 
     function test_SleeveDepositWeightsMustSumToOneHundredPercent() public {
         vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.InvalidSleeveDepositWeights.selector, 9_999));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.InvalidSleeveDepositWeights.selector, 9_999));
         vault.setSleeveDepositWeights(6_500, 2_999, 500);
     }
 
@@ -512,7 +512,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        assertEq(bgwToken.balanceOf(bob), 500e18);
+        assertEq(ccrToken.balanceOf(bob), 500e18);
         assertEq(vault.totalLocalNAV(), 2_000e6);
         assertEq(vault.totalSpokeNAV(), 1_000e6);
     }
@@ -544,7 +544,7 @@ contract BGWVaultTest is Test {
 
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.StaleReport.selector, BASE_CHAIN_ID));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestHubNAV.StaleReport.selector, BASE_CHAIN_ID));
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
     }
@@ -555,13 +555,13 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        (BridgewayHubNAV hub,) = _wireHubNAVWithMoveLimit(1_000e18, 3_000);
+        (ClearcrestHubNAV hub,) = _wireHubNAVWithMoveLimit(1_000e18, 3_000);
         vm.prank(founder);
         hub.triggerCircuitBreaker(bytes32("TEST"));
 
         vm.startPrank(bob);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vm.expectRevert(BridgewayHubNAV.CircuitBreakerActive.selector);
+        vm.expectRevert(ClearcrestHubNAV.CircuitBreakerActive.selector);
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
     }
@@ -581,7 +581,7 @@ contract BGWVaultTest is Test {
         assertEq(vault.totalQueuedRedemptionNAVLiability(), 2_000e6);
         assertEq(vault.totalSpokeNAV(), 3_000e6);
         assertEq(vault.totalNAV(), 2_000e6);
-        assertEq(bgwToken.totalSupply(), 500e18);
+        assertEq(ccrToken.totalSupply(), 500e18);
     }
 
     function test_QueuedRedemptionClaimsAfterSpokeLiquidityAcknowledged() public {
@@ -590,7 +590,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
 
-        (BridgewayHubNAV hub, BridgewaySpokeReporter spoke) = _wireHubNAVWithMoveLimit(3_000e18, 3_000);
+        (ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke) = _wireHubNAVWithMoveLimit(3_000e18, 3_000);
 
         vm.prank(alice);
         vault.redeem(500e18, 0);
@@ -598,7 +598,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 2_000e6);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.QueuedRedemptionNotReady.selector, 1, 2_000e6));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.QueuedRedemptionNotReady.selector, 1, 2_000e6));
         vault.claimQueuedRedemption(1);
 
         _stepSpokeNAVDownWithinMoveLimit(hub, spoke, 1_000e18);
@@ -629,7 +629,7 @@ contract BGWVaultTest is Test {
         vault.redeem(500e18, 0);
 
         vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.QueuedRedemptionNotReady.selector, 1, 1_000e6));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.QueuedRedemptionNotReady.selector, 1, 1_000e6));
         vault.acknowledgeQueuedRedemptionLiquidity(1, 2_000e6);
     }
 
@@ -640,10 +640,10 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
 
-        uint256 bgwBalance = bgwToken.balanceOf(alice);
+        uint256 ccrBalance = ccrToken.balanceOf(alice);
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
 
-        vault.redeem(bgwBalance, 0);
+        vault.redeem(ccrBalance, 0);
         vm.stopPrank();
 
         uint256 received = MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore;
@@ -661,7 +661,7 @@ contract BGWVaultTest is Test {
         usdcUsdFeed.setPrice(102_000_000); // $1.02 should not inflate redemption value
 
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
-        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vault.redeem(ccrToken.balanceOf(alice), 0);
         vm.stopPrank();
 
         uint256 expectedFee = (1_000e6 * 10) / 10_000;
@@ -676,7 +676,7 @@ contract BGWVaultTest is Test {
         usdcUsdFeed.setPrice(98_000_000); // $0.98 depeg haircut
 
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
-        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vault.redeem(ccrToken.balanceOf(alice), 0);
         vm.stopPrank();
 
         uint256 grossAfterDepeg = 980e6;
@@ -692,7 +692,7 @@ contract BGWVaultTest is Test {
 
         usdcUsdFeed.setStale();
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
-        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vault.redeem(ccrToken.balanceOf(alice), 0);
         vm.stopPrank();
 
         uint256 expectedFee = (1_000e6 * 10) / 10_000;
@@ -709,26 +709,26 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
 
         usdcUsdFeed.setStale();
-        uint256 aliceBGW = bgwToken.balanceOf(alice);
+        uint256 aliceCCR = ccrToken.balanceOf(alice);
         vm.expectRevert();
-        vault.redeem(aliceBGW, 0);
+        vault.redeem(aliceCCR, 0);
         vm.stopPrank();
     }
 
-    function test_RedeemBurnsBGW() public {
+    function test_RedeemBurnsCCR() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
-        uint256 bgwBefore = bgwToken.totalSupply();
+        uint256 ccrBefore = ccrToken.totalSupply();
 
-        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vault.redeem(ccrToken.balanceOf(alice), 0);
         vm.stopPrank();
 
-        assertEq(bgwToken.totalSupply(), 0);
-        assertGt(bgwBefore, 0);
+        assertEq(ccrToken.totalSupply(), 0);
+        assertGt(ccrBefore, 0);
     }
 
-    function test_RedeemRevertsIfInsufficientBGW() public {
+    function test_RedeemRevertsIfInsufficientCCR() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -746,12 +746,12 @@ contract BGWVaultTest is Test {
 
         // Cache balance before vm.expectRevert so the balanceOf STATICCALL doesn't
         // interfere with the cheat code in Foundry v1.x.
-        uint256 aliceBGW = bgwToken.balanceOf(alice);
+        uint256 aliceCCR = ccrToken.balanceOf(alice);
 
         // Demand full gross value — fails because 0.10% exit fee is deducted
         vm.prank(alice);
         vm.expectRevert();
-        vault.redeem(aliceBGW, 1_000e6);
+        vault.redeem(aliceCCR, 1_000e6);
     }
 
     // ── FeeLib math ──────────────────────────────────────────────────────────
@@ -857,7 +857,7 @@ contract BGWVaultTest is Test {
         vault.deposit(1_000e6, 0);
 
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
-        vault.redeem(bgwToken.balanceOf(alice), 0);
+        vault.redeem(ccrToken.balanceOf(alice), 0);
         vm.stopPrank();
 
         uint256 received = MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore;
@@ -876,7 +876,7 @@ contract BGWVaultTest is Test {
 
     function test_ExitFeeRejectsInvalidBps() public {
         vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.InvalidFeeBps.selector, 101));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.InvalidFeeBps.selector, 101));
         vault.setExitFeeBps(101);
     }
 
@@ -908,7 +908,7 @@ contract BGWVaultTest is Test {
 
     // ── Buyback ───────────────────────────────────────────────────────────────
 
-    function test_BuybackInjectsReserveAndBurnsTemporaryBGW() public {
+    function test_BuybackInjectsReserveAndBurnsTemporaryCCR() public {
         // Seed vault buyback accumulator by triggering a perf fee harvest.
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -925,10 +925,10 @@ contract BGWVaultTest is Test {
         uint256 accumulator = vault.buybackAccumulator();
         assertGt(accumulator, 0);
 
-        uint256 supplyBefore = bgwToken.totalSupply();
-        uint256 govSupplyBefore = govToken.totalSupply();
+        uint256 supplyBefore = ccrToken.totalSupply();
+        uint256 govSupplyBefore = cgovToken.totalSupply();
         uint256 navBefore = vault.totalNAV();
-        uint256 navPerBgwBefore = vault.navPerBGW();
+        uint256 navPerCcrBefore = vault.navPerCCR();
 
         // Execute buyback: no LP swap. The reserve is injected into sleeves, then
         // temporary CCR is minted to the vault and burned without CGOV minting.
@@ -936,10 +936,10 @@ contract BGWVaultTest is Test {
         vault.executeBuyback(accumulator);
 
         assertEq(vault.buybackAccumulator(), 0);
-        assertEq(bgwToken.totalSupply(), supplyBefore);
-        assertEq(govToken.totalSupply(), govSupplyBefore);
+        assertEq(ccrToken.totalSupply(), supplyBefore);
+        assertEq(cgovToken.totalSupply(), govSupplyBefore);
         assertEq(vault.totalNAV(), navBefore + accumulator);
-        assertGt(vault.navPerBGW(), navPerBgwBefore);
+        assertGt(vault.navPerCCR(), navPerCcrBefore);
     }
 
     // ── Buyback is LP-independent ────────────────────────────────────────────
@@ -961,7 +961,7 @@ contract BGWVaultTest is Test {
         assertGt(accumulator, 0);
 
         // Etch a "sandwiched" router. Reserve-injection buybacks do not touch it.
-        MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
+        MockCamelotRouter sandwiched = new MockCamelotRouter(address(ccrToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
 
         vm.prank(automationAddr);
@@ -970,14 +970,14 @@ contract BGWVaultTest is Test {
         assertEq(vault.buybackAccumulator(), 0);
 
         // Restore normal router for other tests
-        MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
+        MockCamelotRouter normal = new MockCamelotRouter(address(ccrToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(normal).code);
     }
 
     function test_BuybackFeeRoutesToAccumulatorWithoutLP() public {
         // Etch a sandwiched router before the harvest. Buyback fee routing
         // does not swap, so the router cannot affect harvest.
-        MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
+        MockCamelotRouter sandwiched = new MockCamelotRouter(address(ccrToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
 
         vm.startPrank(alice);
@@ -996,7 +996,7 @@ contract BGWVaultTest is Test {
         assertGe(vault.buybackAccumulator(), buybackShare);
 
         // Restore normal router
-        MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
+        MockCamelotRouter normal = new MockCamelotRouter(address(ccrToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(normal).code);
     }
 
@@ -1026,7 +1026,7 @@ contract BGWVaultTest is Test {
         vm.stopPrank();
 
         // Seed vault with extra USDC so NAV > HWM after first harvest.
-        // H-06: management fee is waived when navPerBGW <= decayedHWM, so we
+        // H-06: management fee is waived when navPerCCR <= decayedHWM, so we
         // must crystallise HWM above $1.00 before the fee-collecting harvest.
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
 
@@ -1085,7 +1085,7 @@ contract BGWVaultTest is Test {
 
         address automationAddr = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 2e18);
+        ccrToken.transfer(CAMELOT_ADDR, 2e18);
 
         // First harvest — crystallises HWM above $1.00
         vm.prank(automationAddr);
@@ -1095,7 +1095,7 @@ contract BGWVaultTest is Test {
 
         uint256 teamBefore = MockUSDC(USDC_ADDR).balanceOf(team);
 
-        // Second harvest: NAV below HWM ($0.90/BGW < ~$1.09 HWM).
+        // Second harvest: NAV below HWM ($0.90/CCR < ~$1.09 HWM).
         // H-06: base rate (0.1%/year) charged instead of full rate (0.5%/year).
         vm.prank(automationAddr);
         vault.recordHarvest(0, 630e6, 225e6, 45e6);
@@ -1123,7 +1123,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
         address automationAddr = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
 
         // Crystallise HWM above $1.00
         vm.prank(automationAddr);
@@ -1151,7 +1151,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
         address automationAddr = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
 
         vm.prank(automationAddr);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
@@ -1199,12 +1199,12 @@ contract BGWVaultTest is Test {
         // Step 4: partial recovery — NAV ~$1.04, above effectiveHWM + 1% threshold
         //   but still below original HWM. Use 730+260+52 = 1042 for a comfortable margin.
         //   (H-03/H-14: HWM only crystallises when NAV > effectiveHwm * 101%, so we need
-        //    navPerBGW18 > ~1.025e18 * 1.01 ≈ 1.035e18; 1042/supply ≈ 1.044e18 clears this.)
+        //    navPerCCR18 > ~1.025e18 * 1.01 ≈ 1.035e18; 1042/supply ≈ 1.044e18 clears this.)
         vm.prank(automationAddr);
         vault.updateSleeveValues(730e6, 260e6, 52e6);
 
-        assertLt(vault.navPerBGW18(), originalHwm); // still below original HWM
-        assertGt(vault.navPerBGW18(), effHwm); // above decayed HWM → fee should fire
+        assertLt(vault.navPerCCR18(), originalHwm); // still below original HWM
+        assertGt(vault.navPerCCR18(), effHwm); // above decayed HWM → fee should fire
 
         // Step 5: recordHarvest — perf fee should fire due to decayed HWM
         MockUSDC(USDC_ADDR).mint(address(vault), 50e6);
@@ -1231,7 +1231,7 @@ contract BGWVaultTest is Test {
         assertTrue(vault.protectedTokens(dummyToken));
 
         vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.ProtectedTokenRecovery.selector, dummyToken));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.ProtectedTokenRecovery.selector, dummyToken));
         vault.recoverToken(dummyToken, 1e18, founder);
     }
 
@@ -1276,7 +1276,7 @@ contract BGWVaultTest is Test {
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 2e6);
 
         vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.TimelockNotReady.selector, executeAfter));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.TimelockNotReady.selector, executeAfter));
         vault.executeTreasuryVaultUSDCRecovery();
 
         uint256 beforeBalance = MockUSDC(USDC_ADDR).balanceOf(founder);
@@ -1296,7 +1296,7 @@ contract BGWVaultTest is Test {
         vault.finalizeBootstrap();
         vault.recoverTreasuryVaultUSDC(founder, 2e6);
         vault.cancelTreasuryVaultUSDCRecovery();
-        vm.expectRevert(BGWVault.NoPendingTreasuryVaultUSDCRecovery.selector);
+        vm.expectRevert(ClearcrestVault.NoPendingTreasuryVaultUSDCRecovery.selector);
         vault.executeTreasuryVaultUSDCRecovery();
         vm.stopPrank();
 
@@ -1305,7 +1305,7 @@ contract BGWVaultTest is Test {
 
     function test_SetProtectedTokenRevertsZeroAddress() public {
         vm.prank(founder);
-        vm.expectRevert(BGWVault.ZeroAddress.selector);
+        vm.expectRevert(ClearcrestVault.ZeroAddress.selector);
         vault.setProtectedToken(address(0), true);
     }
 
@@ -1372,9 +1372,9 @@ contract BGWVaultTest is Test {
         assertEq(vault.sleeveValue(vault.SLEEVE_A()), 650e6);
         assertEq(vault.totalNAV(), 1_000e6);
 
-        uint256 aliceBgw = bgwToken.balanceOf(alice);
+        uint256 aliceCcr = ccrToken.balanceOf(alice);
         vm.prank(alice);
-        vault.redeem(aliceBgw / 2, 0);
+        vault.redeem(aliceCcr / 2, 0);
 
         assertLt(adapterA.totalAssetsUSDC(), 650e6);
         assertLt(adapterB.totalAssetsUSDC(), 350e6);
@@ -1435,7 +1435,7 @@ contract BGWVaultTest is Test {
         address automationAddr = _setupAutomation();
 
         vm.prank(stranger);
-        vm.expectRevert(BGWVault.OnlyAutomationOrOwner.selector);
+        vm.expectRevert(ClearcrestVault.OnlyAutomationOrOwner.selector);
         vault.rebalanceSleevesOneWay(1e6);
 
         vm.prank(automationAddr);
@@ -1607,7 +1607,7 @@ contract BGWVaultTest is Test {
         assertEq(adapterA.totalAssetsUSDC(), 65e6);
         assertLt(adapterB.totalAssetsUSDC(), 35e6);
         assertGt(MockUSDC(USDC_ADDR).balanceOf(alice), usdcBefore);
-        assertEq(bgwToken.balanceOf(alice), 99e18);
+        assertEq(ccrToken.balanceOf(alice), 99e18);
     }
 
     function test_RedemptionBufferRetainsIdleUSDCAndFundsSmallRedeemsFirst() public {
@@ -1655,7 +1655,7 @@ contract BGWVaultTest is Test {
     }
 
     function test_FundRedemptionReserveRejectsZeroAmount() public {
-        vm.expectRevert(BGWVault.ZeroAmount.selector);
+        vm.expectRevert(ClearcrestVault.ZeroAmount.selector);
         vault.fundRedemptionReserve(0);
     }
 
@@ -1784,7 +1784,9 @@ contract BGWVaultTest is Test {
         unsafeActive[0] = true;
 
         vm.expectRevert(
-            abi.encodeWithSelector(BGWVault.FundedAdapterRemovalBlocked.selector, sleeveA, address(adapterA1), 650e6)
+            abi.encodeWithSelector(
+                ClearcrestVault.FundedAdapterRemovalBlocked.selector, sleeveA, address(adapterA1), 650e6
+            )
         );
         vm.prank(founder);
         vault.configureSleeveAdapterRoutes(sleeveA, unsafeAdapters, unsafeBps, unsafeActive);
@@ -1838,7 +1840,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
         address auto_ = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
         vm.prank(auto_);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
 
@@ -1855,7 +1857,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).setTransferFailure(team, true);
         address auto_ = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
 
         vm.prank(auto_);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
@@ -1865,9 +1867,9 @@ contract BGWVaultTest is Test {
         assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
 
         uint256 aliceUsdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
-        uint256 aliceBgw = bgwToken.balanceOf(alice);
+        uint256 aliceCcr = ccrToken.balanceOf(alice);
         vm.prank(alice);
-        vault.redeem(aliceBgw, 0);
+        vault.redeem(aliceCcr, 0);
 
         assertGe(vault.pendingFees(team), pendingTeamFee);
         assertGe(MockUSDC(USDC_ADDR).balanceOf(address(vault)), vault.totalPendingFees());
@@ -1878,7 +1880,7 @@ contract BGWVaultTest is Test {
 
     function test_BuybackShareRoutesToAccumulator() public {
         // Etch a sandwiched router; reserve-injection routing does not touch it.
-        MockCamelotRouter sandwiched = new MockCamelotRouter(address(bgwToken), 1e11);
+        MockCamelotRouter sandwiched = new MockCamelotRouter(address(ccrToken), 1e11);
         vm.etch(CAMELOT_ADDR, address(sandwiched).code);
 
         vm.startPrank(alice);
@@ -1897,7 +1899,7 @@ contract BGWVaultTest is Test {
         assertGe(vault.buybackAccumulator(), buybackShare);
 
         // Restore
-        MockCamelotRouter normal = new MockCamelotRouter(address(bgwToken), 1e12);
+        MockCamelotRouter normal = new MockCamelotRouter(address(ccrToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(normal).code);
     }
 
@@ -1905,7 +1907,7 @@ contract BGWVaultTest is Test {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
         vm.stopPrank();
 
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
@@ -1918,7 +1920,7 @@ contract BGWVaultTest is Test {
         assertEq(vault.totalNAV(), vault.sleeveAValue() + vault.sleeveBValue() + vault.sleeveCValue());
         uint256 vaultAssets = vault.totalNAV() + accumulatorBefore;
         assertEq(vault.totalNAV() + vault.buybackAccumulator(), vaultAssets);
-        assertLt(vault.navPerBGW(), (vaultAssets * 1e18) / bgwToken.totalSupply());
+        assertLt(vault.navPerCCR(), (vaultAssets * 1e18) / ccrToken.totalSupply());
 
         uint256 aliceRedeemAmount = 100e18;
         vm.prank(alice);
@@ -1939,7 +1941,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 100e6);
         address auto_ = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
 
         vm.prank(auto_);
         vault.recordHarvest(100e6, 770e6, 275e6, 55e6);
@@ -1950,9 +1952,9 @@ contract BGWVaultTest is Test {
         // maxYield = NAV × 50%/yr × 180d ≈ 1087e6 × 0.247 ≈ 268e6 >> 1e6 yield below.
         vm.warp(block.timestamp + 180 days);
 
-        // Step 3: second harvest — sleeve values give navPerBGW18 just 0.5% above HWM
+        // Step 3: second harvest — sleeve values give navPerCCR18 just 0.5% above HWM
         // (i.e. < 1% threshold). effectiveHwm = hwmAfterFirst ≈ 1.0880e18.
-        // Target range: 1.0880e18 < navPerBGW18 < 1.0880e18 × 1.01 = 1.0989e18.
+        // Target range: 1.0880e18 < navPerCCR18 < 1.0880e18 × 1.01 = 1.0989e18.
         // With buyback reserve excluded from holder NAV:
         //   use sleeves (763e6, 272e6, 55e6) = 1090; totalNAV ≈ 1090e6.
         //   1.088 < 1.0930 < 1.0989 ✓
@@ -1974,7 +1976,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 200e6);
         address auto_ = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
 
         // First harvest: crystallises HWM after enough elapsed time for the rate bounds.
         vm.prank(auto_);
@@ -1986,69 +1988,69 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 200e6);
         vm.warp(block.timestamp + 365 days);
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
 
-        // Second harvest: sleeves (1040, 372, 74) → NAV ≈ 1486 → navPerBGW18 >> hwmAfterFirst × 1.01 ✓
+        // Second harvest: sleeves (1040, 372, 74) → NAV ≈ 1486 → navPerCCR18 >> hwmAfterFirst × 1.01 ✓
         vm.prank(auto_);
         vault.recordHarvest(200e6, 1_040e6, 372e6, 74e6);
 
         assertGt(vault.highWaterMark(), hwmAfterFirst, "HWM must crystallise on >1% uptick");
     }
 
-    // ── H-05: BGWGovToken vault reference timelock ────────────────────────────
+    // ── H-05: CGOVToken vault reference timelock ────────────────────────────
 
     function test_VaultReferenceTimelockPreventsImmediateExecution() public {
         address newVault = makeAddr("newVault");
         vm.prank(founder);
-        govToken.proposeVaultReference(newVault);
+        cgovToken.proposeVaultReference(newVault);
 
         vm.prank(founder);
-        vm.expectRevert("GOV: timelock not elapsed");
-        govToken.executeVaultReference();
+        vm.expectRevert("CGOV: timelock not elapsed");
+        cgovToken.executeVaultReference();
     }
 
     function test_VaultReferenceExecutesAfterDelay() public {
         address newVault = makeAddr("newVault");
         vm.prank(founder);
-        govToken.proposeVaultReference(newVault);
+        cgovToken.proposeVaultReference(newVault);
 
-        vm.warp(block.timestamp + govToken.VAULT_REF_DELAY());
+        vm.warp(block.timestamp + cgovToken.VAULT_REF_DELAY());
         vm.prank(founder);
-        govToken.executeVaultReference();
+        cgovToken.executeVaultReference();
 
-        assertEq(govToken.vault(), newVault);
+        assertEq(cgovToken.vault(), newVault);
     }
 
     function test_VaultReferenceCancelClearsProposal() public {
         address newVault = makeAddr("newVault");
         vm.prank(founder);
-        govToken.proposeVaultReference(newVault);
+        cgovToken.proposeVaultReference(newVault);
 
         vm.prank(founder);
-        govToken.cancelVaultReference();
+        cgovToken.cancelVaultReference();
 
-        vm.warp(block.timestamp + govToken.VAULT_REF_DELAY());
+        vm.warp(block.timestamp + cgovToken.VAULT_REF_DELAY());
         vm.prank(founder);
-        vm.expectRevert("GOV: no pending vault ref");
-        govToken.executeVaultReference();
+        vm.expectRevert("CGOV: no pending vault ref");
+        cgovToken.executeVaultReference();
     }
 
     // ── H-07: owner whitelist can enable pair transfers ──────────────────────
 
     function test_OwnerCanWhitelistPair() public {
         address pair = makeAddr("camelotPair");
-        assertFalse(bgwToken.whitelist(pair));
+        assertFalse(ccrToken.whitelist(pair));
 
         vm.prank(founder);
         vault.setWhitelisted(pair, true);
 
-        assertTrue(bgwToken.whitelist(pair));
+        assertTrue(ccrToken.whitelist(pair));
         assertTrue(vault.whitelist(pair));
     }
 
     function test_SetWhitelistedRevertsZeroAddress() public {
         vm.prank(founder);
-        vm.expectRevert(BGWVault.ZeroAddress.selector);
+        vm.expectRevert(ClearcrestVault.ZeroAddress.selector);
         vault.setWhitelisted(address(0), true);
     }
 
@@ -2062,13 +2064,13 @@ contract BGWVaultTest is Test {
 
     function test_SweepStaleFeesRevertsBeforeDelay() public {
         // To get pendingFees populated we need a fee push to fail.
-        // Simulate: remove teamWallet from BGWToken whitelist so USDC.transfer fails.
+        // Simulate: remove teamWallet from CCRToken whitelist so USDC.transfer fails.
         // But MockUSDC doesn't enforce whitelist — instead we drain vault USDC so
         // the transfer can't complete. Easiest: directly set pendingFees via a helper
         // that isn't available externally. Instead, check that sweepStaleFees
         // reverts when there are no pending fees.
         vm.prank(founder);
-        vm.expectRevert(BGWVault.NoPendingFees.selector);
+        vm.expectRevert(ClearcrestVault.NoPendingFees.selector);
         vault.sweepStaleFees(team, founder);
     }
 
@@ -2082,7 +2084,7 @@ contract BGWVaultTest is Test {
         MockUSDC(USDC_ADDR).mint(address(vault), 1_000e6);
         address auto_ = _setupAutomation();
         vm.prank(alice);
-        bgwToken.transfer(CAMELOT_ADDR, 5e18);
+        ccrToken.transfer(CAMELOT_ADDR, 5e18);
 
         // Make teamWallet's transfer fail by making USDC return false for it.
         // MockUSDC doesn't support that, so instead: use a reentrant trick —
@@ -2099,7 +2101,7 @@ contract BGWVaultTest is Test {
 
         // Attempt sweep on a wallet with no fees → reverts.
         vm.prank(founder);
-        vm.expectRevert(BGWVault.NoPendingFees.selector);
+        vm.expectRevert(ClearcrestVault.NoPendingFees.selector);
         vault.sweepStaleFees(team, founder);
     }
 
@@ -2122,13 +2124,13 @@ contract BGWVaultTest is Test {
         vault.setWhitelisted(alice, false);
 
         // Alice must still be able to burn her CCR and exit with USDC
-        uint256 bgwBalance = bgwToken.balanceOf(alice);
+        uint256 ccrBalance = ccrToken.balanceOf(alice);
         uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
 
         vm.prank(alice);
-        vault.redeem(bgwBalance, 0); // must not revert despite de-whitelist
+        vault.redeem(ccrBalance, 0); // must not revert despite de-whitelist
 
-        assertEq(bgwToken.balanceOf(alice), 0);
+        assertEq(ccrToken.balanceOf(alice), 0);
         assertGt(MockUSDC(USDC_ADDR).balanceOf(alice), usdcBefore);
     }
 
@@ -2140,7 +2142,7 @@ contract BGWVaultTest is Test {
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vm.expectRevert(abi.encodeWithSelector(BGWVault.DepositExceedsCap.selector, 1_000e6, 500e6));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.DepositExceedsCap.selector, 1_000e6, 500e6));
         vault.deposit(1_000e6, 0);
         vm.stopPrank();
     }
@@ -2278,7 +2280,7 @@ contract BGWVaultTest is Test {
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
         _wireRoute(sleeveA, address(adapterA));
 
-        vm.expectRevert(BGWVault.OnlyAutomationOrOwner.selector);
+        vm.expectRevert(ClearcrestVault.OnlyAutomationOrOwner.selector);
         vm.prank(alice);
         vault.harvestSleeves(sleeveA);
     }

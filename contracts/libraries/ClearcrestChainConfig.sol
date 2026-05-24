@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-/// @title BridgewayChainConfig
-/// @notice Canonical chain-local registry seed values for Bridgeway deployments.
-library BridgewayChainConfig {
+/// @title ClearcrestChainConfig
+/// @notice Canonical chain-local registry seed values for Clearcrest deployments.
+library ClearcrestChainConfig {
     bytes32 public constant ASSET_USDC = keccak256("USDC");
     bytes32 public constant ASSET_WETH = keccak256("WETH");
     bytes32 public constant ASSET_LINK = keccak256("LINK");

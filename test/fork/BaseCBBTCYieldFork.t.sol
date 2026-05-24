@@ -178,8 +178,7 @@ contract BaseCBBTCYieldForkTest is Test {
 
         vm.prank(AERODROME_POSITION_MANAGER);
         assertEq(
-            strategy.onERC721Received(address(this), address(this), 1, ""),
-            IERC721Receiver.onERC721Received.selector
+            strategy.onERC721Received(address(this), address(this), 1, ""), IERC721Receiver.onERC721Received.selector
         );
 
         vm.expectRevert(AerodromeCbbtcStrategy.InvalidPair.selector);
@@ -231,8 +230,7 @@ contract BaseCBBTCYieldForkTest is Test {
     }
 
     function _aCbbtc() internal view returns (address) {
-        IAaveV3PoolReserveData.ReserveData memory reserve =
-            IAaveV3PoolReserveData(AAVE_POOL).getReserveData(CBBTC);
+        IAaveV3PoolReserveData.ReserveData memory reserve = IAaveV3PoolReserveData(AAVE_POOL).getReserveData(CBBTC);
         return reserve.aTokenAddress;
     }
 }

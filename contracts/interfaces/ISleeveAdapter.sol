@@ -2,7 +2,7 @@
 pragma solidity 0.8.24;
 
 /// @title ISleeveAdapter
-/// @notice Minimal interface every real Bridgeway sleeve strategy must expose.
+/// @notice Minimal interface every real Clearcrest sleeve strategy must expose.
 ///         The vault keeps policy and accounting; adapters hold protocol-specific
 ///         logic for Aave, Morpho, Pendle, GMX, or future venues.
 interface ISleeveAdapter {

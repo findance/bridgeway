@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 
 import "../contracts/adapters/ERC4626NativeStakingAdapter.sol";
-import "../contracts/core/BridgewayCCIPNAVReceiver.sol";
-import "../contracts/core/BridgewayHubNAV.sol";
-import "../contracts/core/BridgewayNativeSpokePortfolio.sol";
+import "../contracts/core/ClearcrestCCIPNAVReceiver.sol";
+import "../contracts/core/ClearcrestHubNAV.sol";
+import "../contracts/core/ClearcrestNativeSpokePortfolio.sol";
 import "../contracts/interfaces/ICCIPReceiver.sol";
 import "../contracts/mocks/MockERC20.sol";
 import "../contracts/mocks/MockERC4626Vault.sol";
@@ -24,21 +24,16 @@ contract NativeStakingPhase4Test is Test {
     MockERC4626Vault stakingVault;
     MockPriceFeed priceFeed;
     ERC4626NativeStakingAdapter adapter;
-    BridgewayNativeSpokePortfolio portfolio;
+    ClearcrestNativeSpokePortfolio portfolio;
 
     function setUp() public {
         asset = new MockERC20("Wrapped AVAX", "WAVAX", 18);
         stakingVault = new MockERC4626Vault(asset, "Staked Native AVAX", "stkAVAX");
         priceFeed = new MockPriceFeed(20e8, 8);
 
-        portfolio = new BridgewayNativeSpokePortfolio(owner, AVAX_CHAIN_ID);
+        portfolio = new ClearcrestNativeSpokePortfolio(owner, AVAX_CHAIN_ID);
         adapter = new ERC4626NativeStakingAdapter(
-            owner,
-            address(portfolio),
-            address(asset),
-            address(stakingVault),
-            address(priceFeed),
-            24 hours
+            owner, address(portfolio), address(asset), address(stakingVault), address(priceFeed), 24 hours
         );
 
         address[] memory adapters = new address[](1);
@@ -97,8 +92,8 @@ contract NativeStakingPhase4Test is Test {
         vm.prank(address(portfolio));
         adapter.deploy(100e18);
 
-        BridgewayHubNAV hub = new BridgewayHubNAV(owner);
-        BridgewayCCIPNAVReceiver receiver = new BridgewayCCIPNAVReceiver(owner, router, address(hub));
+        ClearcrestHubNAV hub = new ClearcrestHubNAV(owner);
+        ClearcrestCCIPNAVReceiver receiver = new ClearcrestCCIPNAVReceiver(owner, router, address(hub));
         hub.configureSpoke(AVAX_CHAIN_ID, address(receiver), 24 hours, 1_000, true, true);
         receiver.configureSource(AVAX_CCIP_SELECTOR, AVAX_CHAIN_ID, abi.encode(address(portfolio)), true);
 

@@ -14,7 +14,7 @@ import "../interfaces/IAerodromeSlipstream.sol";
 import "../interfaces/IChainlinkAggregator.sol";
 
 /// @title SleeveACbbtcWrapper
-/// @notice ISleeveAdapter wrapper that bridges the BGWVault (USDC-denominated)
+/// @notice ISleeveAdapter wrapper that bridges the ClearcrestVault (USDC-denominated)
 ///         to the BaseCBBTCYieldAdapter (cbBTC-denominated, 80% Aave / 20% Aerodrome).
 ///
 ///         On deposit:  USDC → swap to cbBTC via Aerodrome → deploy into yield adapter.
@@ -78,7 +78,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     }
 
     /// @dev L-01: lets the vault orchestrate emergency unwinds across every
-    ///      sleeve adapter via `BGWVault.emergencyUnwindSleeves`. Owner
+    ///      sleeve adapter via `ClearcrestVault.emergencyUnwindSleeves`. Owner
     ///      retains direct access — this is strictly additive.
     modifier onlyOwnerOrVault() {
         if (msg.sender != owner() && msg.sender != vault) revert OnlyVault();
@@ -96,8 +96,8 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
         uint256 _maxStale
     ) Ownable(_owner) {
         if (
-            _vault == address(0) || _owner == address(0) || _usdc == address(0)
-                || _cbbtc == address(0) || _router == address(0) || _btcUsdFeed == address(0)
+            _vault == address(0) || _owner == address(0) || _usdc == address(0) || _cbbtc == address(0)
+                || _router == address(0) || _btcUsdFeed == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -174,7 +174,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ISleeveAdapter — called by BGWVault
+    // ISleeveAdapter — called by ClearcrestVault
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Vault sends USDC here → swap to cbBTC → deploy into yield adapter.
@@ -288,7 +288,10 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     // Internal swap helper
     // ─────────────────────────────────────────────────────────────────────────
 
-    function _swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut) internal returns (uint256 amountOut) {
+    function _swap(address tokenIn, address tokenOut, uint256 amountIn, uint256 minOut)
+        internal
+        returns (uint256 amountOut)
+    {
         if (amountIn == 0) return 0;
 
         IERC20(tokenIn).forceApprove(address(router), amountIn);
@@ -314,8 +317,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
 
     function _minCbbtcOut(uint256 usdcAmount) internal view returns (uint256) {
         uint256 price = _btcUsdPrice();
-        uint256 expected =
-            Math.mulDiv(usdcAmount, 10 ** (cbbtcDecimals + feedDecimals), price * (10 ** usdcDecimals));
+        uint256 expected = Math.mulDiv(usdcAmount, 10 ** (cbbtcDecimals + feedDecimals), price * (10 ** usdcDecimals));
         return Math.mulDiv(expected, BPS_DENOM - maxSlippageBps, BPS_DENOM);
     }
 

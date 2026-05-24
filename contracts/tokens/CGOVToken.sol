@@ -6,12 +6,12 @@ import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
-/// @dev Minimal vault interface — avoids a circular import with BGWVault.sol.
+/// @dev Minimal vault interface — avoids a circular import with ClearcrestVault.sol.
 interface IWhitelistVault {
     function whitelist(address account) external view returns (bool);
 }
 
-/// @title  BGWGovToken
+/// @title  CGOVToken
 /// @notice Clearcrest Governance Token (CGOV).
 ///
 ///         Inflationary governance token minted alongside CCR vault shares:
@@ -23,7 +23,7 @@ interface IWhitelistVault {
 ///         while depositor governance exposure scales with CCR ownership.
 ///
 ///         Supports ERC20Votes (on-chain governance snapshots).
-contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
+contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     // ── Constants ────────────────────────────────────────────────────────────
     uint256 public constant BPS_DENOM = 10_000;
     uint256 public constant DEPOSITOR_GOV_BPS = 3_000;
@@ -34,17 +34,17 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     uint256 public constant FOUNDER_PRIMARY_SALE_PRICE_USDC = 100_000e6;
 
     // ── Roles ────────────────────────────────────────────────────────────────
-    /// @notice MINTER_ROLE is granted to BGWVault inside initVault().
+    /// @notice MINTER_ROLE is granted to ClearcrestVault inside initVault().
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-    /// @notice BGWToken moves/burns depositor CGOV alongside CCR transfers/burns.
-    bytes32 public constant BGW_COMPANION_ROLE = keccak256("BGW_COMPANION_ROLE");
+    /// @notice CCRToken moves/burns depositor CGOV alongside CCR transfers/burns.
+    bytes32 public constant CCR_COMPANION_ROLE = keccak256("CCR_COMPANION_ROLE");
 
     // ── State ────────────────────────────────────────────────────────────────
     address public immutable founderTreasury;
-    address public immutable bgwToken;
+    address public immutable ccrToken;
 
-    /// @notice BGWVault address — set once by initVault(), updatable via timelock.
+    /// @notice ClearcrestVault address — set once by initVault(), updatable via timelock.
     address public vault;
     bool public vaultInitialized;
 
@@ -72,31 +72,31 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param _founderTreasury Founder / treasury wallet receiving 70 % of each mint.
-    /// @param _bgwToken        CCR share token that moves depositor CGOV.
+    /// @param _ccrToken        CCR share token that moves depositor CGOV.
     /// @param _admin           Governance admin (founder wallet / multisig)
-    constructor(address _founderTreasury, address _bgwToken, address _admin)
+    constructor(address _founderTreasury, address _ccrToken, address _admin)
         ERC20("Clearcrest-GOV", "CGOV")
         ERC20Permit("Clearcrest-GOV")
     {
-        if (_founderTreasury == address(0)) revert("GOV: zero treasury");
-        if (_bgwToken == address(0)) revert("GOV: zero ccr");
-        if (_admin == address(0)) revert("GOV: zero admin");
+        if (_founderTreasury == address(0)) revert("CGOV: zero treasury");
+        if (_ccrToken == address(0)) revert("CGOV: zero ccr");
+        if (_admin == address(0)) revert("CGOV: zero admin");
 
         founderTreasury = _founderTreasury;
-        bgwToken = _bgwToken;
+        ccrToken = _ccrToken;
 
         _grantRole(DEFAULT_ADMIN_ROLE, _admin);
-        _grantRole(BGW_COMPANION_ROLE, _bgwToken);
+        _grantRole(CCR_COMPANION_ROLE, _ccrToken);
     }
 
     // ── One-time vault wiring ─────────────────────────────────────────────────
 
-    /// @notice Called once after BGWVault is deployed. Grants it MINTER_ROLE.
+    /// @notice Called once after ClearcrestVault is deployed. Grants it MINTER_ROLE.
     ///         Resolves the circular deploy dependency: vault address is not
-    ///         needed at BGWGovToken construction time.
+    ///         needed at CGOVToken construction time.
     function initVault(address _vault) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(!vaultInitialized, "GOV: already initialized");
-        require(_vault != address(0), "GOV: zero vault");
+        require(!vaultInitialized, "CGOV: already initialized");
+        require(_vault != address(0), "CGOV: zero vault");
 
         vaultInitialized = true;
         vault = _vault;
@@ -110,33 +110,33 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
 
     /// @notice Mint CGOV alongside a CCR deposit.
     /// @param depositor   User receiving the depositor governance share.
-    /// @param bgwMinted   CCR minted by the vault for the same deposit.
+    /// @param ccrMinted   CCR minted by the vault for the same deposit.
     /// @return depositorAmount CGOV minted to the depositor.
     /// @return founderAmount   CGOV minted to the founder treasury.
-    function mintForDeposit(address depositor, uint256 bgwMinted)
+    function mintForDeposit(address depositor, uint256 ccrMinted)
         external
         onlyRole(MINTER_ROLE)
         returns (uint256 depositorAmount, uint256 founderAmount)
     {
-        require(depositor != address(0), "GOV: zero depositor");
-        require(IWhitelistVault(vault).whitelist(depositor), "GOV: depositor not whitelisted");
-        if (bgwMinted == 0) return (0, 0);
+        require(depositor != address(0), "CGOV: zero depositor");
+        require(IWhitelistVault(vault).whitelist(depositor), "CGOV: depositor not whitelisted");
+        if (ccrMinted == 0) return (0, 0);
 
-        depositorAmount = (bgwMinted * DEPOSITOR_GOV_BPS) / BPS_DENOM;
-        founderAmount = bgwMinted - depositorAmount;
+        depositorAmount = (ccrMinted * DEPOSITOR_GOV_BPS) / BPS_DENOM;
+        founderAmount = ccrMinted - depositorAmount;
 
         if (depositorAmount > 0) _mint(depositor, depositorAmount);
         if (founderAmount > 0) _mint(founderTreasury, founderAmount);
 
-        emit GovernanceMintedForDeposit(depositor, founderTreasury, bgwMinted, depositorAmount, founderAmount);
+        emit GovernanceMintedForDeposit(depositor, founderTreasury, ccrMinted, depositorAmount, founderAmount);
     }
 
     /// @notice Move or burn depositor CGOV when CCR moves or burns.
     /// @dev Founder treasury allocations are not touched by this companion path.
-    function syncWithBGWTransfer(address from, address to, uint256 bgwAmount) external onlyRole(BGW_COMPANION_ROLE) {
-        if (from == address(0) || bgwAmount == 0) return;
+    function syncWithCCRTransfer(address from, address to, uint256 ccrAmount) external onlyRole(CCR_COMPANION_ROLE) {
+        if (from == address(0) || ccrAmount == 0) return;
 
-        uint256 govAmount = (bgwAmount * DEPOSITOR_GOV_BPS) / BPS_DENOM;
+        uint256 govAmount = (ccrAmount * DEPOSITOR_GOV_BPS) / BPS_DENOM;
         if (govAmount == 0) return;
 
         if (to == address(0)) {
@@ -152,13 +152,13 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     ///      prevent depositor CGOV from moving independently of CCR.
     ///      Exempt paths that must move tokens outside normal user transfers:
     ///        - Mints/burns (from or to == address(0))
-    ///        - BGWToken companion movement
+    ///        - CCRToken companion movement
     ///        - Founder treasury primary allocations/sales
     function _update(address from, address to, uint256 amount) internal override(ERC20, ERC20Votes) {
         address operator = _msgSender();
         if (vaultInitialized && from != address(0) && to != address(0) && from != address(this) && from != vault) {
-            require(operator == bgwToken || from == founderTreasury, "CGOV: transfers follow CCR");
-            require(IWhitelistVault(vault).whitelist(to), "GOV: recipient not whitelisted");
+            require(operator == ccrToken || from == founderTreasury, "CGOV: transfers follow CCR");
+            require(IWhitelistVault(vault).whitelist(to), "CGOV: recipient not whitelisted");
         }
         super._update(from, to, amount);
     }
@@ -166,10 +166,10 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     // ── Vault-reference upgrade (H-05) ───────────────────────────────────────
 
     /// @notice Propose replacing the vault whitelist reference (48-hour timelock).
-    ///         Required when the vault is redeployed so GOV token transfers remain usable.
+    ///         Required when the vault is redeployed so CGOV token transfers remain usable.
     function proposeVaultReference(address _vault) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(vaultInitialized, "GOV: vault not initialized yet");
-        require(_vault != address(0), "GOV: zero vault");
+        require(vaultInitialized, "CGOV: vault not initialized yet");
+        require(_vault != address(0), "CGOV: zero vault");
         uint256 eta = block.timestamp + VAULT_REF_DELAY;
         pendingVaultRef = PendingVaultRef(_vault, eta);
         emit VaultReferenceProposed(_vault, eta);
@@ -179,8 +179,8 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     ///         Revokes MINTER_ROLE from the old vault and grants it to the new one.
     function executeVaultReference() external onlyRole(DEFAULT_ADMIN_ROLE) {
         PendingVaultRef memory p = pendingVaultRef;
-        require(p.value != address(0), "GOV: no pending vault ref");
-        require(block.timestamp >= p.executeAfter, "GOV: timelock not elapsed");
+        require(p.value != address(0), "CGOV: no pending vault ref");
+        require(block.timestamp >= p.executeAfter, "CGOV: timelock not elapsed");
         delete pendingVaultRef;
         address oldVault = vault;
         vault = p.value;
@@ -192,7 +192,7 @@ contract BGWGovToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     /// @notice Cancel a pending vault reference update before it executes.
     function cancelVaultReference() external onlyRole(DEFAULT_ADMIN_ROLE) {
         address candidate = pendingVaultRef.value;
-        require(candidate != address(0), "GOV: no pending vault ref");
+        require(candidate != address(0), "CGOV: no pending vault ref");
         delete pendingVaultRef;
         emit VaultReferenceCancelled(candidate);
     }

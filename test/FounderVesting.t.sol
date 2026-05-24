@@ -7,35 +7,36 @@ import "../contracts/tokens/FounderVesting.sol";
 
 contract MockVestingToken is ERC20 {
     constructor() ERC20("Mock Vesting Token", "MVT") {}
+
     function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
 }
 
 contract FounderVestingTest is Test {
-    MockVestingToken govToken;
+    MockVestingToken cgovToken;
     FounderVesting vesting;
 
-    address founder    = makeAddr("founder");
-    address successor  = makeAddr("successor");
-    address stranger   = makeAddr("stranger");
+    address founder = makeAddr("founder");
+    address successor = makeAddr("successor");
+    address stranger = makeAddr("stranger");
 
-    uint256 constant YEAR   = 365 days;
-    uint256 constant TOTAL  = 70_000_000e18;
+    uint256 constant YEAR = 365 days;
+    uint256 constant TOTAL = 70_000_000e18;
 
     function setUp() public {
-        govToken = new MockVestingToken();
-        vesting  = new FounderVesting(address(govToken), founder);
-        govToken.mint(address(vesting), TOTAL);
+        cgovToken = new MockVestingToken();
+        vesting = new FounderVesting(address(cgovToken), founder);
+        cgovToken.mint(address(vesting), TOTAL);
 
-        assertEq(govToken.balanceOf(address(vesting)), TOTAL);
+        assertEq(cgovToken.balanceOf(address(vesting)), TOTAL);
     }
 
     // ── Cliff ────────────────────────────────────────────────────────────────
 
     function test_NothingClaimableBeforeCliff() public view {
         assertEq(vesting.vestedAmount(), 0);
-        assertEq(vesting.claimable(),    0);
+        assertEq(vesting.claimable(), 0);
     }
 
     function test_NothingClaimableAtOneYearMinus1Second() public {
@@ -48,7 +49,7 @@ contract FounderVestingTest is Test {
     function test_25PercentVestedAtYear1() public {
         vm.warp(block.timestamp + YEAR);
         assertEq(vesting.vestedAmount(), 17_500_000e18);
-        assertEq(vesting.claimable(),    17_500_000e18);
+        assertEq(vesting.claimable(), 17_500_000e18);
     }
 
     function test_ClaimYear1() public {
@@ -57,9 +58,9 @@ contract FounderVestingTest is Test {
         vm.prank(founder);
         vesting.claim();
 
-        assertEq(govToken.balanceOf(founder), 17_500_000e18);
-        assertEq(vesting.totalClaimed(),      17_500_000e18);
-        assertEq(vesting.claimable(),         0);
+        assertEq(cgovToken.balanceOf(founder), 17_500_000e18);
+        assertEq(vesting.totalClaimed(), 17_500_000e18);
+        assertEq(vesting.claimable(), 0);
     }
 
     // ── Year 2–3 (50%) ───────────────────────────────────────────────────────
@@ -78,9 +79,9 @@ contract FounderVestingTest is Test {
         vm.prank(founder);
         vesting.claim(); // claims remaining 17.5M (cumulative 35M)
 
-        assertEq(govToken.balanceOf(founder), 35_000_000e18);
-        assertEq(vesting.totalClaimed(),      35_000_000e18);
-        assertEq(vesting.claimable(),         0);
+        assertEq(cgovToken.balanceOf(founder), 35_000_000e18);
+        assertEq(vesting.totalClaimed(), 35_000_000e18);
+        assertEq(vesting.claimable(), 0);
     }
 
     // ── Year 3+ (100%) ───────────────────────────────────────────────────────
@@ -96,9 +97,9 @@ contract FounderVestingTest is Test {
         vm.prank(founder);
         vesting.claim();
 
-        assertEq(govToken.balanceOf(founder), TOTAL);
-        assertEq(vesting.totalClaimed(),      TOTAL);
-        assertEq(govToken.balanceOf(address(vesting)), 0);
+        assertEq(cgovToken.balanceOf(founder), TOTAL);
+        assertEq(vesting.totalClaimed(), TOTAL);
+        assertEq(cgovToken.balanceOf(address(vesting)), 0);
     }
 
     function test_NothingClaimableAfterFullClaim() public {
@@ -137,7 +138,7 @@ contract FounderVestingTest is Test {
         vesting.acceptOwnership();
 
         assertEq(vesting.founder(), successor);
-        assertEq(vesting.owner(),   successor);
+        assertEq(vesting.owner(), successor);
     }
 
     function test_SuccessorCanClaimAfterTransfer() public {
@@ -152,7 +153,7 @@ contract FounderVestingTest is Test {
         vm.prank(successor);
         vesting.claim();
 
-        assertEq(govToken.balanceOf(successor), 17_500_000e18);
+        assertEq(cgovToken.balanceOf(successor), 17_500_000e18);
     }
 
     function test_OldFounderCannotClaimAfterTransfer() public {
@@ -179,10 +180,10 @@ contract FounderVestingTest is Test {
 
     function test_RecoverNonGovToken() public {
         // Deploy a dummy ERC20 at a predictable address and etch minimal bytecode
-        // by just minting via govToken mock. Use a second govToken as "other token".
-        // Simplest: just verify the revert for gov token recovery.
+        // by just minting via cgovToken mock. Use a second cgovToken as "other token".
+        // Simplest: just verify the revert for cgov token recovery.
         vm.prank(founder);
-        vm.expectRevert("FV: cannot recover gov token");
-        vesting.recoverToken(address(govToken), 1e18);
+        vm.expectRevert("FV: cannot recover cgov token");
+        vesting.recoverToken(address(cgovToken), 1e18);
     }
 }

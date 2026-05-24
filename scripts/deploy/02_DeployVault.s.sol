@@ -2,12 +2,12 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../../contracts/core/BGWVault.sol";
-import "../../contracts/tokens/BGWToken.sol";
-import "../../contracts/tokens/BGWGovToken.sol";
+import "../../contracts/core/ClearcrestVault.sol";
+import "../../contracts/tokens/CCRToken.sol";
+import "../../contracts/tokens/CGOVToken.sol";
 
 /// @title  02_DeployVault
-/// @notice Deploy BGWVault and wire up Clearcrest token roles.
+/// @notice Deploy ClearcrestVault and wire up Clearcrest token roles.
 ///         Run AFTER 01_DeployTokens.s.sol.
 ///
 ///         Required env vars:
@@ -15,8 +15,8 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///           TOKEN_ADMIN        final token admin Safe
 ///           VAULT_OWNER        final vault owner Safe
 ///           FOUNDER_TREASURY
-///           BGW_TOKEN          CCR token address from script 01 output
-///           GOV_TOKEN          (from script 01 output)
+///           CCR_TOKEN          CCR token address from script 01 output
+///           CGOV_TOKEN          (from script 01 output)
 ///           TEAM_WALLET
 ///           HOLDBACK_WALLET
 ///           RESERVE_WALLET
@@ -30,10 +30,10 @@ import "../../contracts/tokens/BGWGovToken.sol";
 ///             --verify \
 ///             --etherscan-api-key $BASESCAN_API_KEY
 contract DeployVault is Script {
-    function _deployVault(address temporaryOwner) internal returns (BGWVault) {
-        return new BGWVault(
-            vm.envAddress("BGW_TOKEN"),
-            vm.envAddress("GOV_TOKEN"),
+    function _deployVault(address temporaryOwner) internal returns (ClearcrestVault) {
+        return new ClearcrestVault(
+            vm.envAddress("CCR_TOKEN"),
+            vm.envAddress("CGOV_TOKEN"),
             vm.envAddress("TEAM_WALLET"),
             vm.envAddress("HOLDBACK_WALLET"),
             vm.envAddress("RESERVE_WALLET"),
@@ -52,44 +52,44 @@ contract DeployVault is Script {
         require(tokenAdmin != deployer, "TOKEN_ADMIN must not be deployer");
         require(vaultOwner != deployer, "VAULT_OWNER must not be deployer");
 
-        BGWToken bgwToken = BGWToken(vm.envAddress("BGW_TOKEN"));
-        BGWGovToken govToken = BGWGovToken(vm.envAddress("GOV_TOKEN"));
+        CCRToken ccrToken = CCRToken(vm.envAddress("CCR_TOKEN"));
+        CGOVToken cgovToken = CGOVToken(vm.envAddress("CGOV_TOKEN"));
 
         vm.startBroadcast(deployerKey);
 
-        BGWVault vault = _deployVault(deployer);
-        console.log("BGWVault:", address(vault));
+        ClearcrestVault vault = _deployVault(deployer);
+        console.log("ClearcrestVault:", address(vault));
 
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
+        ccrToken.grantRole(ccrToken.MINTER_ROLE(), address(vault));
         console.log("Granted MINTER_ROLE to vault on CCR token");
 
-        bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault));
+        ccrToken.grantRole(ccrToken.BURNER_ROLE(), address(vault));
         console.log("Granted BURNER_ROLE to vault on CCR token");
 
-        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
+        ccrToken.grantRole(ccrToken.WHITELIST_ADMIN_ROLE(), address(vault));
         console.log("Granted WHITELIST_ADMIN_ROLE to vault on CCR token");
 
         vault.setWhitelisted(address(vault), true);
         console.log("Whitelisted vault for protocol reserve mint-and-burn");
 
-        govToken.initVault(address(vault));
+        cgovToken.initVault(address(vault));
         console.log("Initialized vault in CGOV token (vault can mint deposit governance)");
 
         vault.setWhitelisted(founderTreasury, true);
         console.log("Whitelisted founder treasury:", founderTreasury);
 
         // Hand final token administration to the Safe and remove deployer token powers.
-        bgwToken.grantRole(bgwToken.DEFAULT_ADMIN_ROLE(), tokenAdmin);
-        bgwToken.grantRole(bgwToken.PAUSER_ROLE(), tokenAdmin);
-        bgwToken.grantRole(bgwToken.BLACKLIST_ADMIN_ROLE(), tokenAdmin);
-        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), tokenAdmin);
-        govToken.grantRole(govToken.DEFAULT_ADMIN_ROLE(), tokenAdmin);
+        ccrToken.grantRole(ccrToken.DEFAULT_ADMIN_ROLE(), tokenAdmin);
+        ccrToken.grantRole(ccrToken.PAUSER_ROLE(), tokenAdmin);
+        ccrToken.grantRole(ccrToken.BLACKLIST_ADMIN_ROLE(), tokenAdmin);
+        ccrToken.grantRole(ccrToken.WHITELIST_ADMIN_ROLE(), tokenAdmin);
+        cgovToken.grantRole(cgovToken.DEFAULT_ADMIN_ROLE(), tokenAdmin);
 
-        bgwToken.revokeRole(bgwToken.PAUSER_ROLE(), deployer);
-        bgwToken.revokeRole(bgwToken.BLACKLIST_ADMIN_ROLE(), deployer);
-        bgwToken.revokeRole(bgwToken.WHITELIST_ADMIN_ROLE(), deployer);
-        bgwToken.revokeRole(bgwToken.DEFAULT_ADMIN_ROLE(), deployer);
-        govToken.revokeRole(govToken.DEFAULT_ADMIN_ROLE(), deployer);
+        ccrToken.revokeRole(ccrToken.PAUSER_ROLE(), deployer);
+        ccrToken.revokeRole(ccrToken.BLACKLIST_ADMIN_ROLE(), deployer);
+        ccrToken.revokeRole(ccrToken.WHITELIST_ADMIN_ROLE(), deployer);
+        ccrToken.revokeRole(ccrToken.DEFAULT_ADMIN_ROLE(), deployer);
+        cgovToken.revokeRole(cgovToken.DEFAULT_ADMIN_ROLE(), deployer);
         console.log("Token admin handed to:", tokenAdmin);
 
         vault.transferOwnership(vaultOwner);

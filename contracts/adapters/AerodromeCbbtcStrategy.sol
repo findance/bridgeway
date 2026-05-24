@@ -105,8 +105,8 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     constructor(ConstructorParams memory params) Ownable(params.owner) {
         if (
             params.owner == address(0) || params.cbbtc == address(0) || params.usdc == address(0)
-                || params.aero == address(0) || params.positionManager == address(0)
-                || params.swapRouter == address(0) || params.btcUsdFeed == address(0)
+                || params.aero == address(0) || params.positionManager == address(0) || params.swapRouter == address(0)
+                || params.btcUsdFeed == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -343,7 +343,8 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         if (liquidity == 0) return;
 
         uint256 numerator = cbbtcAmount > markedTotalAssetsCbbtc ? markedTotalAssetsCbbtc : cbbtcAmount;
-        uint128 liquidityToRemove = SafeCast.toUint128(Math.mulDiv(uint256(liquidity), numerator, markedTotalAssetsCbbtc));
+        uint128 liquidityToRemove =
+            SafeCast.toUint128(Math.mulDiv(uint256(liquidity), numerator, markedTotalAssetsCbbtc));
         if (liquidityToRemove == 0) return;
 
         _decreaseAndCollect(liquidityToRemove, numerator);
@@ -384,10 +385,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         if (tokenId == 0) return;
         positionManager.collect(
             IAerodromeNonfungiblePositionManager.CollectParams({
-                tokenId: tokenId,
-                recipient: address(this),
-                amount0Max: type(uint128).max,
-                amount1Max: type(uint128).max
+                tokenId: tokenId, recipient: address(this), amount0Max: type(uint128).max, amount1Max: type(uint128).max
             })
         );
     }
@@ -450,13 +448,15 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
 
     function _minUsdcOut(uint256 cbbtcAmount) internal view returns (uint256) {
         uint256 price = _btcUsdPrice();
-        uint256 expected = Math.mulDiv(cbbtcAmount, price * (10 ** usdc.decimals()), 10 ** (cbbtc.decimals() + btcUsdFeed.decimals()));
+        uint256 expected =
+            Math.mulDiv(cbbtcAmount, price * (10 ** usdc.decimals()), 10 ** (cbbtc.decimals() + btcUsdFeed.decimals()));
         return Math.mulDiv(expected, BPS_DENOM - slippageBps, BPS_DENOM);
     }
 
     function _minCbbtcOut(uint256 usdcAmount) internal view returns (uint256) {
         uint256 price = _btcUsdPrice();
-        uint256 expected = Math.mulDiv(usdcAmount, 10 ** (cbbtc.decimals() + btcUsdFeed.decimals()), price * (10 ** usdc.decimals()));
+        uint256 expected =
+            Math.mulDiv(usdcAmount, 10 ** (cbbtc.decimals() + btcUsdFeed.decimals()), price * (10 ** usdc.decimals()));
         return Math.mulDiv(expected, BPS_DENOM - slippageBps, BPS_DENOM);
     }
 

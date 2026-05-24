@@ -5,19 +5,19 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
-interface IBGWGovTransferCompanion {
-    function syncWithBGWTransfer(address from, address to, uint256 bgwAmount) external;
+interface ICGOVTransferCompanion {
+    function syncWithCCRTransfer(address from, address to, uint256 ccrAmount) external;
 }
 
-/// @title  BGWToken
+/// @title  CCRToken
 /// @notice Clearcrest token (CCR).
 ///         Price = totalVaultNAV / totalSupply (pure NAV share model).
-///         - Minted only by BGWVault when a whitelisted user deposits.
-///         - Burned by BGWVault on redemption, by protocol mint-and-burn reserve
+///         - Minted only by ClearcrestVault when a whitelisted user deposits.
+///         - Burned by ClearcrestVault on redemption, by protocol mint-and-burn reserve
 ///           injections, or by public voluntary burns.
 ///         - Transfers restricted to whitelisted addresses.
-///         - Non-upgradeable; all logic lives in BGWVault.
-contract BGWToken is ERC20, AccessControl, Pausable {
+///         - Non-upgradeable; all logic lives in ClearcrestVault.
+contract CCRToken is ERC20, AccessControl, Pausable {
     // ── Roles ────────────────────────────────────────────────────────────────
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
@@ -57,12 +57,12 @@ contract BGWToken is ERC20, AccessControl, Pausable {
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(BLACKLIST_ADMIN_ROLE, admin);
         _grantRole(WHITELIST_ADMIN_ROLE, admin);
-        // MINTER_ROLE is NOT granted here — it is granted to BGWVault after deploy.
+        // MINTER_ROLE is NOT granted here — it is granted to ClearcrestVault after deploy.
     }
 
     // ── Minting & Burning (vault only) ───────────────────────────────────────
 
-    /// @notice Mint CCR to `to`. Only callable by BGWVault (MINTER_ROLE).
+    /// @notice Mint CCR to `to`. Only callable by ClearcrestVault (MINTER_ROLE).
     /// @dev    `to` must be whitelisted; enforced in _beforeTokenTransfer.
     function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) whenNotPaused {
         _mint(to, amount);
@@ -79,7 +79,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
         suppressGovernanceSync = false;
     }
 
-    /// @notice Burn CCR from `from`. Only callable by BGWVault (BURNER_ROLE).
+    /// @notice Burn CCR from `from`. Only callable by ClearcrestVault (BURNER_ROLE).
     ///         Used during redemptions.
     function adminBurn(address from, uint256 amount) external onlyRole(BURNER_ROLE) {
         _burn(from, amount);
@@ -171,7 +171,7 @@ contract BGWToken is ERC20, AccessControl, Pausable {
 
         address companion = governanceCompanion;
         if (companion != address(0) && from != address(0) && !suppressGovernanceSync) {
-            IBGWGovTransferCompanion(companion).syncWithBGWTransfer(from, to, amount);
+            ICGOVTransferCompanion(companion).syncWithCCRTransfer(from, to, amount);
         }
     }
 }

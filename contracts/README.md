@@ -1,14 +1,14 @@
 # Contracts
 
-This folder will hold the Solidity sources. The authoritative spec is `../bridgeway_spec_v1.3.md`.
+This folder will hold the Solidity sources. The authoritative spec is `../clearcrest_spec_v1.3.md`.
 
 ## Why the v10 contract from the previous chat is not the starting point
 
-The v10 `BridgewayAutomationWrapper.sol` from the earlier iteration was built against an older design:
+The v10 `ClearcrestAutomationWrapper.sol` from the earlier iteration was built against an older design:
 
 - Top 10 non-stable cryptos, market-cap weighted with 30% max / 3% min per asset
 - Annual management fee + entry fee (now removed — performance fee only)
-- Single token, no separate BGWToken (now requires immutable BGWToken with MINTER_ROLE)
+- Single token, no separate CCRToken (now requires immutable CCRToken with MINTER_ROLE)
 - No sleeve allocation (now configurable strategy sleeves; launch 65/35/0, final target 65/30/5)
 - No harvest-and-compound flow (now monthly, automated)
 
@@ -18,8 +18,8 @@ The v1.3 spec is a substantial redesign. The v10 file is a useful reference for 
 
 | File | Purpose |
 |---|---|
-| `BGWToken.sol` | Immutable ERC-20, 18 decimals, MINTER_ROLE (granted to wrapper only), public `burn()`, pausable, blacklist |
-| `BridgewayAutomationWrapper.sol` | UUPS upgradeable wrapper — deposit/redeem entry points, configurable sleeve allocation, monthly harvest+compound, 6-way fee split, buyback engine, Chainlink Automation hooks |
+| `CCRToken.sol` | Immutable ERC-20, 18 decimals, MINTER_ROLE (granted to wrapper only), public `burn()`, pausable, blacklist |
+| `ClearcrestAutomationWrapper.sol` | UUPS upgradeable wrapper — deposit/redeem entry points, configurable sleeve allocation, monthly harvest+compound, 6-way fee split, buyback engine, Chainlink Automation hooks |
 | `adapters/PendlePTAdapter.sol` | Pendle PT-stETH deposit/withdraw/value-read |
 | `adapters/GMXGLPAdapter.sol` | GLP mint/burn + reward claim |
 | `adapters/MorphoBlueAdapter.sol` | Morpho Blue isolated market deposit/withdraw |
@@ -30,11 +30,11 @@ The v1.3 spec is a substantial redesign. The v10 file is a useful reference for 
 
 Open VSCode in this folder and start with:
 
-> Read `../bridgeway_spec_v1.3.md`. Scaffold a Hardhat project here with:
-> - `BGWToken.sol` per §4 of the spec (immutable ERC-20 + MINTER_ROLE + pausable + blacklist)
-> - `BridgewayAutomationWrapper.sol` skeleton per §6 (UUPS upgradeable, OpenZeppelin upgradeable libraries, Chainlink AutomationCompatibleInterface, Camelot router)
+> Read `../clearcrest_spec_v1.3.md`. Scaffold a Hardhat project here with:
+> - `CCRToken.sol` per §4 of the spec (immutable ERC-20 + MINTER_ROLE + pausable + blacklist)
+> - `ClearcrestAutomationWrapper.sol` skeleton per §6 (UUPS upgradeable, OpenZeppelin upgradeable libraries, Chainlink AutomationCompatibleInterface, Camelot router)
 > - Mock contracts under `mocks/`
-> - `scripts/deploy.js` that deploys BGWToken first, then the wrapper proxy, then grants MINTER_ROLE
+> - `scripts/deploy.js` that deploys CCRToken first, then the wrapper proxy, then grants MINTER_ROLE
 > - `test/` skeleton with one passing test per major function
 >
 > Don't implement the strategy adapters yet — leave interfaces for them. Target Arbitrum Sepolia for deployment. Build the genesis-bootstrap path (first deposit = $1.00 per CCR) into the wrapper's deposit logic.

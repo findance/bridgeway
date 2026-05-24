@@ -5,7 +5,7 @@ import "forge-std/Script.sol";
 
 import "../../contracts/adapters/AerodromeCbbtcStrategy.sol";
 import "../../contracts/adapters/BaseCBBTCYieldAdapter.sol";
-import "../../contracts/core/BridgewayNativeSpokePortfolio.sol";
+import "../../contracts/core/ClearcrestNativeSpokePortfolio.sol";
 
 /// @title 13_DeployBaseCBBTCYieldSpoke
 /// @notice Deploys the Base cbBTC spoke portfolio plus the 80% Aave / 20%
@@ -63,7 +63,7 @@ contract DeployBaseCBBTCYieldSpoke is Script {
 
         vm.startBroadcast(deployerKey);
 
-        BridgewayNativeSpokePortfolio portfolio = new BridgewayNativeSpokePortfolio(deployer, cfg.baseChainId);
+        ClearcrestNativeSpokePortfolio portfolio = new ClearcrestNativeSpokePortfolio(deployer, cfg.baseChainId);
         AerodromeCbbtcStrategy strategy = new AerodromeCbbtcStrategy(
             AerodromeCbbtcStrategy.ConstructorParams({
                 owner: deployer,
@@ -106,7 +106,7 @@ contract DeployBaseCBBTCYieldSpoke is Script {
 
         vm.stopBroadcast();
 
-        console.log("BridgewayNativeSpokePortfolio:", address(portfolio));
+        console.log("ClearcrestNativeSpokePortfolio:", address(portfolio));
         console.log("AerodromeCbbtcStrategy:", address(strategy));
         console.log("BaseCBBTCYieldAdapter:", address(adapter));
     }

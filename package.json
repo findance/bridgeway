@@ -1,7 +1,7 @@
 {
-  "name": "bridgeway-contracts",
+  "name": "clearcrest-contracts",
   "version": "1.0.0",
-  "description": "Bridgeway (BGW) — on-chain hybrid index fund automation wrapper",
+  "description": "Clearcrest (CCR) — on-chain hybrid index fund automation wrapper",
   "engines": {
     "node": ">=20"
   },

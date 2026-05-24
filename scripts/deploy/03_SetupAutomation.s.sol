@@ -2,11 +2,11 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../../contracts/core/BridgewayAutomation.sol";
-import "../../contracts/core/BGWVault.sol";
+import "../../contracts/core/ClearcrestAutomation.sol";
+import "../../contracts/core/ClearcrestVault.sol";
 
 /// @title  03_SetupAutomation
-/// @notice Deploy BridgewayAutomation and register with vault.
+/// @notice Deploy ClearcrestAutomation and register with vault.
 ///         Run AFTER 02_DeployVault.s.sol.
 ///
 ///         Required env vars:
@@ -32,21 +32,20 @@ import "../../contracts/core/BGWVault.sol";
 ///              Target:  $AUTOMATION address
 ///              Fund with LINK (~10-20 LINK recommended)
 contract SetupAutomation is Script {
-
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address automationOwner = vm.envAddress("AUTOMATION_OWNER");
-        address vaultAddr   = vm.envAddress("VAULT");
-        address usdcAddr    = vm.envAddress("USDC_ADDRESS");
+        address vaultAddr = vm.envAddress("VAULT");
+        address usdcAddr = vm.envAddress("USDC_ADDRESS");
         bool wireAutomation = vm.envOr("WIRE_AUTOMATION", false);
 
-        BGWVault vault = BGWVault(vaultAddr);
+        ClearcrestVault vault = ClearcrestVault(vaultAddr);
 
         vm.startBroadcast(deployerKey);
 
-        // 1. Deploy BridgewayAutomation
-        BridgewayAutomation automation = new BridgewayAutomation(vaultAddr, automationOwner, usdcAddr);
-        console.log("BridgewayAutomation:", address(automation));
+        // 1. Deploy ClearcrestAutomation
+        ClearcrestAutomation automation = new ClearcrestAutomation(vaultAddr, automationOwner, usdcAddr);
+        console.log("ClearcrestAutomation:", address(automation));
 
         // 2. Optionally wire automation -> vault.
         //    Keep WIRE_AUTOMATION=false during dry-run and integration testing.

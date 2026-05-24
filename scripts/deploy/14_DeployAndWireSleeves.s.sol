@@ -7,7 +7,7 @@ import "../../contracts/adapters/AerodromeCbbtcStrategy.sol";
 import "../../contracts/adapters/BaseCBBTCYieldAdapter.sol";
 import "../../contracts/adapters/SleeveACbbtcWrapper.sol";
 import "../../contracts/adapters/SleeveBStableYieldAdapter.sol";
-import "../../contracts/core/BGWVault.sol";
+import "../../contracts/core/ClearcrestVault.sol";
 
 /// @title 14_DeployAndWireSleeves
 /// @notice Deploys the full Sleeve A cbBTC yield stack (wrapper → yield adapter →
@@ -115,13 +115,14 @@ contract DeployAndWireSleeves is Script {
         wrapper.setYieldAdapter(address(yieldAdapter));
 
         // 5. Sleeve B
-        SleeveBStableYieldAdapter sleeveB = new SleeveBStableYieldAdapter(
-            c.vault, deployer, c.usdc, c.aavePool, c.aUsdc, c.morphoVault
-        );
+        SleeveBStableYieldAdapter sleeveB =
+            new SleeveBStableYieldAdapter(c.vault, deployer, c.usdc, c.aavePool, c.aUsdc, c.morphoVault);
         console.log("SleeveBStableYieldAdapter:", address(sleeveB));
 
         // 6. Wire into vault
-        _wireVault(BGWVault(c.vault), address(wrapper), address(sleeveB), c.aUsdc, c.morphoVault, c.cbbtc, c.aCbbtc);
+        _wireVault(
+            ClearcrestVault(c.vault), address(wrapper), address(sleeveB), c.aUsdc, c.morphoVault, c.cbbtc, c.aCbbtc
+        );
 
         // 7. Transfer ownerships
         if (c.vaultOwner != deployer) {
@@ -136,7 +137,7 @@ contract DeployAndWireSleeves is Script {
     }
 
     function _wireVault(
-        BGWVault vault,
+        ClearcrestVault vault,
         address sleeveA,
         address sleeveB,
         address aUsdc,

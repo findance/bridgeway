@@ -56,8 +56,8 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step {
         uint256 maxStale_
     ) Ownable(owner_) {
         if (
-            owner_ == address(0) || controller_ == address(0) || asset_ == address(0)
-                || stakingVault_ == address(0) || priceFeed_ == address(0)
+            owner_ == address(0) || controller_ == address(0) || asset_ == address(0) || stakingVault_ == address(0)
+                || priceFeed_ == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -85,11 +85,7 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     /// @notice Withdraw native asset value back to the spoke/controller.
-    function withdraw(uint256 assetAmount, address receiver)
-        external
-        onlyController
-        returns (uint256 assetReturned)
-    {
+    function withdraw(uint256 assetAmount, address receiver) external onlyController returns (uint256 assetReturned) {
         if (receiver == address(0)) revert ZeroAddress();
         if (assetAmount == 0) return 0;
 

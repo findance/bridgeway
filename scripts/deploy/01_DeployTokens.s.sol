@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../../contracts/tokens/BGWToken.sol";
-import "../../contracts/tokens/BGWGovToken.sol";
-import "../../contracts/libraries/BridgewayDeterministicDeploy.sol";
+import "../../contracts/tokens/CCRToken.sol";
+import "../../contracts/tokens/CGOVToken.sol";
+import "../../contracts/libraries/ClearcrestDeterministicDeploy.sol";
 
 /// @title  01_DeployTokens
 /// @notice Deploy Clearcrest CCR and Clearcrest-GOV CGOV through CREATE2.
@@ -13,8 +13,8 @@ import "../../contracts/libraries/BridgewayDeterministicDeploy.sol";
 ///         CREATE2 factory, salts, bytecode, and constructor args are identical.
 ///
 ///         Output (save these addresses for script 02):
-///           CCR token:      $BGW_TOKEN
-///           CGOV token:     $GOV_TOKEN
+///           CCR token:      $CCR_TOKEN
+///           CGOV token:     $CGOV_TOKEN
 ///
 /// @dev    Set env vars before running:
 ///           DEPLOYER_PRIVATE_KEY   = temporary deployer/admin key
@@ -40,57 +40,57 @@ contract DeployTokens is Script {
         address deployer = vm.addr(deployerKey);
         address temporaryAdmin = vm.envOr("TOKEN_TEMP_ADMIN", deployer);
         address founderTreasury = vm.envAddress("FOUNDER_TREASURY");
-        address factory = vm.envOr("CREATE2_FACTORY", BridgewayDeterministicDeploy.defaultCreate2Factory());
+        address factory = vm.envOr("CREATE2_FACTORY", ClearcrestDeterministicDeploy.defaultCreate2Factory());
 
         if (temporaryAdmin != deployer) revert TemporaryAdminMustBeDeployer(temporaryAdmin, deployer);
         if (factory.code.length == 0) revert Create2FactoryMissing(factory);
 
-        address predictedBGW = BridgewayDeterministicDeploy.predictBGWToken(factory, temporaryAdmin);
-        address predictedGov =
-            BridgewayDeterministicDeploy.predictBGWGovToken(factory, founderTreasury, predictedBGW, temporaryAdmin);
+        address predictedCCR = ClearcrestDeterministicDeploy.predictCCRToken(factory, temporaryAdmin);
+        address predictedCGOV =
+            ClearcrestDeterministicDeploy.predictCGOVToken(factory, founderTreasury, predictedCCR, temporaryAdmin);
 
         console.log("CREATE2 factory:", factory);
-        console.log("Clearcrest CCR predicted:", predictedBGW);
-        console.log("Clearcrest-GOV CGOV predicted:", predictedGov);
+        console.log("Clearcrest CCR predicted:", predictedCCR);
+        console.log("Clearcrest-GOV CGOV predicted:", predictedCGOV);
         console.log("CCR token salt:");
-        console.logBytes32(BridgewayDeterministicDeploy.bgwTokenSalt());
+        console.logBytes32(ClearcrestDeterministicDeploy.ccrTokenSalt());
         console.log("CGOV token salt:");
-        console.logBytes32(BridgewayDeterministicDeploy.bgwGovTokenSalt());
+        console.logBytes32(ClearcrestDeterministicDeploy.cgovTokenSalt());
 
-        if (predictedBGW.code.length != 0) revert PredictedAddressOccupied(predictedBGW);
-        if (predictedGov.code.length != 0) revert PredictedAddressOccupied(predictedGov);
+        if (predictedCCR.code.length != 0) revert PredictedAddressOccupied(predictedCCR);
+        if (predictedCGOV.code.length != 0) revert PredictedAddressOccupied(predictedCGOV);
 
         vm.startBroadcast(deployerKey);
 
         // 1. Deploy CCR token with deployer as temporary admin so script 02 can wire roles.
         _deployViaFactory(
             factory,
-            BridgewayDeterministicDeploy.bgwTokenSalt(),
-            BridgewayDeterministicDeploy.bgwTokenInitCode(temporaryAdmin),
-            predictedBGW
+            ClearcrestDeterministicDeploy.ccrTokenSalt(),
+            ClearcrestDeterministicDeploy.ccrTokenInitCode(temporaryAdmin),
+            predictedCCR
         );
-        BGWToken bgwToken = BGWToken(predictedBGW);
-        console.log("Clearcrest CCR:", address(bgwToken));
+        CCRToken ccrToken = CCRToken(predictedCCR);
+        console.log("Clearcrest CCR:", address(ccrToken));
 
         // 2. Deploy CGOV token (inflationary, minted by the vault on deposit).
         _deployViaFactory(
             factory,
-            BridgewayDeterministicDeploy.bgwGovTokenSalt(),
-            BridgewayDeterministicDeploy.bgwGovTokenInitCode(founderTreasury, address(bgwToken), temporaryAdmin),
-            predictedGov
+            ClearcrestDeterministicDeploy.cgovTokenSalt(),
+            ClearcrestDeterministicDeploy.cgovTokenInitCode(founderTreasury, address(ccrToken), temporaryAdmin),
+            predictedCGOV
         );
-        BGWGovToken govToken = BGWGovToken(predictedGov);
-        console.log("Clearcrest-GOV CGOV:", address(govToken));
+        CGOVToken cgovToken = CGOVToken(predictedCGOV);
+        console.log("Clearcrest-GOV CGOV:", address(cgovToken));
 
-        bgwToken.setGovernanceCompanion(address(govToken));
+        ccrToken.setGovernanceCompanion(address(cgovToken));
         console.log("Set CGOV companion on CCR token");
 
         vm.stopBroadcast();
 
         // Print summary for script 02
         console.log("\n=== Save these for script 02 ===");
-        console.log("BGW_TOKEN=", address(bgwToken));
-        console.log("GOV_TOKEN=", address(govToken));
+        console.log("CCR_TOKEN=", address(ccrToken));
+        console.log("CGOV_TOKEN=", address(cgovToken));
         console.log("Temporary token admin:", deployer);
         console.log("Founder treasury:", founderTreasury);
         console.log("Run script 02 next to wire the vault and hand token admin to TOKEN_ADMIN.");

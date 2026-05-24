@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 
 import "../contracts/adapters/SleeveABasketAdapter.sol";
-import "../contracts/core/BridgewayRegistry.sol";
+import "../contracts/core/ClearcrestRegistry.sol";
 import "../contracts/mocks/MockERC20.sol";
 import "../contracts/mocks/MockPriceFeed.sol";
 import "../contracts/mocks/MockSwapRouter.sol";
@@ -14,7 +14,7 @@ contract SleeveABasketAdapterTest is Test {
     MockUSDC usdc;
     MockSwapRouter router;
     SleeveABasketAdapter adapter;
-    BridgewayRegistry registry;
+    ClearcrestRegistry registry;
 
     MockERC20 asset1;
     MockERC20 asset2;
@@ -40,7 +40,7 @@ contract SleeveABasketAdapterTest is Test {
     function setUp() public {
         usdc = new MockUSDC();
         router = new MockSwapRouter();
-        registry = new BridgewayRegistry(owner);
+        registry = new ClearcrestRegistry(owner);
 
         asset1 = new MockERC20("Asset 1", "A1", 18);
         asset2 = new MockERC20("Asset 2", "A2", 18);
@@ -197,7 +197,8 @@ contract SleeveABasketAdapterTest is Test {
     }
 
     function test_SetAssetsFromRegistryResolvesChainLocalTokenAndFeedConfig() public {
-        SleeveABasketAdapter registryAdapter = new SleeveABasketAdapter(address(this), owner, address(usdc), address(router));
+        SleeveABasketAdapter registryAdapter =
+            new SleeveABasketAdapter(address(this), owner, address(usdc), address(router));
         _seedRegistry(true);
 
         registryAdapter.setRegistry(address(registry));
@@ -211,7 +212,8 @@ contract SleeveABasketAdapterTest is Test {
     }
 
     function test_SetAssetsFromRegistryRejectsUntrustedAsset() public {
-        SleeveABasketAdapter registryAdapter = new SleeveABasketAdapter(address(this), owner, address(usdc), address(router));
+        SleeveABasketAdapter registryAdapter =
+            new SleeveABasketAdapter(address(this), owner, address(usdc), address(router));
         _seedRegistry(false);
 
         registryAdapter.setRegistry(address(registry));
@@ -300,11 +302,7 @@ contract SleeveABasketAdapterTest is Test {
         router.setRate(address(asset), address(usdc), 1, sellDenominator);
     }
 
-    function _defaultRegistryAssets()
-        internal
-        view
-        returns (SleeveABasketAdapter.RegistryAssetInput[] memory assets)
-    {
+    function _defaultRegistryAssets() internal view returns (SleeveABasketAdapter.RegistryAssetInput[] memory assets) {
         assets = new SleeveABasketAdapter.RegistryAssetInput[](4);
         assets[0] = _registryAssetInput(ASSET_1, address(asset1), 3_000);
         assets[1] = _registryAssetInput(ASSET_2, address(asset2), 3_000);
@@ -326,11 +324,7 @@ contract SleeveABasketAdapterTest is Test {
         sellPath[1] = address(usdc);
 
         input = SleeveABasketAdapter.RegistryAssetInput({
-            assetId: assetId,
-            weightBps: weightBps,
-            maxStale: 1 hours,
-            buyPath: buyPath,
-            sellPath: sellPath
+            assetId: assetId, weightBps: weightBps, maxStale: 1 hours, buyPath: buyPath, sellPath: sellPath
         });
     }
 

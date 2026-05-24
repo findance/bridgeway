@@ -5,7 +5,7 @@ require("dotenv").config();
 async function main() {
   if (process.env.ALLOW_LEGACY_WRAPPER_DEPLOY !== "true") {
     throw new Error(
-      "Legacy BridgewayAutomationWrapper deploy is disabled. Use scripts/deploy/01_DeployTokens.s.sol, 02_DeployVault.s.sol, and 03_SetupAutomation.s.sol for the audited core contracts. Set ALLOW_LEGACY_WRAPPER_DEPLOY=true only for an intentional legacy testnet deployment."
+      "Legacy ClearcrestAutomationWrapper deploy is disabled. Use scripts/deploy/01_DeployTokens.s.sol, 02_DeployVault.s.sol, and 03_SetupAutomation.s.sol for the audited core contracts. Set ALLOW_LEGACY_WRAPPER_DEPLOY=true only for an intentional legacy testnet deployment."
     );
   }
 
@@ -13,7 +13,7 @@ async function main() {
   const network    = await ethers.provider.getNetwork();
 
   console.log("================================================================");
-  console.log("CLEARCREST (CCR) — Deploying BridgewayAutomationWrapper");
+  console.log("CLEARCREST (CCR) — Deploying ClearcrestAutomationWrapper");
   console.log("================================================================");
   console.log("Deployer: ", deployer.address);
   console.log("Network:  ", network.name);
@@ -22,7 +22,7 @@ async function main() {
 
   const required = [
     "ENZYME_VAULT_ADDRESS",
-    "BGW_TOKEN_ADDRESS",
+    "CCR_TOKEN_ADDRESS",
     "USDC_TOKEN_ADDRESS",
     "CAMELOT_ROUTER_ADDRESS",
     "CHAINLINK_PRICE_FEED",
@@ -41,7 +41,7 @@ async function main() {
 
   const cfg = {
     enzymeVault:    process.env.ENZYME_VAULT_ADDRESS,
-    bgwToken:       process.env.BGW_TOKEN_ADDRESS,
+    ccrToken:       process.env.CCR_TOKEN_ADDRESS,
     usdcToken:      process.env.USDC_TOKEN_ADDRESS,
     camelotRouter:  process.env.CAMELOT_ROUTER_ADDRESS,
     priceFeed:      process.env.CHAINLINK_PRICE_FEED,
@@ -56,7 +56,7 @@ async function main() {
   console.log("----------------------------------------------------------------");
 
   console.log("\n⏳ Deploying implementation + proxy...");
-  const Factory = await ethers.getContractFactory("BridgewayAutomationWrapper");
+  const Factory = await ethers.getContractFactory("ClearcrestAutomationWrapper");
 
   const proxy = await upgrades.deployProxy(
     Factory,
@@ -65,7 +65,7 @@ async function main() {
       kind: "uups",
       constructorArgs: [
         cfg.enzymeVault,
-        cfg.bgwToken,
+        cfg.ccrToken,
         cfg.usdcToken,
         cfg.camelotRouter,
         cfg.priceFeed,
@@ -85,7 +85,7 @@ async function main() {
   console.log("================================================================");
 
   // Verify initial on-chain state
-  const wrapper = await ethers.getContractAt("BridgewayAutomationWrapper", proxyAddress);
+  const wrapper = await ethers.getContractAt("ClearcrestAutomationWrapper", proxyAddress);
   const [teamW, holdbackW, lpW, reserveW, hwm, gasCost] = await Promise.all([
     wrapper.teamWallet(),
     wrapper.holdbackWallet(),

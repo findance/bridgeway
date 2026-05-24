@@ -4,12 +4,12 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-import "../interfaces/IBridgewaySpoke.sol";
+import "../interfaces/IClearcrestSpoke.sol";
 
-/// @title BridgewaySpokeReporter
+/// @title ClearcrestSpokeReporter
 /// @notice Chain-local NAV reporter scaffold. Future native-chain adapters can
 ///         update the spoke value, then CCIP relays buildReport() to the hub.
-contract BridgewaySpokeReporter is IBridgewaySpoke, Ownable2Step {
+contract ClearcrestSpokeReporter is IClearcrestSpoke, Ownable2Step {
     uint256 public constant USDC_DECIMALS = 6;
     uint256 public constant VALUE_DECIMALS = 18;
 

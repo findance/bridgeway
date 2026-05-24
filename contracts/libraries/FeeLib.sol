@@ -32,7 +32,7 @@ library FeeLib {
     uint256 internal constant RESERVE_BPS = 1_000; // 10 %
 
     // ── Final sleeve targets (must sum to BPS_DENOM) ─────────────────────────
-    // BGWVault has configurable deposit weights. Launch defaults route Sleeve C's
+    // ClearcrestVault has configurable deposit weights. Launch defaults route Sleeve C's
     // 5% allocation to Sleeve B (65/35/0) until alpha routes are enabled.
     uint256 internal constant SLEEVE_A_BPS = 6_500; // 65 %
     uint256 internal constant SLEEVE_B_BPS = 3_000; // 30 %

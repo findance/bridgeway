@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "../contracts/tokens/BGWToken.sol";
-import "../contracts/tokens/BGWGovToken.sol";
-import "../contracts/core/BGWVault.sol";
-import "../contracts/core/BridgewayAutomation.sol";
+import "../contracts/tokens/CCRToken.sol";
+import "../contracts/tokens/CGOVToken.sol";
+import "../contracts/core/ClearcrestVault.sol";
+import "../contracts/core/ClearcrestAutomation.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
 import "../contracts/mocks/MockSleeveAdapter.sol";
 import "../contracts/libraries/FeeLib.sol";
@@ -42,10 +42,10 @@ contract MockUSDCAutomation {
 }
 
 contract AutomationTest is Test {
-    BGWToken bgwToken;
-    BGWGovToken govToken;
-    BGWVault vault;
-    BridgewayAutomation automation;
+    CCRToken ccrToken;
+    CGOVToken cgovToken;
+    ClearcrestVault vault;
+    ClearcrestAutomation automation;
 
     address founder = makeAddr("founder");
     address alice = makeAddr("alice");
@@ -68,32 +68,33 @@ contract AutomationTest is Test {
         MockUSDCAutomation mockUsdc = new MockUSDCAutomation();
         vm.etch(USDC_ADDR, address(mockUsdc).code);
 
-        bgwToken = new BGWToken(founder);
-        govToken = new BGWGovToken(founder, address(bgwToken), founder);
+        ccrToken = new CCRToken(founder);
+        cgovToken = new CGOVToken(founder, address(ccrToken), founder);
 
         // Mock Camelot
-        MockCamelotRouter mockCamelot = new MockCamelotRouter(address(bgwToken), 1e12);
+        MockCamelotRouter mockCamelot = new MockCamelotRouter(address(ccrToken), 1e12);
         vm.etch(CAMELOT_ADDR, address(mockCamelot).code);
 
-        vault =
-            new BGWVault(address(bgwToken), address(govToken), team, holdback, reserve, founder, USDC_ADDR, address(2));
+        vault = new ClearcrestVault(
+            address(ccrToken), address(cgovToken), team, holdback, reserve, founder, USDC_ADDR, address(2)
+        );
 
         // Wire roles
         vm.startPrank(founder);
-        bgwToken.setGovernanceCompanion(address(govToken));
-        bgwToken.grantRole(bgwToken.MINTER_ROLE(), address(vault));
-        bgwToken.grantRole(bgwToken.BURNER_ROLE(), address(vault)); // H-11
-        bgwToken.grantRole(bgwToken.WHITELIST_ADMIN_ROLE(), address(vault));
+        ccrToken.setGovernanceCompanion(address(cgovToken));
+        ccrToken.grantRole(ccrToken.MINTER_ROLE(), address(vault));
+        ccrToken.grantRole(ccrToken.BURNER_ROLE(), address(vault)); // H-11
+        ccrToken.grantRole(ccrToken.WHITELIST_ADMIN_ROLE(), address(vault));
         vault.setWhitelisted(address(vault), true);
-        bgwToken.setWhitelisted(CAMELOT_ADDR, true);
-        govToken.initVault(address(vault));
+        ccrToken.setWhitelisted(CAMELOT_ADDR, true);
+        cgovToken.initVault(address(vault));
         vault.setWhitelisted(CAMELOT_ADDR, true);
         vault.setWhitelisted(founder, true);
         vault.setWhitelisted(alice, true);
         vm.stopPrank();
 
         // Deploy automation and wire to vault.
-        automation = new BridgewayAutomation(address(vault), founder, USDC_ADDR);
+        automation = new ClearcrestAutomation(address(vault), founder, USDC_ADDR);
         vm.prank(founder);
         vault.setAutomation(address(automation));
         vm.warp(block.timestamp + FeeLib.MIN_HARVEST_GAP + 1);

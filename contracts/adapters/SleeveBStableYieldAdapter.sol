@@ -43,7 +43,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
         _;
     }
 
-    /// @dev L-01: lets `BGWVault.emergencyUnwindSleeves` orchestrate.
+    /// @dev L-01: lets `ClearcrestVault.emergencyUnwindSleeves` orchestrate.
     modifier onlyOwnerOrVault() {
         if (msg.sender != owner() && msg.sender != vault) revert OnlyVault();
         _;

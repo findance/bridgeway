@@ -29,14 +29,7 @@ interface IMorphoBlue {
     function position(bytes32 id, address user)
         external
         view
-        returns (
-            uint256 supplyShares,
-            uint128 borrowShares,
-            uint128 collateral
-        );
+        returns (uint256 supplyShares, uint128 borrowShares, uint128 collateral);
 
-    function idToMarketParams(bytes32 id)
-        external
-        view
-        returns (MarketParams memory);
+    function idToMarketParams(bytes32 id) external view returns (MarketParams memory);
 }

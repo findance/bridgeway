@@ -6,16 +6,16 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import "../interfaces/ICCIPRouterClient.sol";
-import "../libraries/BridgewayCCIPClient.sol";
+import "../libraries/ClearcrestCCIPClient.sol";
 
 interface IStakeLinkWstLink {
     function getUnderlyingByWrapped(uint256 amount) external view returns (uint256);
 }
 
-/// @title BridgewayL1RateReporter
+/// @title ClearcrestL1RateReporter
 /// @notice Ethereum-side CCIP reporter for canonical L1 exchange rates used by
 ///         hub-chain accounting when the L2 token does not expose a local rate.
-contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
+contract ClearcrestL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
     uint8 public constant PAYLOAD_VERSION = 1;
     uint256 public constant RATE_SAMPLE_INPUT = 1e18;
     uint256 public constant DEFAULT_GAS_LIMIT = 250_000;
@@ -213,11 +213,8 @@ contract BridgewayL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
             data: payload,
             tokenAmounts: new ICCIPRouterClient.EVMTokenAmount[](0),
             feeToken: address(0),
-            extraArgs: BridgewayCCIPClient.argsToBytes(
-                BridgewayCCIPClient.GenericExtraArgsV2({
-                    gasLimit: DEFAULT_GAS_LIMIT,
-                    allowOutOfOrderExecution: true
-                })
+            extraArgs: ClearcrestCCIPClient.argsToBytes(
+                ClearcrestCCIPClient.GenericExtraArgsV2({gasLimit: DEFAULT_GAS_LIMIT, allowOutOfOrderExecution: true})
             )
         });
 

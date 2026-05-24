@@ -5,10 +5,10 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
-/// @title BridgewayHubNAV
+/// @title ClearcrestHubNAV
 /// @notice Hub-chain global NAV cache for future hub-and-spoke accounting.
 ///         CCIP receivers or approved reporters update confirmed spoke NAV.
-contract BridgewayHubNAV is Ownable2Step, Pausable {
+contract ClearcrestHubNAV is Ownable2Step, Pausable {
     using Math for uint256;
 
     uint256 public constant USDC_DECIMALS = 6;
@@ -130,14 +130,8 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         bool material
     ) external onlyOwner {
         if (!bootstrapMode) revert ConfigurationFinalized();
-        SpokeConfig memory config = _validateSpokeConfig(
-            chainId,
-            reporter,
-            maxReportAge,
-            maxNavMoveBps,
-            enabled,
-            material
-        );
+        SpokeConfig memory config =
+            _validateSpokeConfig(chainId, reporter, maxReportAge, maxNavMoveBps, enabled, material);
         _applySpokeConfig(chainId, config);
     }
 
@@ -187,21 +181,11 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         bool material
     ) external onlyOwner returns (uint256 executableAt) {
         if (bootstrapMode) revert BootstrapActive();
-        SpokeConfig memory config = _validateSpokeConfig(
-            chainId,
-            reporter,
-            maxReportAge,
-            maxNavMoveBps,
-            enabled,
-            material
-        );
+        SpokeConfig memory config =
+            _validateSpokeConfig(chainId, reporter, maxReportAge, maxNavMoveBps, enabled, material);
 
         executableAt = block.timestamp + CONFIG_TIMELOCK_DELAY;
-        pendingSpokeConfigs[chainId] = PendingSpokeConfig({
-            config: config,
-            executableAt: executableAt,
-            exists: true
-        });
+        pendingSpokeConfigs[chainId] = PendingSpokeConfig({config: config, executableAt: executableAt, exists: true});
 
         emit SpokeConfigProposed(
             chainId,
@@ -274,10 +258,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         }
 
         spokeReports[chainId] = SpokeReport({
-            navUsd18: navUsd18,
-            reportedAt: reportedAt,
-            sourceBlockNumber: sourceBlockNumber,
-            nonce: nonce
+            navUsd18: navUsd18, reportedAt: reportedAt, sourceBlockNumber: sourceBlockNumber, nonce: nonce
         });
 
         emit SpokeReportAccepted(chainId, msg.sender, navUsd18, reportedAt, sourceBlockNumber, nonce);
@@ -362,7 +343,8 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         uint256 maxGrowth = Math.mulDiv(window.baselineNavUsd18, maxWindowNavUpBps, BPS_DENOM);
         if (growth > maxGrowth) revert WindowNavGrowthTooLarge(chainId, growth, maxGrowth);
 
-        spokeNavWindows[chainId] = SpokeNavWindow({baselineNavUsd18: window.baselineNavUsd18, baselineTimestamp: window.baselineTimestamp});
+        spokeNavWindows[chainId] =
+            SpokeNavWindow({baselineNavUsd18: window.baselineNavUsd18, baselineTimestamp: window.baselineTimestamp});
     }
 
     function _applySpokeConfig(uint64 chainId, SpokeConfig memory config) internal {
@@ -374,12 +356,7 @@ contract BridgewayHubNAV is Ownable2Step, Pausable {
         spokeConfigs[chainId] = config;
 
         emit SpokeConfigured(
-            chainId,
-            config.reporter,
-            config.maxReportAge,
-            config.maxNavMoveBps,
-            config.enabled,
-            config.material
+            chainId, config.reporter, config.maxReportAge, config.maxNavMoveBps, config.enabled, config.material
         );
     }
 }

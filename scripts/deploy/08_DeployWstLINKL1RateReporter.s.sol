@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-import "../../contracts/core/BridgewayL1RateReporter.sol";
+import "../../contracts/core/ClearcrestL1RateReporter.sol";
 
 /// @title 08_DeployWstLINKL1RateReporter
 /// @notice Deploys the Ethereum-side wstLINK rate reporter.
@@ -29,14 +29,9 @@ contract DeployWstLINKL1RateReporter is Script {
 
         vm.startBroadcast(deployerKey);
 
-        BridgewayL1RateReporter reporter = new BridgewayL1RateReporter(
-            deployer,
-            ethRouter,
-            wstLinkL1,
-            wstLinkL2,
-            arbitrumSelector
-        );
-        console.log("BridgewayL1RateReporter:", address(reporter));
+        ClearcrestL1RateReporter reporter =
+            new ClearcrestL1RateReporter(deployer, ethRouter, wstLinkL1, wstLinkL2, arbitrumSelector);
+        console.log("ClearcrestL1RateReporter:", address(reporter));
 
         if (reporterOwner != deployer) {
             reporter.transferOwnership(reporterOwner);

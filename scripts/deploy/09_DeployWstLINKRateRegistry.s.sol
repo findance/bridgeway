@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-import "../../contracts/core/BridgewayRateRegistry.sol";
+import "../../contracts/core/ClearcrestRateRegistry.sol";
 
 /// @title 09_DeployWstLINKRateRegistry
 /// @notice Deploys the Arbitrum-side rate registry and allowlists Arbitrum wstLINK.
@@ -33,13 +33,9 @@ contract DeployWstLINKRateRegistry is Script {
 
         vm.startBroadcast(deployerKey);
 
-        BridgewayRateRegistry registry = new BridgewayRateRegistry(
-            deployer,
-            arbitrumRouter,
-            l1Reporter,
-            ethereumSelector
-        );
-        console.log("BridgewayRateRegistry:", address(registry));
+        ClearcrestRateRegistry registry =
+            new ClearcrestRateRegistry(deployer, arbitrumRouter, l1Reporter, ethereumSelector);
+        console.log("ClearcrestRateRegistry:", address(registry));
 
         registry.setApprovedRateAsset(wstLinkL2, true);
         if (maxStaleness != 0) {

@@ -13,11 +13,11 @@ const DAILY_INTERVAL      = 86400n;
 const DAYS_IN_MONTH       = 30n;
 
 const usdc = (n) => BigInt(n) * 10n ** 6n;   // 6 decimals
-const bgw  = (n) => BigInt(n) * 10n ** 18n;  // 18 decimals
+const ccr  = (n) => BigInt(n) * 10n ** 18n;  // 18 decimals
 
-describe("BridgewayAutomationWrapper", function () {
+describe("ClearcrestAutomationWrapper", function () {
   let wrapper, proxy;
-  let mockVault, mockUSDC, mockBGW, mockRouter, mockFeed;
+  let mockVault, mockUSDC, mockCCR, mockRouter, mockFeed;
   let owner, team, holdback, lpSeed, reserve, user1, user2;
 
   beforeEach(async function () {
@@ -26,20 +26,20 @@ describe("BridgewayAutomationWrapper", function () {
     // ---- Deploy mocks ----
     mockVault  = await (await ethers.getContractFactory("MockEnzymeVault")).deploy(ethers.parseEther("1000000"));
     mockUSDC   = await (await ethers.getContractFactory("MockUSDC")).deploy();
-    mockBGW    = await (await ethers.getContractFactory("MockBGWToken")).deploy();
+    mockCCR    = await (await ethers.getContractFactory("MockCCRToken")).deploy();
 
     // 1 USDC (6 dec) -> 1e12 units = 1 CCR (18 dec)
     mockRouter = await (await ethers.getContractFactory("MockCamelotRouter")).deploy(
-      await mockBGW.getAddress(), 10n ** 12n
+      await mockCCR.getAddress(), 10n ** 12n
     );
 
     // CCR price = $1.00, 8-decimal feed
     mockFeed   = await (await ethers.getContractFactory("MockPriceFeed")).deploy(1n * 10n ** 8n, 8);
 
-    await mockBGW.mint(await mockRouter.getAddress(), bgw(1_000_000));
+    await mockCCR.mint(await mockRouter.getAddress(), ccr(1_000_000));
 
     // ---- Deploy UUPS proxy ----
-    const Factory = await ethers.getContractFactory("BridgewayAutomationWrapper");
+    const Factory = await ethers.getContractFactory("ClearcrestAutomationWrapper");
     proxy = await upgrades.deployProxy(
       Factory,
       [team.address, holdback.address, lpSeed.address, reserve.address],
@@ -47,7 +47,7 @@ describe("BridgewayAutomationWrapper", function () {
         kind: "uups",
         constructorArgs: [
           await mockVault.getAddress(),
-          await mockBGW.getAddress(),
+          await mockCCR.getAddress(),
           await mockUSDC.getAddress(),
           await mockRouter.getAddress(),
           await mockFeed.getAddress(),
@@ -57,7 +57,7 @@ describe("BridgewayAutomationWrapper", function () {
       }
     );
 
-    wrapper = await ethers.getContractAt("BridgewayAutomationWrapper", await proxy.getAddress());
+    wrapper = await ethers.getContractAt("ClearcrestAutomationWrapper", await proxy.getAddress());
   });
 
   // ================================================================
@@ -84,11 +84,11 @@ describe("BridgewayAutomationWrapper", function () {
     });
 
     it("reverts constructor with zero vault address", async function () {
-      const Factory = await ethers.getContractFactory("BridgewayAutomationWrapper");
+      const Factory = await ethers.getContractFactory("ClearcrestAutomationWrapper");
       await expect(
         Factory.deploy(
           ethers.ZeroAddress,
-          await mockBGW.getAddress(),
+          await mockCCR.getAddress(),
           await mockUSDC.getAddress(),
           await mockRouter.getAddress(),
           await mockFeed.getAddress()
@@ -152,7 +152,7 @@ describe("BridgewayAutomationWrapper", function () {
     it("reverts if contract has insufficient USDC", async function () {
       await expect(
         wrapper.connect(owner).recordStakingYield(usdc(1_000_000))
-      ).to.be.revertedWith("BGW: insufficient USDC");
+      ).to.be.revertedWith("CCR: insufficient USDC");
     });
 
     it("emits FeesDistributed event", async function () {
@@ -256,9 +256,9 @@ describe("BridgewayAutomationWrapper", function () {
       const [upkeepNeeded, data] = await wrapper.checkUpkeep("0x");
       expect(upkeepNeeded).to.be.true;
 
-      const bgwBurnedBefore = await mockBGW.totalBurned();
+      const ccrBurnedBefore = await mockCCR.totalBurned();
       await wrapper.performUpkeep(data);
-      expect(await mockBGW.totalBurned()).to.be.gt(bgwBurnedBefore);
+      expect(await mockCCR.totalBurned()).to.be.gt(ccrBurnedBefore);
     });
 
     it("sends 0.1% ops cut to holdback on buyback", async function () {
@@ -398,14 +398,14 @@ describe("BridgewayAutomationWrapper", function () {
   describe("Upgradability (UUPS)", function () {
     const constructorArgs = async () => [
       await mockVault.getAddress(),
-      await mockBGW.getAddress(),
+      await mockCCR.getAddress(),
       await mockUSDC.getAddress(),
       await mockRouter.getAddress(),
       await mockFeed.getAddress(),
     ];
 
     it("only owner can upgrade", async function () {
-      const Factory = await ethers.getContractFactory("BridgewayAutomationWrapper");
+      const Factory = await ethers.getContractFactory("ClearcrestAutomationWrapper");
       await expect(
         upgrades.upgradeProxy(await proxy.getAddress(), Factory.connect(user1), {
           kind: "uups",
@@ -417,7 +417,7 @@ describe("BridgewayAutomationWrapper", function () {
 
     it("preserves state after upgrade", async function () {
       const teamBefore = await wrapper.teamWallet();
-      const Factory    = await ethers.getContractFactory("BridgewayAutomationWrapper");
+      const Factory    = await ethers.getContractFactory("ClearcrestAutomationWrapper");
       await upgrades.upgradeProxy(await proxy.getAddress(), Factory, {
         kind: "uups",
         constructorArgs: await constructorArgs(),

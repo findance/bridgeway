@@ -4,14 +4,14 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 
-import "../interfaces/IBridgewayHubNAV.sol";
+import "../interfaces/IClearcrestHubNAV.sol";
 import "../interfaces/ICCIPReceiver.sol";
 
-/// @title BridgewayCCIPNAVReceiver
+/// @title ClearcrestCCIPNAVReceiver
 /// @notice Hub-chain CCIP entry point for confirmed spoke NAV reports.
 ///         The receiver validates Chainlink router provenance, source chain
-///         selector, and source sender bytes before forwarding to BridgewayHubNAV.
-contract BridgewayCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
+///         selector, and source sender bytes before forwarding to ClearcrestHubNAV.
+contract ClearcrestCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
     uint256 public constant CONFIG_TIMELOCK_DELAY = 48 hours;
 
     struct SourceConfig {
@@ -27,17 +27,14 @@ contract BridgewayCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
     }
 
     address public immutable ccipRouter;
-    IBridgewayHubNAV public immutable hubNAV;
+    IClearcrestHubNAV public immutable hubNAV;
 
     mapping(uint64 => SourceConfig) public sourceConfigs;
     mapping(uint64 => PendingSourceConfig) public pendingSourceConfigs;
     bool public bootstrapMode = true;
 
     event SourceConfigured(
-        uint64 indexed ccipSourceChainSelector,
-        uint64 indexed spokeChainId,
-        bytes32 indexed senderHash,
-        bool enabled
+        uint64 indexed ccipSourceChainSelector, uint64 indexed spokeChainId, bytes32 indexed senderHash, bool enabled
     );
     event SourceConfigProposed(
         uint64 indexed ccipSourceChainSelector,
@@ -71,7 +68,7 @@ contract BridgewayCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
     constructor(address owner_, address ccipRouter_, address hubNAV_) Ownable(owner_) {
         if (owner_ == address(0) || ccipRouter_ == address(0) || hubNAV_ == address(0)) revert ZeroAddress();
         ccipRouter = ccipRouter_;
-        hubNAV = IBridgewayHubNAV(hubNAV_);
+        hubNAV = IClearcrestHubNAV(hubNAV_);
     }
 
     function configureSource(
@@ -101,18 +98,11 @@ contract BridgewayCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
         SourceConfig memory config = _validateSourceConfig(ccipSourceChainSelector, spokeChainId, sourceSender, enabled);
 
         executableAt = block.timestamp + CONFIG_TIMELOCK_DELAY;
-        pendingSourceConfigs[ccipSourceChainSelector] = PendingSourceConfig({
-            config: config,
-            executableAt: executableAt,
-            exists: true
-        });
+        pendingSourceConfigs[ccipSourceChainSelector] =
+            PendingSourceConfig({config: config, executableAt: executableAt, exists: true});
 
         emit SourceConfigProposed(
-            ccipSourceChainSelector,
-            config.spokeChainId,
-            config.senderHash,
-            config.enabled,
-            executableAt
+            ccipSourceChainSelector, config.spokeChainId, config.senderHash, config.enabled, executableAt
         );
     }
 
@@ -146,13 +136,7 @@ contract BridgewayCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
 
         hubNAV.reportSpokeNAV(spokeChainId, navUsd18, reportedAt, sourceBlockNumber, nonce);
 
-        emit CCIPNAVReportReceived(
-            message.messageId,
-            message.sourceChainSelector,
-            spokeChainId,
-            navUsd18,
-            nonce
-        );
+        emit CCIPNAVReportReceived(message.messageId, message.sourceChainSelector, spokeChainId, navUsd18, nonce);
     }
 
     function pause() external onlyOwner {
@@ -173,23 +157,16 @@ contract BridgewayCCIPNAVReceiver is ICCIPReceiver, Ownable2Step, Pausable {
         bytes calldata sourceSender,
         bool enabled
     ) internal pure returns (SourceConfig memory config) {
-        if (ccipSourceChainSelector == 0 || spokeChainId == 0) revert InvalidChainSelector();
+        if (ccipSourceChainSelector == 0 || spokeChainId == 0) {
+            revert InvalidChainSelector();
+        }
         if (sourceSender.length == 0) revert InvalidSourceSender();
 
-        config = SourceConfig({
-            spokeChainId: spokeChainId,
-            senderHash: keccak256(sourceSender),
-            enabled: enabled
-        });
+        config = SourceConfig({spokeChainId: spokeChainId, senderHash: keccak256(sourceSender), enabled: enabled});
     }
 
     function _applySourceConfig(uint64 ccipSourceChainSelector, SourceConfig memory config) internal {
         sourceConfigs[ccipSourceChainSelector] = config;
-        emit SourceConfigured(
-            ccipSourceChainSelector,
-            config.spokeChainId,
-            config.senderHash,
-            config.enabled
-        );
+        emit SourceConfigured(ccipSourceChainSelector, config.spokeChainId, config.senderHash, config.enabled);
     }
 }

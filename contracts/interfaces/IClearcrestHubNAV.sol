@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-interface IBridgewayHubNAV {
+interface IClearcrestHubNAV {
     /// @notice Accept a confirmed spoke NAV report.
     function reportSpokeNAV(
         uint64 chainId,

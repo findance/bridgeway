@@ -43,14 +43,7 @@ contract SleeveACbbtcWrapperTest is Test {
         usdc.mint(address(router), 1_000_000e6);
 
         wrapper = new SleeveACbbtcWrapper(
-            vault,
-            owner,
-            address(usdc),
-            address(cbbtc),
-            address(router),
-            address(btcUsdFeed),
-            100,
-            24 hours
+            vault, owner, address(usdc), address(cbbtc), address(router), address(btcUsdFeed), 100, 24 hours
         );
 
         yieldAdapter = new BaseCBBTCYieldAdapter(
@@ -70,14 +63,7 @@ contract SleeveACbbtcWrapperTest is Test {
     function test_FreshWrapperTotalAssetsDoesNotRequireMarkedStrategy() public {
         RevertingYieldAdapter revertingAdapter = new RevertingYieldAdapter();
         SleeveACbbtcWrapper fresh = new SleeveACbbtcWrapper(
-            vault,
-            owner,
-            address(usdc),
-            address(cbbtc),
-            address(router),
-            address(btcUsdFeed),
-            100,
-            24 hours
+            vault, owner, address(usdc), address(cbbtc), address(router), address(btcUsdFeed), 100, 24 hours
         );
         fresh.setYieldAdapter(address(revertingAdapter));
         usdc.mint(address(fresh), 123e6);
@@ -132,26 +118,12 @@ contract SleeveACbbtcWrapperTest is Test {
     function test_ConstructorRejectsUnknownTickSpacingAndTooLargeMaxStale() public {
         vm.expectRevert(SleeveACbbtcWrapper.InvalidTickSpacing.selector);
         new SleeveACbbtcWrapper(
-            vault,
-            owner,
-            address(usdc),
-            address(cbbtc),
-            address(router),
-            address(btcUsdFeed),
-            123,
-            24 hours
+            vault, owner, address(usdc), address(cbbtc), address(router), address(btcUsdFeed), 123, 24 hours
         );
 
         vm.expectRevert(SleeveACbbtcWrapper.InvalidMaxStale.selector);
         new SleeveACbbtcWrapper(
-            vault,
-            owner,
-            address(usdc),
-            address(cbbtc),
-            address(router),
-            address(btcUsdFeed),
-            100,
-            24 hours + 1
+            vault, owner, address(usdc), address(cbbtc), address(router), address(btcUsdFeed), 100, 24 hours + 1
         );
     }
 

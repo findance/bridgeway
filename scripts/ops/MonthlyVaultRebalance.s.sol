@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
-import "../../contracts/core/BGWVault.sol";
+import "../../contracts/core/ClearcrestVault.sol";
 
 /// @title MonthlyVaultRebalance
 /// @notice Runs the vault one-way rebalance policy: Sleeve C -> Sleeve B,
@@ -19,14 +19,14 @@ import "../../contracts/core/BGWVault.sol";
 ///   Time-based trigger, Base, every second Monday at 03:30 UTC.
 ///   That lands on Sunday night in America/Toronto/New York and avoids the
 ///   busiest weekday windows. If using custom logic instead, call the
-///   BridgewayAutomation REBALANCE action.
+///   ClearcrestAutomation REBALANCE action.
 contract MonthlyVaultRebalance is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address vaultAddr = vm.envAddress("VAULT");
         uint256 maxMoveUsdc = vm.envOr("MAX_REBALANCE_MOVE_USDC", type(uint256).max);
 
-        BGWVault vault = BGWVault(vaultAddr);
+        ClearcrestVault vault = ClearcrestVault(vaultAddr);
 
         uint256 beforeA = vault.sleeveValue(vault.SLEEVE_A());
         uint256 beforeB = vault.sleeveValue(vault.SLEEVE_B());

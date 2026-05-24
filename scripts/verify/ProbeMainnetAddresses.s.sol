@@ -36,7 +36,9 @@ contract ProbeMainnetAddresses is Script {
             keccak256(bytes(actualSymbol)) == keccak256(bytes(probe.symbol)),
             string.concat("unexpected token symbol for ", probe.symbol)
         );
-        require(actualTokenDecimals == probe.tokenDecimals, string.concat("unexpected token decimals for ", probe.symbol));
+        require(
+            actualTokenDecimals == probe.tokenDecimals, string.concat("unexpected token decimals for ", probe.symbol)
+        );
 
         IChainlinkAggregator feed = IChainlinkAggregator(probe.priceFeed);
         uint8 actualFeedDecimals = feed.decimals();

@@ -272,13 +272,13 @@
         <input id="buyAmount" inputmode="decimal" type="number" min="1" step="0.000001" value="1">
       </label>
       <button id="connectWallet" class="secondary">Connect Wallet</button>
-      <button id="buyBgw">Buy CCR</button>
+      <button id="buyCcr">Buy CCR</button>
     </div>
 
     <div class="grid">
       <div class="metric">
         <span>NAV Per CCR</span>
-        <strong id="navPerBgw">-</strong>
+        <strong id="navPerCcr">-</strong>
         <small>USDC per CCR</small>
       </div>
       <div class="metric">
@@ -288,12 +288,12 @@
       </div>
       <div class="metric">
         <span>CCR Supply</span>
-        <strong id="bgwSupply">-</strong>
+        <strong id="ccrSupply">-</strong>
         <small>CCR</small>
       </div>
       <div class="metric">
         <span>Wallet CCR</span>
-        <strong id="walletBgw">-</strong>
+        <strong id="walletCcr">-</strong>
         <small>Selected wallet</small>
       </div>
     </div>
@@ -381,8 +381,8 @@
   <script>
     const ADDR = {
       vault: "0x62f60d6C5bcdf76B0Dd086526B9e18f99d5a8B5a",
-      bgw: "0x60529BA0958a35AD64FC31523B51D194b4D78A7f",
-      gov: "0x0262f068A9A69C88988061bE1689bdD02967676d",
+      ccr: "0x60529BA0958a35AD64FC31523B51D194b4D78A7f",
+      cgov: "0x0262f068A9A69C88988061bE1689bdD02967676d",
       usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
       cbbtc: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
       aUsdc: "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB",
@@ -398,7 +398,7 @@
     };
 
     const SIG = {
-      navPerBGW: "0x6f12ee1c",
+      navPerCCR: "0x2c4ba983",
       totalNAV: "0x30421927",
       totalLocalNAV: "0x9cc2a7a3",
       sleeveValue: "0x7ef80393",
@@ -692,8 +692,8 @@
       return walletRequest({ method: "eth_sendTransaction", params: [{ from, to, data: callData }] });
     }
 
-    async function buyBgw() {
-      const button = $("buyBgw");
+    async function buyCcr() {
+      const button = $("buyCcr");
       button.disabled = true;
       try {
         const wallet = await connectWallet();
@@ -733,28 +733,28 @@
         const [
           blockHex,
           nonceHex,
-          navPerBGW,
+          navPerCCR,
           totalNav,
           localNav,
-          bgwSupply,
-          walletBgw,
-          walletGov,
+          ccrSupply,
+          walletCcr,
+          walletCGOV,
           walletUsdc,
-          founderGov,
+          founderCGOV,
           sleeveAValue,
           sleeveBValue,
           whitelisted
         ] = await Promise.all([
           rpc("eth_blockNumber", []),
           rpc("eth_getTransactionCount", [wallet, "latest"]),
-          call(ADDR.vault, data(SIG.navPerBGW)),
+          call(ADDR.vault, data(SIG.navPerCCR)),
           call(ADDR.vault, data(SIG.totalNAV)),
           call(ADDR.vault, data(SIG.totalLocalNAV)),
-          call(ADDR.bgw, data(SIG.totalSupply)),
-          call(ADDR.bgw, data(SIG.balanceOf, [addrArg(wallet)])),
-          call(ADDR.gov, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.ccr, data(SIG.totalSupply)),
+          call(ADDR.ccr, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.cgov, data(SIG.balanceOf, [addrArg(wallet)])),
           call(ADDR.usdc, data(SIG.balanceOf, [addrArg(wallet)])),
-          call(ADDR.gov, data(SIG.balanceOf, [addrArg(ADDR.founder)])),
+          call(ADDR.cgov, data(SIG.balanceOf, [addrArg(ADDR.founder)])),
           call(ADDR.vault, data(SIG.sleeveValue, [uintArg(0)])),
           call(ADDR.vault, data(SIG.sleeveValue, [uintArg(1)])),
           call(ADDR.vault, data(SIG.whitelist, [addrArg(wallet)]))
@@ -763,10 +763,10 @@
         const block = Number(asUint(blockHex));
         const nonce = Number(asUint(nonceHex));
 
-        $("navPerBgw").textContent = fmtUsdc(asUint(navPerBGW));
+        $("navPerCcr").textContent = fmtUsdc(asUint(navPerCCR));
         $("totalNav").textContent = fmtUsdc(asUint(totalNav));
-        $("bgwSupply").textContent = fmtToken18(asUint(bgwSupply));
-        $("walletBgw").textContent = fmtToken18(asUint(walletBgw));
+        $("ccrSupply").textContent = fmtToken18(asUint(ccrSupply));
+        $("walletCcr").textContent = fmtToken18(asUint(walletCcr));
         $("nonce").textContent = `Nonce ${nonce}`;
         $("lastUpdated").textContent = `Block ${block}`;
 
@@ -780,16 +780,16 @@
 
         $("walletRows").innerHTML = [
           ["Wallet USDC", `${fmtUsdc(asUint(walletUsdc))} USDC`],
-          ["Wallet CCR", `${fmtToken18(asUint(walletBgw))} CCR`],
-          ["Wallet CGOV", `${fmtToken18(asUint(walletGov))} CGOV`],
-          ["Founder CGOV", `${fmtToken18(asUint(founderGov))} CGOV`],
+          ["Wallet CCR", `${fmtToken18(asUint(walletCcr))} CCR`],
+          ["Wallet CGOV", `${fmtToken18(asUint(walletCGOV))} CGOV`],
+          ["Founder CGOV", `${fmtToken18(asUint(founderCGOV))} CGOV`],
           ["Vault whitelist", asBool(whitelisted) ? "true" : "false"]
         ].map(([k, v]) => `<tr><td>${k}</td><td class="right mono">${v}</td></tr>`).join("");
 
         $("configRows").innerHTML = [
           ["Vault", ADDR.vault],
-          ["CCR token", ADDR.bgw],
-          ["CGOV token", ADDR.gov],
+          ["CCR token", ADDR.ccr],
+          ["CGOV token", ADDR.cgov],
           ["Sleeve A wrapper", ADDR.sleeveA],
           ["Base cbBTC yield adapter", ADDR.yield],
           ["Aerodrome strategy", ADDR.strategy],
@@ -822,14 +822,14 @@
         const [
           blockHex,
           nonceHex,
-          navPerBGW,
+          navPerCCR,
           totalNav,
           localNav,
-          bgwSupply,
-          walletBgw,
-          walletGov,
+          ccrSupply,
+          walletCcr,
+          walletCGOV,
           walletUsdc,
-          founderGov,
+          founderCGOV,
           sleeveAValue,
           sleeveBValue,
           wrapperTotal,
@@ -878,14 +878,14 @@
         ] = await Promise.all([
           rpc("eth_blockNumber", []),
           rpc("eth_getTransactionCount", [wallet, "latest"]),
-          call(ADDR.vault, data(SIG.navPerBGW)),
+          call(ADDR.vault, data(SIG.navPerCCR)),
           call(ADDR.vault, data(SIG.totalNAV)),
           call(ADDR.vault, data(SIG.totalLocalNAV)),
-          call(ADDR.bgw, data(SIG.totalSupply)),
-          call(ADDR.bgw, data(SIG.balanceOf, [addrArg(wallet)])),
-          call(ADDR.gov, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.ccr, data(SIG.totalSupply)),
+          call(ADDR.ccr, data(SIG.balanceOf, [addrArg(wallet)])),
+          call(ADDR.cgov, data(SIG.balanceOf, [addrArg(wallet)])),
           call(ADDR.usdc, data(SIG.balanceOf, [addrArg(wallet)])),
-          call(ADDR.gov, data(SIG.balanceOf, [addrArg(ADDR.founder)])),
+          call(ADDR.cgov, data(SIG.balanceOf, [addrArg(ADDR.founder)])),
           call(ADDR.vault, data(SIG.sleeveValue, [uintArg(0)])),
           call(ADDR.vault, data(SIG.sleeveValue, [uintArg(1)])),
           call(ADDR.sleeveA, data(SIG.totalAssetsUSDC)),
@@ -943,10 +943,10 @@
         const decodedRouteB = decodeRoute(routeB);
         const pathBytes = asBytes(aeroPath);
 
-        $("navPerBgw").textContent = fmtUsdc(asUint(navPerBGW));
+        $("navPerCcr").textContent = fmtUsdc(asUint(navPerCCR));
         $("totalNav").textContent = fmtUsdc(asUint(totalNav));
-        $("bgwSupply").textContent = fmtToken18(asUint(bgwSupply));
-        $("walletBgw").textContent = fmtToken18(asUint(walletBgw));
+        $("ccrSupply").textContent = fmtToken18(asUint(ccrSupply));
+        $("walletCcr").textContent = fmtToken18(asUint(walletCcr));
         $("aeroEnabled").textContent = asBool(aeroEnabled) ? "Aerodrome active" : "Aerodrome inactive";
         $("aeroEnabled").className = asBool(aeroEnabled) ? "pill good" : "pill warn";
         $("nonce").textContent = `Nonce ${nonce}`;
@@ -990,9 +990,9 @@
 
         $("walletRows").innerHTML = [
           ["Wallet USDC", `${fmtUsdc(asUint(walletUsdc))} USDC`],
-          ["Wallet CCR", `${fmtToken18(asUint(walletBgw))} CCR`],
-          ["Wallet CGOV", `${fmtToken18(asUint(walletGov))} CGOV`],
-          ["Founder CGOV", `${fmtToken18(asUint(founderGov))} CGOV`],
+          ["Wallet CCR", `${fmtToken18(asUint(walletCcr))} CCR`],
+          ["Wallet CGOV", `${fmtToken18(asUint(walletCGOV))} CGOV`],
+          ["Founder CGOV", `${fmtToken18(asUint(founderCGOV))} CGOV`],
           ["Vault whitelist", asBool(whitelisted) ? "true" : "false"],
           ["USDC redemption feed max age", fmtSeconds(asUint(usdcMaxStale)), "configurable"],
           ["Bootstrap mode", asBool(bootstrapMode) ? "true" : "false"],
@@ -1006,8 +1006,8 @@
 
         $("configRows").innerHTML = [
           ["Vault", ADDR.vault],
-          ["CCR token", ADDR.bgw],
-          ["CGOV token", ADDR.gov],
+          ["CCR token", ADDR.ccr],
+          ["CGOV token", ADDR.cgov],
           ["Sleeve A route", `${decodedRouteA.adapter} / ${decodedRouteA.bps} bps / ${decodedRouteA.active ? "active" : "inactive"}`],
           ["Sleeve B route", `${decodedRouteB.adapter} / ${decodedRouteB.bps} bps / ${decodedRouteB.active ? "active" : "inactive"}`],
           ["Sleeve A route count", `${asUint(routeACount).toString()} route, ${asUint(routeAActiveBps).toString()} active bps`],
@@ -1047,7 +1047,7 @@
         $("status").textContent = `Connect failed: ${error.message}`;
       }
     });
-    $("buyBgw").addEventListener("click", buyBgw);
+    $("buyCcr").addEventListener("click", buyCcr);
     refresh();
   </script>
 </body>

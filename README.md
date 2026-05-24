@@ -14,7 +14,7 @@ Whitelisted depositor
 LI.FI / Socket / CCTP / Across / deBridge
         │  settles as Base USDC
         ▼
-    BGWVault  ──────────────────────────────────────────────────┐
+    ClearcrestVault  ──────────────────────────────────────────────────┐
     │  Mints CCR (share token) 1:1 at first deposit            │
     │  Distributes CGOV governance tokens to depositors         │
     │  Tracks three portfolio sleeves:                          │
@@ -22,14 +22,14 @@ LI.FI / Socket / CCTP / Across / deBridge
     │    B — 30%  Stability  (USDC, USDT, DAI … via Aave/Morpho)  │
     │    C —  5%  Alpha      (Pendle, GMX, Morpho, restaking)   │
     │                                                           │
-    │  Monthly harvest  ◄── BridgewayAutomation (Chainlink)    │
-    │  Buyback & burn   ◄── BridgewayAutomation (Chainlink)    │
+    │  Monthly harvest  ◄── ClearcrestAutomation (Chainlink)    │
+    │  Buyback & burn   ◄── ClearcrestAutomation (Chainlink)    │
     └───────────────────────────────────────────────────────────┘
 
-BGWToken      — ERC-20 Clearcrest share token (CCR, 18 dec), whitelist-transfer-only;
+CCRToken      — ERC-20 Clearcrest share token (CCR, 18 dec), whitelist-transfer-only;
                 moves/burns paired depositor CGOV on transfer/burn
-BGWGovToken   — Inflationary governance token minted with CCR deposits:
-                30% to depositor, 70% to founder treasury. Depositor GOV
+CGOVToken   — Inflationary governance token minted with CCR deposits:
+                30% to depositor, 70% to founder treasury. Depositor CGOV
                 cannot transfer independently of CCR.
 ```
 
@@ -47,12 +47,12 @@ vault's 48-hour config timelock.
 ```
 contracts/
 ├── core/
-│   ├── BGWVault.sol              ← main vault (deposit, redeem, harvest, buyback)
-│   └── BridgewayAutomation.sol  ← Chainlink Automation upkeep
+│   ├── ClearcrestVault.sol              ← main vault (deposit, redeem, harvest, buyback)
+│   └── ClearcrestAutomation.sol  ← Chainlink Automation upkeep
 ├── tokens/
-│   ├── BGWToken.sol              ← ERC-20 share token (whitelist + blacklist + pause)
-│   ├── BGWGovToken.sol           ← governance token (whitelist-transfer, ERC20Votes)
-│   └── FounderVesting.sol        ← legacy vesting helper; not used by current GOV mint design
+│   ├── CCRToken.sol              ← ERC-20 share token (whitelist + blacklist + pause)
+│   ├── CGOVToken.sol           ← governance token (whitelist-transfer, ERC20Votes)
+│   └── FounderVesting.sol        ← legacy vesting helper; not used by current CGOV mint design
 ├── interfaces/
 │   ├── IAaveV3.sol
 │   ├── ICamelotRouter.sol
@@ -65,8 +65,8 @@ contracts/
     └── MockCamelotRouter.sol     ← test-only swap simulator
 
 test/
-├── BGWToken.t.sol
-├── BGWVault.t.sol
+├── CCRToken.t.sol
+├── ClearcrestVault.t.sol
 └── Automation.t.sol
 ```
 
@@ -103,7 +103,7 @@ Fee-level changes (BPS) and wallet address changes take effect only after a **48
 
 ## Automation (Chainlink)
 
-`BridgewayAutomation` implements `AutomationCompatibleInterface`.
+`ClearcrestAutomation` implements `AutomationCompatibleInterface`.
 
 | Trigger   | Condition |
 |-----------|-----------|
@@ -124,7 +124,7 @@ All findings from an independent security audit (v1.22) have been resolved:
 | C-02 | Protected-token registry blocks aToken / LST drain via `recoverToken` |
 | C-03 | Buybacks are LP-independent reserve injections, avoiding sandwichable swap execution |
 | C-04 | `whenNotPaused` on all automation-facing state-changing functions |
-| C-05 | `minBgwOut` slippage guard on `deposit()` |
+| C-05 | `minCcrOut` slippage guard on `deposit()` |
 | H-02 | Fee-wallet transfers use pull-escrow (`pendingFees`) on failure |
 | H-02a | Escrowed `pendingFees` are excluded from holder NAV so redeemers cannot capture fee liabilities |
 | H-03 | Burns bypass pause; transfers and mints still check `whenNotPaused` |

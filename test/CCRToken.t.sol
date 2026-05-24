@@ -2,10 +2,10 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
-import "../contracts/tokens/BGWToken.sol";
+import "../contracts/tokens/CCRToken.sol";
 
-contract BGWTokenTest is Test {
-    BGWToken token;
+contract CCRTokenTest is Test {
+    CCRToken token;
 
     address admin = makeAddr("admin");
     address minter = makeAddr("minter"); // simulates vault
@@ -15,7 +15,7 @@ contract BGWTokenTest is Test {
 
     function setUp() public {
         vm.prank(admin);
-        token = new BGWToken(admin);
+        token = new CCRToken(admin);
 
         // Use startPrank so STATICCALL role lookups do not consume the prank
         vm.startPrank(admin);
@@ -48,7 +48,7 @@ contract BGWTokenTest is Test {
 
     function test_MintRevertsIfRecipientNotWhitelisted() public {
         vm.prank(minter);
-        vm.expectRevert(abi.encodeWithSelector(BGWToken.NotWhitelisted.selector, charlie));
+        vm.expectRevert(abi.encodeWithSelector(CCRToken.NotWhitelisted.selector, charlie));
         token.mint(charlie, 100e18);
     }
 
@@ -79,7 +79,7 @@ contract BGWTokenTest is Test {
         token.mint(alice, 100e18);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(BGWToken.NotWhitelisted.selector, charlie));
+        vm.expectRevert(abi.encodeWithSelector(CCRToken.NotWhitelisted.selector, charlie));
         token.transfer(charlie, 50e18);
     }
 
@@ -93,7 +93,7 @@ contract BGWTokenTest is Test {
         token.setWhitelisted(alice, false);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(BGWToken.NotWhitelisted.selector, alice));
+        vm.expectRevert(abi.encodeWithSelector(CCRToken.NotWhitelisted.selector, alice));
         token.transfer(bob, 50e18);
     }
 
@@ -104,7 +104,7 @@ contract BGWTokenTest is Test {
         token.setBlacklisted(alice, true);
 
         vm.prank(minter);
-        vm.expectRevert(abi.encodeWithSelector(BGWToken.AccountBlacklisted.selector, alice));
+        vm.expectRevert(abi.encodeWithSelector(CCRToken.AccountBlacklisted.selector, alice));
         token.mint(alice, 100e18);
     }
 
@@ -116,7 +116,7 @@ contract BGWTokenTest is Test {
         token.setBlacklisted(alice, true);
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(BGWToken.AccountBlacklisted.selector, alice));
+        vm.expectRevert(abi.encodeWithSelector(CCRToken.AccountBlacklisted.selector, alice));
         token.transfer(bob, 50e18);
     }
 

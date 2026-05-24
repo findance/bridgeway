@@ -3,13 +3,13 @@ pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-import "../interfaces/IBridgewaySpoke.sol";
+import "../interfaces/IClearcrestSpoke.sol";
 import "../interfaces/INativeStakingAdapter.sol";
 
-/// @title BridgewayNativeSpokePortfolio
+/// @title ClearcrestNativeSpokePortfolio
 /// @notice Chain-local portfolio aggregator for native staking adapters. The
 ///         owner prepares monotonic NAV reports that CCIP can relay to the hub.
-contract BridgewayNativeSpokePortfolio is IBridgewaySpoke, Ownable2Step {
+contract ClearcrestNativeSpokePortfolio is IClearcrestSpoke, Ownable2Step {
     uint256 public constant MAX_ADAPTERS = 10;
 
     uint64 public immutable sourceChainId;

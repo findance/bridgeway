@@ -25,19 +25,19 @@ contract FounderVesting is Ownable2Step {
     using SafeERC20 for IERC20;
 
     // ── Constants ────────────────────────────────────────────────────────────
-    uint256 public constant TOTAL   = 70_000_000e18;
-    uint256 public constant Y1_CUM  = 0;               // year-1 cliff
-    uint256 public constant Y2_CUM  = 17_500_000e18;   // 25 %
-    uint256 public constant Y3_CUM  = 35_000_000e18;   // 50 %
-    uint256 public constant Y4_CUM  = 70_000_000e18;   // 100 %
+    uint256 public constant TOTAL = 70_000_000e18;
+    uint256 public constant Y1_CUM = 0; // year-1 cliff
+    uint256 public constant Y2_CUM = 17_500_000e18; // 25 %
+    uint256 public constant Y3_CUM = 35_000_000e18; // 50 %
+    uint256 public constant Y4_CUM = 70_000_000e18; // 100 %
 
-    uint256 public constant YEAR    = 365 days;
+    uint256 public constant YEAR = 365 days;
 
     // ── State ────────────────────────────────────────────────────────────────
-    IERC20  public immutable govToken;
-    address public           founder;
+    IERC20 public immutable cgovToken;
+    address public founder;
     uint256 public immutable vestingStart;
-    uint256 public           totalClaimed;
+    uint256 public totalClaimed;
 
     // ── Events ───────────────────────────────────────────────────────────────
     event Claimed(address indexed founder, uint256 amount, uint256 totalClaimed);
@@ -48,16 +48,14 @@ contract FounderVesting is Ownable2Step {
     error NotFounder();
 
     // ── Constructor ──────────────────────────────────────────────────────────
-    /// @param _govToken  BGWGovToken address
+    /// @param _cgovToken  CGOVToken address
     /// @param _founder   Founder wallet (receives tokens on claim)
-    constructor(address _govToken, address _founder)
-        Ownable(_founder)
-    {
-        if (_govToken  == address(0)) revert("FV: zero token");
-        if (_founder   == address(0)) revert("FV: zero founder");
+    constructor(address _cgovToken, address _founder) Ownable(_founder) {
+        if (_cgovToken == address(0)) revert("FV: zero token");
+        if (_founder == address(0)) revert("FV: zero founder");
 
-        govToken     = IERC20(_govToken);
-        founder      = _founder;
+        cgovToken = IERC20(_cgovToken);
+        founder = _founder;
         vestingStart = block.timestamp;
     }
 
@@ -69,13 +67,13 @@ contract FounderVesting is Ownable2Step {
         uint256 elapsed = block.timestamp - vestingStart;
 
         if (elapsed < YEAR) {
-            return 0;                   // cliff not reached
+            return 0; // cliff not reached
         } else if (elapsed < 2 * YEAR) {
-            return Y2_CUM;              // year 1-2: 25 %
+            return Y2_CUM; // year 1-2: 25 %
         } else if (elapsed < 3 * YEAR) {
-            return Y3_CUM;              // year 2-3: 50 %
+            return Y3_CUM; // year 2-3: 50 %
         } else {
-            return Y4_CUM;              // year 3+:  100 %
+            return Y4_CUM; // year 3+:  100 %
         }
     }
 
@@ -100,7 +98,7 @@ contract FounderVesting is Ownable2Step {
         if (amount == 0) revert NothingToClaim();
 
         totalClaimed += amount;
-        govToken.safeTransfer(founder, amount);
+        cgovToken.safeTransfer(founder, amount);
 
         emit Claimed(founder, amount, totalClaimed);
     }
@@ -125,10 +123,10 @@ contract FounderVesting is Ownable2Step {
         emit FounderTransferred(msg.sender, founder);
     }
 
-    // ── Emergency: recover non-GOV tokens sent accidentally ─────────────────
-    /// @notice Recover ERC-20 tokens other than the gov token.
+    // ── Emergency: recover non-CGOV tokens sent accidentally ─────────────────
+    /// @notice Recover ERC-20 tokens other than the cgov token.
     function recoverToken(address token, uint256 amount) external onlyOwner {
-        require(token != address(govToken), "FV: cannot recover gov token");
+        require(token != address(cgovToken), "FV: cannot recover cgov token");
         IERC20(token).safeTransfer(owner(), amount);
     }
 }

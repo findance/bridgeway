@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-interface IBridgewaySpoke {
+interface IClearcrestSpoke {
     /// @notice Current confirmed spoke value, normalized to USDC 6 decimals.
     function totalAssets() external view returns (uint256);
 

@@ -4,13 +4,13 @@ pragma solidity 0.8.24;
 import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
-import "../interfaces/IBridgewayRegistry.sol";
+import "../interfaces/IClearcrestRegistry.sol";
 import "../interfaces/IChainlinkAggregator.sol";
 
-/// @title BridgewayRegistry
+/// @title ClearcrestRegistry
 /// @notice Chain-local registry for tokens, price feeds, decimals, and trust
 ///         status. Deploy one registry per chain and keep adapter logic reusable.
-contract BridgewayRegistry is IBridgewayRegistry, Ownable2Step {
+contract ClearcrestRegistry is IClearcrestRegistry, Ownable2Step {
     mapping(bytes32 => AssetConfig) private _assets;
 
     event AssetConfigured(

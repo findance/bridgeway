@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-import "../../contracts/core/BridgewayL1RateReporter.sol";
+import "../../contracts/core/ClearcrestL1RateReporter.sol";
 
 /// @title 11_ReportWstLINKRate
 /// @notice Sends the first or recurring wstLINK rate update from Ethereum to Arbitrum.
@@ -24,7 +24,7 @@ contract ReportWstLINKRate is Script {
 
         vm.startBroadcast(deployerKey);
 
-        bytes32 messageId = BridgewayL1RateReporter(payable(reporterAddress)).reportRate{value: reportValue}();
+        bytes32 messageId = ClearcrestL1RateReporter(payable(reporterAddress)).reportRate{value: reportValue}();
         console.logBytes32(messageId);
 
         vm.stopBroadcast();

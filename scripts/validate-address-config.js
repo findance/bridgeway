@@ -309,8 +309,8 @@ function validateChain(key, chain) {
       if (wrapper.status !== "pending-rate-reporter-deployment" && wrapper.status !== "adapter-ready") {
         fail("chains.42161.stakingWrappers.wstLINK must remain pending until the rate reporter is deployed");
       }
-      if (!wrapper.rateModel || wrapper.rateModel.method !== "bridgeway-ccip-rate-reporter") {
-        fail("chains.42161.stakingWrappers.wstLINK must document bridgeway-ccip-rate-reporter pricing");
+      if (!wrapper.rateModel || wrapper.rateModel.method !== "clearcrest-ccip-rate-reporter") {
+        fail("chains.42161.stakingWrappers.wstLINK must document clearcrest-ccip-rate-reporter pricing");
       }
       if (wrapper.status === "adapter-ready" && !wrapper.rateModel.deployment) {
         fail("chains.42161.stakingWrappers.wstLINK adapter-ready requires rateModel.deployment");

@@ -3,11 +3,11 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-import "../../contracts/core/BridgewayCCIPNAVReceiver.sol";
+import "../../contracts/core/ClearcrestCCIPNAVReceiver.sol";
 
 /// @title 06_DeployCCIPNAVReceiver
 /// @notice Deploys the hub-chain CCIP receiver that forwards verified spoke NAV
-///         reports into BridgewayHubNAV.
+///         reports into ClearcrestHubNAV.
 ///
 /// Required env vars:
 ///   DEPLOYER_PRIVATE_KEY
@@ -28,8 +28,8 @@ contract DeployCCIPNAVReceiver is Script {
 
         vm.startBroadcast(deployerKey);
 
-        BridgewayCCIPNAVReceiver receiver = new BridgewayCCIPNAVReceiver(deployer, router, hubNAV);
-        console.log("BridgewayCCIPNAVReceiver:", address(receiver));
+        ClearcrestCCIPNAVReceiver receiver = new ClearcrestCCIPNAVReceiver(deployer, router, hubNAV);
+        console.log("ClearcrestCCIPNAVReceiver:", address(receiver));
 
         if (receiverOwner != deployer) {
             receiver.transferOwnership(receiverOwner);

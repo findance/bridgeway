@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-/// @notice Minimal Chainlink CCIP router interface used by Bridgeway senders.
+/// @notice Minimal Chainlink CCIP router interface used by Clearcrest senders.
 ///         Kept local so Foundry builds do not depend on a vendored CCIP package.
 interface ICCIPRouterClient {
     struct EVMTokenAmount {

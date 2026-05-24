@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
 
-interface IBridgewayAutomation {
+interface IClearcrestAutomation {
     function lastHarvestTime() external view returns (uint256);
     function lastRebalanceTime() external view returns (uint256);
     function performUpkeep(bytes calldata performData) external;
@@ -29,7 +29,7 @@ contract MonthlyHarvestThenRebalance is Script {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address automationAddr = vm.envAddress("AUTOMATION");
 
-        IBridgewayAutomation automation = IBridgewayAutomation(automationAddr);
+        IClearcrestAutomation automation = IClearcrestAutomation(automationAddr);
 
         uint256 harvestBefore = automation.lastHarvestTime();
         uint256 rebalanceBefore = automation.lastRebalanceTime();

@@ -3,15 +3,15 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 
-import "../contracts/core/BridgewayCCIPNAVReceiver.sol";
-import "../contracts/core/BridgewayHubNAV.sol";
-import "../contracts/core/BridgewaySpokeReporter.sol";
+import "../contracts/core/ClearcrestCCIPNAVReceiver.sol";
+import "../contracts/core/ClearcrestHubNAV.sol";
+import "../contracts/core/ClearcrestSpokeReporter.sol";
 import "../contracts/interfaces/ICCIPReceiver.sol";
 
-contract BridgewayCCIPNAVReceiverTest is Test {
-    BridgewayHubNAV hub;
-    BridgewaySpokeReporter spoke;
-    BridgewayCCIPNAVReceiver receiver;
+contract ClearcrestCCIPNAVReceiverTest is Test {
+    ClearcrestHubNAV hub;
+    ClearcrestSpokeReporter spoke;
+    ClearcrestCCIPNAVReceiver receiver;
 
     uint64 constant BASE_CHAIN_ID = 8453;
     uint64 constant BASE_CCIP_SELECTOR = 15_971_525_489_660_198_786;
@@ -23,9 +23,9 @@ contract BridgewayCCIPNAVReceiverTest is Test {
     address wrongSender = makeAddr("wrongSender");
 
     function setUp() public {
-        hub = new BridgewayHubNAV(owner);
-        spoke = new BridgewaySpokeReporter(owner, BASE_CHAIN_ID);
-        receiver = new BridgewayCCIPNAVReceiver(owner, router, address(hub));
+        hub = new ClearcrestHubNAV(owner);
+        spoke = new ClearcrestSpokeReporter(owner, BASE_CHAIN_ID);
+        receiver = new ClearcrestCCIPNAVReceiver(owner, router, address(hub));
 
         hub.configureSpoke(BASE_CHAIN_ID, address(receiver), 24 hours, 1_000, true, true);
         receiver.configureSource(BASE_CCIP_SELECTOR, BASE_CHAIN_ID, abi.encode(remoteSender), true);
@@ -45,13 +45,13 @@ contract BridgewayCCIPNAVReceiverTest is Test {
     function test_SourceConfigRequiresTimelockAfterBootstrapFinalized() public {
         address replacementSender = makeAddr("replacementSender");
 
-        vm.expectRevert(BridgewayCCIPNAVReceiver.BootstrapActive.selector);
+        vm.expectRevert(ClearcrestCCIPNAVReceiver.BootstrapActive.selector);
         receiver.proposeSourceConfig(BASE_CCIP_SELECTOR, BASE_CHAIN_ID, abi.encode(replacementSender), true);
 
         receiver.finalizeConfiguration();
         assertFalse(receiver.bootstrapMode());
 
-        vm.expectRevert(BridgewayCCIPNAVReceiver.ConfigurationFinalized.selector);
+        vm.expectRevert(ClearcrestCCIPNAVReceiver.ConfigurationFinalized.selector);
         receiver.configureSource(BASE_CCIP_SELECTOR, BASE_CHAIN_ID, abi.encode(replacementSender), true);
 
         uint256 executableAt =
@@ -59,9 +59,7 @@ contract BridgewayCCIPNAVReceiverTest is Test {
 
         vm.expectRevert(
             abi.encodeWithSelector(
-                BridgewayCCIPNAVReceiver.TimelockNotReady.selector,
-                BASE_CCIP_SELECTOR,
-                executableAt
+                ClearcrestCCIPNAVReceiver.TimelockNotReady.selector, BASE_CCIP_SELECTOR, executableAt
             )
         );
         receiver.executeSourceConfig(BASE_CCIP_SELECTOR);
@@ -86,7 +84,7 @@ contract BridgewayCCIPNAVReceiverTest is Test {
         ICCIPReceiver.Any2EVMMessage memory message = _message(abi.encode(remoteSender), spoke.buildReport());
 
         vm.prank(wrongRouter);
-        vm.expectRevert(BridgewayCCIPNAVReceiver.InvalidRouter.selector);
+        vm.expectRevert(ClearcrestCCIPNAVReceiver.InvalidRouter.selector);
         receiver.ccipReceive(message);
     }
 
@@ -95,7 +93,7 @@ contract BridgewayCCIPNAVReceiverTest is Test {
         ICCIPReceiver.Any2EVMMessage memory message = _message(abi.encode(wrongSender), spoke.buildReport());
 
         vm.prank(router);
-        vm.expectRevert(BridgewayCCIPNAVReceiver.InvalidSourceSender.selector);
+        vm.expectRevert(ClearcrestCCIPNAVReceiver.InvalidSourceSender.selector);
         receiver.ccipReceive(message);
     }
 
@@ -106,19 +104,19 @@ contract BridgewayCCIPNAVReceiverTest is Test {
 
         vm.prank(router);
         vm.expectRevert(
-            abi.encodeWithSelector(BridgewayCCIPNAVReceiver.SourceDisabled.selector, BASE_CCIP_SELECTOR + 1)
+            abi.encodeWithSelector(ClearcrestCCIPNAVReceiver.SourceDisabled.selector, BASE_CCIP_SELECTOR + 1)
         );
         receiver.ccipReceive(message);
     }
 
     function test_CcipReceiverRejectsReportChainMismatch() public {
-        BridgewaySpokeReporter avaxSpoke = new BridgewaySpokeReporter(owner, 43114);
+        ClearcrestSpokeReporter avaxSpoke = new ClearcrestSpokeReporter(owner, 43114);
         avaxSpoke.updateLocalNAV(1_000e18);
         ICCIPReceiver.Any2EVMMessage memory message = _message(abi.encode(remoteSender), avaxSpoke.buildReport());
 
         vm.prank(router);
         vm.expectRevert(
-            abi.encodeWithSelector(BridgewayCCIPNAVReceiver.SourceChainMismatch.selector, BASE_CHAIN_ID, 43114)
+            abi.encodeWithSelector(ClearcrestCCIPNAVReceiver.SourceChainMismatch.selector, BASE_CHAIN_ID, 43114)
         );
         receiver.ccipReceive(message);
     }
@@ -129,7 +127,7 @@ contract BridgewayCCIPNAVReceiverTest is Test {
         vm.warp(block.timestamp + 25 hours);
 
         vm.prank(router);
-        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.StaleReport.selector, BASE_CHAIN_ID));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestHubNAV.StaleReport.selector, BASE_CHAIN_ID));
         receiver.ccipReceive(message);
     }
 

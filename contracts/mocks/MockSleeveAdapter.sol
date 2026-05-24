@@ -16,7 +16,7 @@ contract MockSleeveAdapter is ISleeveAdapter {
 
     /// @notice Yield queued by `simulateYield` to be released on the next
     ///         `harvest()` call. Forwarded to the vault as realised USDC so
-    ///         BGWVault can redeploy it according to each sleeve's policy.
+    ///         ClearcrestVault can redeploy it according to each sleeve's policy.
     uint256 public pendingHarvest;
 
     constructor(address _vault, address _usdc) {
@@ -50,7 +50,7 @@ contract MockSleeveAdapter is ISleeveAdapter {
     }
 
     /// @notice L-01: full unwind back to the vault. Mirrors the real adapter
-    ///         emergency path used by `BGWVault.emergencyUnwindSleeves`.
+    ///         emergency path used by `ClearcrestVault.emergencyUnwindSleeves`.
     function emergencyWithdrawAll() external returns (uint256 usdcReturned) {
         usdcReturned = totalAssets;
         totalAssets = 0;

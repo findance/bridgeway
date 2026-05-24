@@ -15,7 +15,7 @@ async function main() {
       address: deployments.implAddress,
       constructorArguments: [
         deployments.config.enzymeVault,
-        deployments.config.bgwToken,
+        deployments.config.ccrToken,
         deployments.config.usdcToken,
         deployments.config.camelotRouter,
         deployments.config.priceFeed,

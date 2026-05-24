@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 
 import "../../contracts/adapters/BaseCBBTCYieldAdapter.sol";
-import "../../contracts/core/BridgewayHubNAV.sol";
-import "../../contracts/core/BridgewaySpokeReporter.sol";
+import "../../contracts/core/ClearcrestHubNAV.sol";
+import "../../contracts/core/ClearcrestSpokeReporter.sol";
 import "../../contracts/mocks/MockAToken.sol";
 import "../../contracts/mocks/MockAaveV3Pool.sol";
 import "../../contracts/mocks/MockAerodromeCbbtcStrategy.sol";
@@ -17,9 +17,9 @@ contract NavRateFuzzTest is Test {
     uint64 constant AVAX_CHAIN_ID = 43114;
     uint256 constant BPS_DENOM = 10_000;
 
-    BridgewayHubNAV hub;
-    BridgewaySpokeReporter baseSpoke;
-    BridgewaySpokeReporter avaxSpoke;
+    ClearcrestHubNAV hub;
+    ClearcrestSpokeReporter baseSpoke;
+    ClearcrestSpokeReporter avaxSpoke;
 
     MockERC20 cbbtc;
     MockAToken aCbbtc;
@@ -29,9 +29,9 @@ contract NavRateFuzzTest is Test {
     BaseCBBTCYieldAdapter cbbtcAdapter;
 
     function setUp() public {
-        hub = new BridgewayHubNAV(address(this));
-        baseSpoke = new BridgewaySpokeReporter(address(this), BASE_CHAIN_ID);
-        avaxSpoke = new BridgewaySpokeReporter(address(this), AVAX_CHAIN_ID);
+        hub = new ClearcrestHubNAV(address(this));
+        baseSpoke = new ClearcrestSpokeReporter(address(this), BASE_CHAIN_ID);
+        avaxSpoke = new ClearcrestSpokeReporter(address(this), AVAX_CHAIN_ID);
 
         hub.configureSpoke(BASE_CHAIN_ID, address(baseSpoke), 24 hours, 3_000, true, true);
         hub.configureSpoke(AVAX_CHAIN_ID, address(avaxSpoke), 24 hours, 3_000, true, true);
@@ -81,7 +81,7 @@ contract NavRateFuzzTest is Test {
             abi.decode(baseSpoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
 
         vm.prank(address(baseSpoke));
-        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.NavMoveTooLarge.selector, BASE_CHAIN_ID));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestHubNAV.NavMoveTooLarge.selector, BASE_CHAIN_ID));
         hub.reportSpokeNAV(BASE_CHAIN_ID, navUsd18, reportedAt, sourceBlockNumber, nonce);
     }
 
@@ -116,7 +116,7 @@ contract NavRateFuzzTest is Test {
 
         vm.warp(block.timestamp + delay);
 
-        vm.expectRevert(abi.encodeWithSelector(BridgewayHubNAV.StaleReport.selector, BASE_CHAIN_ID));
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestHubNAV.StaleReport.selector, BASE_CHAIN_ID));
         hub.totalSpokeNAV18();
     }
 
@@ -128,8 +128,7 @@ contract NavRateFuzzTest is Test {
         cbbtc.mint(address(cbbtcAdapter), uint256(amountCbbtc));
         cbbtcAdapter.deploy(uint256(amountCbbtc));
 
-        uint256 expectedUsdc =
-            (uint256(amountCbbtc) * uint256(btcUsdPrice8) * 1e6) / 1e16;
+        uint256 expectedUsdc = (uint256(amountCbbtc) * uint256(btcUsdPrice8) * 1e6) / 1e16;
         assertEq(cbbtcAdapter.totalAssetsUSDC(), expectedUsdc);
     }
 
@@ -143,7 +142,7 @@ contract NavRateFuzzTest is Test {
         assertLe(uint256(amount) - recovered, (1e18 / uint256(ratio)) + 1);
     }
 
-    function _report(BridgewaySpokeReporter spoke, uint64 chainId, uint256 navUsd18) internal {
+    function _report(ClearcrestSpokeReporter spoke, uint64 chainId, uint256 navUsd18) internal {
         spoke.updateLocalNAV(navUsd18);
         (, uint256 reportNavUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce) =
             abi.decode(spoke.buildReport(), (uint64, uint256, uint256, uint256, uint64));
