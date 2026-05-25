@@ -2334,6 +2334,48 @@ contract ClearcrestVaultTest is Test {
         vault.harvestSleeves(sleeveA);
     }
 
+    function test_DeployIdleReserveKeepsFiveUsdcFloorAndRoutesExcess() public {
+        uint8 sleeveA = vault.SLEEVE_A();
+        uint8 sleeveB = vault.SLEEVE_B();
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        MockSleeveAdapter adapterB = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(sleeveA, address(adapterA));
+        _wireRoute(sleeveB, address(adapterB));
+
+        vm.startPrank(founder);
+        vault.setMinSleeveRouteDepositUsdc(0);
+        vault.setSmallDepositStableOnlyThresholdUsdc(0);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 15e6);
+        vault.fundRedemptionReserve(15e6);
+        vm.stopPrank();
+
+        vm.prank(founder);
+        vault.deployIdleReserve(10e6);
+
+        assertEq(vault.idleRedemptionReserveUsdc(), 5e6);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 5e6);
+        assertEq(adapterA.totalAssetsUSDC(), 4_750_000);
+        assertEq(adapterB.totalAssetsUSDC(), 5_250_000);
+    }
+
+    function test_DeployIdleReserveRejectsFloorAndNonOwner() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 5e6);
+        vault.fundRedemptionReserve(5e6);
+        vm.stopPrank();
+
+        vm.expectRevert();
+        vm.prank(alice);
+        vault.deployIdleReserve(1);
+
+        vm.prank(founder);
+        vault.deployIdleReserve(1);
+        assertEq(vault.idleRedemptionReserveUsdc(), 5e6);
+    }
+
     function test_EmergencyUnwindSleevesReturnsFundsToVault() public {
         uint8 sleeveA = vault.SLEEVE_A();
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);

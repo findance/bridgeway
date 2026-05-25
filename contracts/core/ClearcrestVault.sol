@@ -531,7 +531,14 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
 
         if (grossUsdc > totalLocalNAV()) {
             _queueRedemption(
-                msg.sender, ccrAmount, grossUsdc, quotedNetUsdc, exitFeeUsdc, perfFeeUsdc, currentNav18ForHwm, effectiveHwm
+                msg.sender,
+                ccrAmount,
+                grossUsdc,
+                quotedNetUsdc,
+                exitFeeUsdc,
+                perfFeeUsdc,
+                currentNav18ForHwm,
+                effectiveHwm
             );
             return;
         }
@@ -843,6 +850,16 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         }
     }
 
+    /// @notice Deploy idle redemption reserve above the permanent 5 USDC floor
+    ///         back through the normal sleeve allocation policy.
+    function deployIdleReserve(uint256 amount) external onlyOwner {
+        if (idleRedemptionReserveUsdc < amount + 5e6) return;
+        unchecked {
+            idleRedemptionReserveUsdc -= amount;
+        }
+        _deployToSleevesUnbuffered(amount);
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Admin functions
     // ─────────────────────────────────────────────────────────────────────────
@@ -954,10 +971,9 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     ///         Used by ClearcrestAdmin after emergency adapter unwinds send USDC
     ///         directly back to the vault.
     function creditRedemptionReserveFromIdle(uint256 amount) external onlyOwner {
-        if (amount == 0) revert ZeroAmount();
         uint256 available = _availableUSDC();
         if (amount > available) amount = available;
-        if (amount == 0) revert ZeroAmount();
+        if (amount == 0) return;
         idleRedemptionReserveUsdc += amount;
         emit RedemptionReserveFunded(msg.sender, amount);
     }
