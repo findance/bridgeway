@@ -13,6 +13,7 @@ contract MockSleeveAdapter is ISleeveAdapter {
     address public immutable vault;
     IERC20 public immutable usdc;
     uint256 public totalAssets;
+    uint256 public withdrawHaircutBps;
 
     /// @notice Yield queued by `simulateYield` to be released on the next
     ///         `harvest()` call. Forwarded to the vault as realised USDC so
@@ -38,6 +39,9 @@ contract MockSleeveAdapter is ISleeveAdapter {
     function withdraw(uint256 usdcAmount) external onlyVault returns (uint256 usdcReturned) {
         usdcReturned = usdcAmount > totalAssets ? totalAssets : usdcAmount;
         totalAssets -= usdcReturned;
+        if (withdrawHaircutBps != 0) {
+            usdcReturned -= (usdcReturned * withdrawHaircutBps) / 10_000;
+        }
         usdc.safeTransfer(vault, usdcReturned);
     }
 
@@ -65,6 +69,11 @@ contract MockSleeveAdapter is ISleeveAdapter {
 
     function setTotalAssets(uint256 newTotalAssets) external {
         totalAssets = newTotalAssets;
+    }
+
+    function setWithdrawHaircutBps(uint256 bps) external {
+        require(bps <= 10_000, "MockSleeveAdapter: bad bps");
+        withdrawHaircutBps = bps;
     }
 
     /// @notice Queue `amount` of USDC yield to be realised on the next harvest.

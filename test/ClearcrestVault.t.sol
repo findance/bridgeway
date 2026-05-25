@@ -56,6 +56,8 @@ contract MockUSDC {
 contract MockAutomationStub {}
 
 contract ClearcrestVaultTest is Test {
+    using stdStorage for StdStorage;
+
     CCRToken ccrToken;
     CGOVToken cgovToken;
     ClearcrestVault vault;
@@ -709,6 +711,52 @@ contract ClearcrestVaultTest is Test {
         vm.prank(alice);
         vm.expectRevert();
         vault.redeem(aliceCCR, 1_000e6);
+    }
+
+    function test_RedeemPaysActualSleeveProceedsWhenLiquidationHaircuts() public {
+        uint8 sleeveA = vault.SLEEVE_A();
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(sleeveA, address(adapterA));
+
+        vm.startPrank(founder);
+        vault.setSleeveDepositWeights(10_000, 0, 0);
+        vault.setExitFeeBps(0);
+        vm.stopPrank();
+        adapterA.setWithdrawHaircutBps(1_000); // 10% realised unwind shortfall
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 100e6);
+        vault.deposit(100e6, 0);
+        uint256 usdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vault.redeem(ccrToken.balanceOf(alice), 0);
+        vm.stopPrank();
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(alice) - usdcBefore, 90e6);
+        assertEq(ccrToken.balanceOf(alice), 0);
+        assertEq(adapterA.totalAssetsUSDC(), 0);
+    }
+
+    function test_RedeemActualProceedsStillRespectMinUSDC() public {
+        uint8 sleeveA = vault.SLEEVE_A();
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+        _wireRoute(sleeveA, address(adapterA));
+
+        vm.startPrank(founder);
+        vault.setSleeveDepositWeights(10_000, 0, 0);
+        vault.setExitFeeBps(0);
+        vm.stopPrank();
+        adapterA.setWithdrawHaircutBps(1_000);
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 100e6);
+        vault.deposit(100e6, 0);
+        uint256 aliceCCR = ccrToken.balanceOf(alice);
+        vm.expectRevert();
+        vault.redeem(aliceCCR, 95e6);
+        vm.stopPrank();
+
+        assertEq(ccrToken.balanceOf(alice), aliceCCR);
+        assertEq(adapterA.totalAssetsUSDC(), 100e6);
     }
 
     // ── FeeLib math ──────────────────────────────────────────────────────────
@@ -2151,6 +2199,30 @@ contract ClearcrestVaultTest is Test {
         vm.prank(alice);
         vm.expectRevert();
         vault.setMaxDepositCap(100e6);
+    }
+
+    function test_PauseBlocksDepositsForDecommission() public {
+        vm.prank(founder);
+        vault.pause();
+
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vm.expectRevert();
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+    }
+
+    function test_FinalTreasuryRecoveryCanSweepBuybackDustAfterSupplyAndNAVAreZero() public {
+        MockUSDC(USDC_ADDR).mint(address(vault), 4135);
+        stdstore.target(address(vault)).sig(vault.buybackAccumulator.selector).checked_write(4135);
+
+        uint256 beforeBalance = MockUSDC(USDC_ADDR).balanceOf(founder);
+        vm.prank(founder);
+        vault.recoverTreasuryVaultUSDC(founder, 4135);
+
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(founder) - beforeBalance, 4135);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
+        assertEq(vault.buybackAccumulator(), 0);
     }
 
     // ──────────────────────────────────────────────────────────────────────

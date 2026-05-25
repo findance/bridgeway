@@ -519,9 +519,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
             uint256 yieldUsdc = (ccrAmount * yieldPerCCR18) / 1e30;
             perfFeeUsdc = FeeLib.calcPerfFee(yieldUsdc);
         }
-
-        uint256 netUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
-        if (netUsdc < minUSDC) revert SlippageTooHigh(netUsdc, minUSDC);
+        uint256 quotedNetUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
 
         uint256 currentNav18ForHwm = currentNav18;
 
@@ -533,12 +531,21 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
 
         if (grossUsdc > totalLocalNAV()) {
             _queueRedemption(
-                msg.sender, ccrAmount, grossUsdc, netUsdc, exitFeeUsdc, perfFeeUsdc, currentNav18ForHwm, effectiveHwm
+                msg.sender, ccrAmount, grossUsdc, quotedNetUsdc, exitFeeUsdc, perfFeeUsdc, currentNav18ForHwm, effectiveHwm
             );
             return;
         }
 
         _fundRedemptionFromLiquidSleeves(grossUsdc);
+
+        uint256 realisedGrossUsdc = _availableUSDC();
+        if (realisedGrossUsdc > grossUsdc) realisedGrossUsdc = grossUsdc;
+        if (realisedGrossUsdc < grossUsdc) {
+            exitFeeUsdc = (exitFeeUsdc * realisedGrossUsdc) / grossUsdc;
+            perfFeeUsdc = (perfFeeUsdc * realisedGrossUsdc) / grossUsdc;
+        }
+        uint256 netUsdc = realisedGrossUsdc - exitFeeUsdc - perfFeeUsdc;
+        if (netUsdc < minUSDC) revert SlippageTooHigh(netUsdc, minUSDC);
 
         if (perfFeeUsdc > 0) {
             _distributePerfFee(perfFeeUsdc);
@@ -1114,7 +1121,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
 
     function _deployToSleevesUnbuffered(uint256 usdcAmount) internal {
         if (usdcAmount == 0) return;
-
         uint256 stableOnlyThreshold = smallDepositStableOnlyThresholdUsdc;
         if (stableOnlyThreshold != 0 && usdcAmount < stableOnlyThreshold) {
             _deployToSleeve(SLEEVE_B, usdcAmount, true);
@@ -1334,6 +1340,10 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
 
     function _recoverTreasuryVaultUSDC(address to, uint256 amount) internal {
         uint256 available = _availableUSDCForFees();
+        if (amount > available && ccrToken.totalSupply() == 0) {
+            buybackAccumulator = 0;
+            available = IERC20(USDC).balanceOf(address(this));
+        }
         if (amount > available) amount = available;
         if (amount == 0) revert ZeroAmount();
 
