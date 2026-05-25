@@ -267,6 +267,24 @@
             "status": "manual_confirmation_required",
             "requires_due_diligence": true,
             "source": "https://app.morpho.org/?network=base \u2014 pick the approved curator and verify asset()==USDC, 90d uptime, no batch redemption"
+          },
+          "ethVaultA": {
+            "name": "Moonwell Flagship ETH",
+            "symbol": "mwETH",
+            "address": "0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1",
+            "asset": "0x4200000000000000000000000000000000000006",
+            "status": "confirmed_by_eth_call",
+            "requires_due_diligence": true,
+            "source": "Base RPC eth_call: name(), symbol(), asset()==WETH, totalAssets()"
+          },
+          "ethVaultB": {
+            "name": "Gauntlet WETH Core",
+            "symbol": "gtWETHc",
+            "address": "0x6b13c060F13Af1fdB319F52315BbbF3fb1D88844",
+            "asset": "0x4200000000000000000000000000000000000006",
+            "status": "confirmed_by_eth_call",
+            "requires_due_diligence": true,
+            "source": "Base RPC eth_call: name(), symbol(), asset()==WETH, totalAssets()"
           }
         },
         "aerodrome": {
@@ -281,9 +299,9 @@
             "note": "Slipstream NonfungiblePositionManager"
           },
           "swapRouter": {
-            "address": "TODO_AERODROME_SWAP_ROUTER",
-            "status": "manual_confirmation_required",
-            "note": "Slipstream SwapRouter (exactInputSingle / exactInput)"
+            "address": "0xBE6D8f0d05cC4be24d5167a3eF062215bE6D18a5",
+            "status": "confirmed_by_live_deployment",
+            "note": "Slipstream SwapRouter used by current cbBTC Sleeve A deployment; supports exactInputSingle / exactInput"
           },
           "gauge": {
             "address": "TODO_AERODROME_CL_GAUGE_OR_ZERO",
