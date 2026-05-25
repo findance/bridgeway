@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "forge-std/Test.sol";
 import "../contracts/tokens/CCRToken.sol";
 import "../contracts/tokens/CGOVToken.sol";
+import "../contracts/core/ClearcrestAdmin.sol";
 import "../contracts/core/ClearcrestVault.sol";
 import "../contracts/core/ClearcrestHubNAV.sol";
 import "../contracts/core/ClearcrestSpokeReporter.sol";
@@ -140,6 +141,12 @@ contract ClearcrestVaultTest is Test {
         vm.prank(founder);
         vault.setAutomation(automationAddr);
         vm.warp(block.timestamp + 180 days);
+    }
+
+    function _installAdminOwner() internal returns (ClearcrestAdmin admin) {
+        admin = new ClearcrestAdmin(address(vault), founder, 0);
+        vm.prank(founder);
+        vault.transferOwnership(address(admin));
     }
 
     function _wireHubNAV(uint256 spokeNav18) internal returns (ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke) {
@@ -368,7 +375,7 @@ contract ClearcrestVaultTest is Test {
 
         vm.startPrank(founder);
         cgovToken.grantRole(cgovToken.MINTER_ROLE(), founder);
-        vm.expectRevert("CGOV: depositor not whitelisted");
+        vm.expectRevert(abi.encodeWithSelector(CGOVToken.DepositorNotWhitelisted.selector, outsider));
         cgovToken.mintForDeposit(outsider, 1_000e18);
         vm.stopPrank();
     }
@@ -382,7 +389,7 @@ contract ClearcrestVaultTest is Test {
         address outsider = makeAddr("outsider");
 
         vm.prank(founder);
-        vm.expectRevert("CGOV: recipient not whitelisted");
+        vm.expectRevert(abi.encodeWithSelector(CGOVToken.RecipientNotWhitelisted.selector, outsider));
         cgovToken.transfer(outsider, 1e18);
     }
 
@@ -411,7 +418,7 @@ contract ClearcrestVaultTest is Test {
         vm.stopPrank();
 
         vm.prank(alice);
-        vm.expectRevert("CGOV: transfers follow CCR");
+        vm.expectRevert(CGOVToken.TransfersFollowCCR.selector);
         cgovToken.transfer(bob, 1e18);
     }
 
@@ -425,7 +432,7 @@ contract ClearcrestVaultTest is Test {
         uint256 aliceGov = cgovToken.balanceOf(alice); // capture before prank (vm.prank is one-shot)
 
         vm.prank(alice);
-        vm.expectRevert("CGOV: transfers follow CCR");
+        vm.expectRevert(CGOVToken.TransfersFollowCCR.selector);
         cgovToken.transfer(outsider, aliceGov);
     }
 
@@ -577,60 +584,10 @@ contract ClearcrestVaultTest is Test {
         vm.prank(alice);
         vault.redeem(500e18, 0);
 
+        assertEq(vault.queuedRedemptionCount(), 1);
         assertEq(vault.totalQueuedRedemptionGross(), 2_000e6);
         assertEq(vault.totalQueuedRedemptionNAVLiability(), 2_000e6);
-        assertEq(vault.totalSpokeNAV(), 3_000e6);
-        assertEq(vault.totalNAV(), 2_000e6);
-        assertEq(ccrToken.totalSupply(), 500e18);
-    }
-
-    function test_QueuedRedemptionClaimsAfterSpokeLiquidityAcknowledged() public {
-        vm.startPrank(alice);
-        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6, 0);
-        vm.stopPrank();
-
-        (ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke) = _wireHubNAVWithMoveLimit(3_000e18, 3_000);
-
-        vm.prank(alice);
-        vault.redeem(500e18, 0);
-
-        MockUSDC(USDC_ADDR).mint(address(vault), 2_000e6);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.QueuedRedemptionNotReady.selector, 1, 2_000e6));
-        vault.claimQueuedRedemption(1);
-
-        _stepSpokeNAVDownWithinMoveLimit(hub, spoke, 1_000e18);
-
-        vm.prank(founder);
-        vault.acknowledgeQueuedRedemptionLiquidity(1, 2_000e6);
-
-        uint256 aliceUsdcBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
-        vm.prank(alice);
-        vault.claimQueuedRedemption(1);
-
-        assertEq(MockUSDC(USDC_ADDR).balanceOf(alice) - aliceUsdcBefore, 1_773e6);
-        assertEq(MockUSDC(USDC_ADDR).balanceOf(holdback), 69_500_000);
-        assertEq(vault.totalQueuedRedemptionGross(), 0);
-        assertEq(vault.totalQueuedRedemptionNAVLiability(), 0);
-        assertEq(vault.totalNAV(), 2_000e6);
-    }
-
-    function test_AcknowledgeQueuedRedemptionRequiresSpokeNavDrop() public {
-        vm.startPrank(alice);
-        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
-        vault.deposit(1_000e6, 0);
-        vm.stopPrank();
-
-        _wireHubNAVWithMoveLimit(3_000e18, 3_000);
-
-        vm.prank(alice);
-        vault.redeem(500e18, 0);
-
-        vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.QueuedRedemptionNotReady.selector, 1, 1_000e6));
-        vault.acknowledgeQueuedRedemptionLiquidity(1, 2_000e6);
+        assertEq(ccrToken.balanceOf(alice), 500e18);
     }
 
     // ── Redeem ────────────────────────────────────────────────────────────────
@@ -1260,45 +1217,59 @@ contract ClearcrestVaultTest is Test {
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
     }
 
-    function test_PostBootstrapTreasuryVaultUSDCRecoveryRequiresTimelock() public {
+    function test_AdminTreasuryVaultUSDCRecoveryRequiresTimelock() public {
         MockUSDC(USDC_ADDR).mint(address(vault), 2e6);
 
-        vm.prank(founder);
-        vault.finalizeBootstrap();
+        ClearcrestAdmin admin = _installAdminOwner();
 
+        ClearcrestAdmin.Call[] memory finalizeCalls = new ClearcrestAdmin.Call[](1);
+        finalizeCalls[0] =
+            ClearcrestAdmin.Call({target: address(vault), data: abi.encodeCall(ClearcrestVault.finalizeBootstrap, ())});
         vm.prank(founder);
-        vault.recoverTreasuryVaultUSDC(founder, 2e6);
+        admin.executeBootstrapOperation(finalizeCalls);
 
-        (address to, uint256 amount, uint256 executeAfter) = vault.pendingTreasuryVaultUSDCRecovery();
-        assertEq(to, founder);
-        assertEq(amount, 2e6);
+        ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](1);
+        calls[0] = ClearcrestAdmin.Call({
+            target: address(vault), data: abi.encodeCall(ClearcrestVault.recoverTreasuryVaultUSDC, (founder, 2e6))
+        });
+        bytes32 operationId = bytes32("RECOVER_USDC");
+        vm.prank(founder);
+        uint256 executeAfter = admin.proposeOperation(operationId, calls);
+
         assertEq(executeAfter, block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY);
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 2e6);
 
         vm.prank(founder);
-        vm.expectRevert(abi.encodeWithSelector(ClearcrestVault.TimelockNotReady.selector, executeAfter));
-        vault.executeTreasuryVaultUSDCRecovery();
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestAdmin.TimelockNotReady.selector, executeAfter));
+        admin.executeOperation(operationId, calls);
 
         uint256 beforeBalance = MockUSDC(USDC_ADDR).balanceOf(founder);
 
         vm.warp(executeAfter);
         vm.prank(founder);
-        vault.executeTreasuryVaultUSDCRecovery();
+        admin.executeOperation(operationId, calls);
 
         assertEq(MockUSDC(USDC_ADDR).balanceOf(founder) - beforeBalance, 2e6);
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 0);
     }
 
-    function test_PostBootstrapTreasuryVaultUSDCRecoveryCanBeCancelled() public {
+    function test_AdminTreasuryVaultUSDCRecoveryCanBeCancelled() public {
         MockUSDC(USDC_ADDR).mint(address(vault), 2e6);
 
-        vm.startPrank(founder);
-        vault.finalizeBootstrap();
-        vault.recoverTreasuryVaultUSDC(founder, 2e6);
-        vault.cancelTreasuryVaultUSDCRecovery();
-        vm.expectRevert(ClearcrestVault.NoPendingTreasuryVaultUSDCRecovery.selector);
-        vault.executeTreasuryVaultUSDCRecovery();
-        vm.stopPrank();
+        ClearcrestAdmin admin = _installAdminOwner();
+        ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](1);
+        calls[0] = ClearcrestAdmin.Call({
+            target: address(vault), data: abi.encodeCall(ClearcrestVault.recoverTreasuryVaultUSDC, (founder, 2e6))
+        });
+
+        bytes32 operationId = bytes32("RECOVER_USDC");
+        vm.prank(founder);
+        admin.proposeOperation(operationId, calls);
+        vm.prank(founder);
+        admin.cancelOperation(operationId);
+        vm.prank(founder);
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestAdmin.NoPendingOperation.selector, operationId));
+        admin.executeOperation(operationId, calls);
 
         assertEq(MockUSDC(USDC_ADDR).balanceOf(address(vault)), 2e6);
     }
@@ -1309,23 +1280,25 @@ contract ClearcrestVaultTest is Test {
         vault.setProtectedToken(address(0), true);
     }
 
-    function test_BatchProtectedTokens() public {
-        address[] memory tokens = new address[](3);
-        tokens[0] = makeAddr("pt1");
-        tokens[1] = makeAddr("pt2");
-        tokens[2] = makeAddr("glp");
+    function test_SetProtectedTokensIndividually() public {
+        address token0 = makeAddr("pt1");
+        address token1 = makeAddr("pt2");
+        address token2 = makeAddr("glp");
 
         vm.prank(founder);
-        vault.setProtectedTokenBatch(tokens, true);
-
-        assertTrue(vault.protectedTokens(tokens[0]));
-        assertTrue(vault.protectedTokens(tokens[1]));
-        assertTrue(vault.protectedTokens(tokens[2]));
-
-        // Unprotect all in one call
+        vault.setProtectedToken(token0, true);
         vm.prank(founder);
-        vault.setProtectedTokenBatch(tokens, false);
-        assertFalse(vault.protectedTokens(tokens[0]));
+        vault.setProtectedToken(token1, true);
+        vm.prank(founder);
+        vault.setProtectedToken(token2, true);
+
+        assertTrue(vault.protectedTokens(token0));
+        assertTrue(vault.protectedTokens(token1));
+        assertTrue(vault.protectedTokens(token2));
+
+        vm.prank(founder);
+        vault.setProtectedToken(token0, false);
+        assertFalse(vault.protectedTokens(token0));
     }
 
     function test_KnownAaveATokensProtectedAtDeploy() public view {
@@ -2004,8 +1977,12 @@ contract ClearcrestVaultTest is Test {
         vm.prank(founder);
         cgovToken.proposeVaultReference(newVault);
 
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CGOVToken.VaultRefTimelockNotElapsed.selector, block.timestamp + cgovToken.VAULT_REF_DELAY()
+            )
+        );
         vm.prank(founder);
-        vm.expectRevert("CGOV: timelock not elapsed");
         cgovToken.executeVaultReference();
     }
 
@@ -2031,7 +2008,7 @@ contract ClearcrestVaultTest is Test {
 
         vm.warp(block.timestamp + cgovToken.VAULT_REF_DELAY());
         vm.prank(founder);
-        vm.expectRevert("CGOV: no pending vault ref");
+        vm.expectRevert(CGOVToken.NoPendingVaultRef.selector);
         cgovToken.executeVaultReference();
     }
 
@@ -2177,7 +2154,7 @@ contract ClearcrestVaultTest is Test {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // L-01 + N-05 patch tests: harvestSleeves and emergencyUnwindSleeves
+    // L-01 + N-05 patch tests: harvestSleeves and admin emergency unwind
     // ──────────────────────────────────────────────────────────────────────
 
     function _wireRoute(uint8 sleeve, address adapter) internal {
@@ -2302,8 +2279,9 @@ contract ClearcrestVaultTest is Test {
         uint256 vaultBefore = MockUSDC(USDC_ADDR).balanceOf(address(vault));
         uint256 reserveBefore = vault.idleRedemptionReserveUsdc();
 
+        ClearcrestAdmin admin = _installAdminOwner();
         vm.prank(founder);
-        uint256 arrived = vault.emergencyUnwindSleeves(sleeveA);
+        uint256 arrived = admin.emergencyUnwindSleeves(sleeveA);
 
         assertEq(arrived, aAssets, "USDC delta wrong");
         assertEq(adapterA.totalAssetsUSDC(), 0, "adapter not emptied");
@@ -2316,16 +2294,18 @@ contract ClearcrestVaultTest is Test {
         MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
         _wireRoute(sleeveA, address(adapterA));
 
+        ClearcrestAdmin admin = _installAdminOwner();
         vm.expectRevert();
         vm.prank(alice);
-        vault.emergencyUnwindSleeves(sleeveA);
+        admin.emergencyUnwindSleeves(sleeveA);
     }
 
     function test_EmergencyUnwindSleevesNoRoutes() public {
         // No routes configured -> returns 0 cleanly without revert.
         uint8 sleeveC = vault.SLEEVE_C();
+        ClearcrestAdmin admin = _installAdminOwner();
         vm.prank(founder);
-        uint256 arrived = vault.emergencyUnwindSleeves(sleeveC);
+        uint256 arrived = admin.emergencyUnwindSleeves(sleeveC);
         assertEq(arrived, 0);
     }
 }

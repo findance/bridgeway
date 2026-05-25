@@ -25,6 +25,9 @@ contract MonthlyHarvestThenRebalance is Script {
     bytes32 internal constant ACTION_HARVEST = keccak256("HARVEST");
     bytes32 internal constant ACTION_REBALANCE = keccak256("REBALANCE");
 
+    error HarvestDidNotAdvance();
+    error RebalanceDidNotAdvance();
+
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address automationAddr = vm.envAddress("AUTOMATION");
@@ -39,14 +42,14 @@ contract MonthlyHarvestThenRebalance is Script {
         vm.stopBroadcast();
 
         uint256 harvestAfter = automation.lastHarvestTime();
-        require(harvestAfter > harvestBefore, "Monthly ops: harvest did not advance");
+        if (harvestAfter <= harvestBefore) revert HarvestDidNotAdvance();
 
         vm.startBroadcast(deployerKey);
         automation.performUpkeep(abi.encode(ACTION_REBALANCE));
         vm.stopBroadcast();
 
         uint256 rebalanceAfter = automation.lastRebalanceTime();
-        require(rebalanceAfter > rebalanceBefore, "Monthly ops: rebalance did not advance");
+        if (rebalanceAfter <= rebalanceBefore) revert RebalanceDidNotAdvance();
 
         console.log("Automation:", automationAddr);
         console.log("Harvest before:", harvestBefore);

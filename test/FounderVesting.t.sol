@@ -183,7 +183,7 @@ contract FounderVestingTest is Test {
         // by just minting via cgovToken mock. Use a second cgovToken as "other token".
         // Simplest: just verify the revert for cgov token recovery.
         vm.prank(founder);
-        vm.expectRevert("FV: cannot recover cgov token");
+        vm.expectRevert(FounderVesting.CannotRecoverCGOVToken.selector);
         vesting.recoverToken(address(cgovToken), 1e18);
     }
 }

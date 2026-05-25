@@ -297,13 +297,13 @@ contract AutomationTest is Test {
 
         // Immediately try again — should revert
         bytes memory data = abi.encode(keccak256("HARVEST"));
-        vm.expectRevert("BA: harvest not due");
+        vm.expectRevert(ClearcrestAutomation.HarvestNotDue.selector);
         automation.performUpkeep(data);
     }
 
     function test_PerformUpkeepRevertsOnUnknownAction() public {
         bytes memory data = abi.encode(keccak256("UNKNOWN"));
-        vm.expectRevert("BA: unknown action");
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestAutomation.UnknownAction.selector, keccak256("UNKNOWN")));
         automation.performUpkeep(data);
     }
 
@@ -381,7 +381,7 @@ contract AutomationTest is Test {
     function test_ManualBuybackRevertsWhenAccumulatorEmpty() public {
         // H-01: manualBuyback now enforces the threshold guard
         vm.prank(founder);
-        vm.expectRevert("BA: accumulator too low");
+        vm.expectRevert(ClearcrestAutomation.AccumulatorTooLow.selector);
         automation.manualBuyback();
     }
 
@@ -401,8 +401,12 @@ contract AutomationTest is Test {
         automation.manualHarvest();
 
         // Immediately try again — must revert because MIN_HARVEST_GAP (12h) has not elapsed
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClearcrestAutomation.HarvestTooSoon.selector, automation.lastHarvestTime() + FeeLib.MIN_HARVEST_GAP
+            )
+        );
         vm.prank(founder);
-        vm.expectRevert("BA: harvest too soon");
         automation.manualHarvest();
     }
 
@@ -442,8 +446,12 @@ contract AutomationTest is Test {
         assertGe(vault.buybackAccumulator(), BUYBACK_THRESHOLD);
 
         // lastBuybackTime is set at construction; interval (30d) has NOT elapsed.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ClearcrestAutomation.BuybackIntervalNotElapsed.selector, automation.lastBuybackTime() + BUYBACK_INTERVAL
+            )
+        );
         vm.prank(founder);
-        vm.expectRevert("BA: buyback interval not elapsed");
         automation.manualBuyback();
     }
 }

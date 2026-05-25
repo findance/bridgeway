@@ -3,7 +3,7 @@ pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -14,6 +14,7 @@ import "../interfaces/IAaveV3.sol";
 import "../interfaces/IMorphoBlue.sol";
 import "../interfaces/IClearcrestHubNAV.sol";
 import "../interfaces/ISleeveAdapter.sol";
+import "../libraries/ClearcrestSleeveGovernance.sol";
 import "../libraries/FeeLib.sol";
 
 /// @title  ClearcrestVault
@@ -38,9 +39,10 @@ import "../libraries/FeeLib.sol";
 ///
 /// @dev    NAV is denominated in USDC with 6-decimal precision throughout.
 ///         CCR and CGOV tokens use 18-decimal precision.
-contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
+contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     using SafeERC20 for IERC20;
     using FeeLib for uint256;
+    using ClearcrestSleeveGovernance for ClearcrestSleeveGovernance.Layout;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Constants
@@ -93,16 +95,10 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     uint256 public sleeveBValue;
     uint256 public sleeveCValue;
 
-    struct SleeveAdapterRoute {
-        address adapter;
-        uint16 depositBps;
-        bool active;
-    }
-
     /// @notice Optional multi-adapter routes per sleeve. Once configured for a
     ///         sleeve, these routes supersede the legacy single adapter slot.
     ///         Registered adapters are always counted in NAV until removed empty.
-    mapping(uint8 => SleeveAdapterRoute[]) private _sleeveAdapterRoutes;
+    ClearcrestSleeveGovernance.Layout private _sleeveGovernance;
 
     /// @notice Vault-level deposit weights. Launch config sends Sleeve C's 5%
     ///         allocation to Sleeve B until the alpha sleeve is deliberately enabled.
@@ -115,11 +111,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     address public hubNAV;
 
     /// @notice Governance-approved assets for each sleeve.
-    mapping(uint8 => mapping(address => bool)) public trustedSleeveAssets;
-
-    /// @dev Number of sleeves that currently trust a token.
-    mapping(address => uint256) public trustedAssetUseCount;
-
     /// @notice High-water mark — NAV per CCR at last fee crystallisation (18 dec scale).
     uint256 public highWaterMark;
     uint256 public lastHWMUpdateTime;
@@ -190,14 +181,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         vault USDC immediately for launch mistakes. Finalize before public deposits.
     bool public bootstrapMode = true;
 
-    struct PendingTreasuryVaultUSDCRecovery {
-        address to;
-        uint256 amount;
-        uint256 executeAfter;
-    }
-
-    PendingTreasuryVaultUSDCRecovery public pendingTreasuryVaultUSDCRecovery;
-
     // ─────────────────────────────────────────────────────────────────────────
     // State — protected tokens (C-02)
     // ─────────────────────────────────────────────────────────────────────────
@@ -207,8 +190,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Owner registers new entries whenever the vault deploys into a new
     ///         protocol (Pendle PTs, GMX GLP, Morpho shares, etc.) and removes
     ///         them once the position is fully unwound.
-    mapping(address => bool) public protectedTokens;
-
     // ─────────────────────────────────────────────────────────────────────────
     // State — pending fees (pull-escrow for failed fee-wallet transfers)
     // ─────────────────────────────────────────────────────────────────────────
@@ -268,7 +249,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     );
     event HarvestRecorded(uint256 netYieldUsdc, uint256 perfFeeUsdc, uint256 newHighWaterMark);
     event SleeveHarvested(uint8 indexed sleeve, uint256 totalYieldUsdc, uint256 compoundedIntoSleeveB);
-    event SleeveEmergencyUnwound(uint8 indexed sleeve, uint256 routesTriggered, uint256 usdcArrivedAtVault);
     event BuybackExecuted(uint256 usdcInjected, uint256 ccrMintedAndBurned);
     event StaleFeeSwept(address indexed staleWallet, address indexed recipient, uint256 amount); // H-13
     event SleeveValuesUpdated(uint256 sleeveA, uint256 sleeveB, uint256 sleeveC);
@@ -295,8 +275,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     event RedemptionReserveFunded(address indexed funder, uint256 amount);
     event SleeveRebalanced(uint8 indexed fromSleeve, uint8 indexed toSleeve, uint256 requestedUsdc, uint256 movedUsdc);
     event BootstrapFinalized();
-    event TreasuryVaultUSDCRecoveryProposed(address indexed to, uint256 amount, uint256 executeAfter);
-    event TreasuryVaultUSDCRecoveryCancelled(address indexed to, uint256 amount);
     event TreasuryVaultUSDCRecovered(address indexed to, uint256 amount);
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -326,10 +304,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     error AdapterChangeAfterDeposits();
     error InvalidOracleRound(uint80 roundId, uint80 answeredInRound);
     error InvalidOraclePrice(int256 answer);
-    error BatchTooLarge(uint256 count, uint256 max);
     error BootstrapAlreadyFinalized();
-    error NoPendingTreasuryVaultUSDCRecovery();
-    error TimelockNotReady(uint256 executeAfter);
     error YieldExceedsBalance();
     error HarvestGapTooShort();
     error YieldRateTooHigh();
@@ -401,9 +376,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         //
         // Legacy Aave V3 Arbitrum One entries. Base deployments must add Base
         // aTokens through setProtectedToken before moving funds.
-        protectedTokens[0x724dc807b04555b71ed48a6896b6F41593b8C637] = true; // aUSDCn
-        protectedTokens[0x6ab707Aca953eDAeFBc4fD23bA73294241490620] = true; // aUSDT
-        protectedTokens[0xe50fA9b3c56FfB159cB0FCA61F5c9D750e8128c8] = true; // aWETH
+        _sleeveGovernance.seedLegacyProtectedTokens();
         // Pendle PT tokens, GMX GLP, Morpho shares, sUSDe -> add via setProtectedToken
         // before each protocol deployment.
     }
@@ -438,8 +411,8 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         target = _redemptionBufferTargetUSDC(totalLocalNAV());
     }
 
-    /// @notice Confirmed spoke NAV cached by the hub NAV contract. Queued
-    ///         redemptions are deducted once via totalQueuedRedemptionNAVLiability.
+    /// @notice Confirmed spoke NAV cached by the hub NAV contract.
+    ///         Queued redemptions are deducted once via totalQueuedRedemptionNAVLiability.
     function totalSpokeNAV() public view returns (uint256) {
         address nav = hubNAV;
         if (nav == address(0)) return 0;
@@ -768,16 +741,16 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         returns (uint256 totalYieldUsdc, uint256 compoundedIntoSleeveB)
     {
         _validateSleeve(sleeve);
-        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        uint256 routeCount = _sleeveGovernance.routeCount(sleeve);
         if (routeCount == 0) {
             emit SleeveHarvested(sleeve, 0, 0);
             return (0, 0);
         }
 
         for (uint256 i; i < routeCount; ++i) {
-            SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][i];
-            if (!route.active) continue;
-            totalYieldUsdc += ISleeveAdapter(route.adapter).harvest();
+            (address adapter,, bool active) = _sleeveGovernance.routeAt(sleeve, i);
+            if (!active) continue;
+            totalYieldUsdc += ISleeveAdapter(adapter).harvest();
         }
 
         if (totalYieldUsdc > 0) {
@@ -789,58 +762,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         }
 
         emit SleeveHarvested(sleeve, totalYieldUsdc, compoundedIntoSleeveB);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Owner-only: Emergency unwind orchestration (L-01)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice Trigger `emergencyWithdrawAll()` on every active route in a
-    ///         sleeve. Each adapter swaps its underlying position back to
-    ///         USDC and ships the proceeds to the vault, so funds converge
-    ///         here even when individual adapters are misbehaving.
-    ///
-    ///         L-01: emergency unwinds must terminate at the vault. The
-    ///         adapter modifiers are widened to `onlyOwnerOrVault` so this
-    ///         vault-orchestrated path works without giving the deployer a
-    ///         new privilege — the existing owner key still works directly.
-    function emergencyUnwindSleeves(uint8 sleeve) external nonReentrant onlyOwner returns (uint256 usdcArrivedAtVault) {
-        _validateSleeve(sleeve);
-        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
-        if (routeCount == 0) {
-            emit SleeveEmergencyUnwound(sleeve, 0, 0);
-            return 0;
-        }
-
-        uint256 balanceBefore = IERC20(USDC).balanceOf(address(this));
-        uint256 triggered;
-        for (uint256 i; i < routeCount; ++i) {
-            address adapter = _sleeveAdapterRoutes[sleeve][i].adapter;
-            if (adapter == address(0)) continue;
-            // Try the cbBTC-stack name first, then fall back to the basket
-            // adapter's distinct selector. Either call routes USDC to vault.
-            (bool ok,) = adapter.call(abi.encodeWithSignature("emergencyWithdrawAll()"));
-            if (!ok) {
-                (ok,) = adapter.call(abi.encodeWithSignature("emergencyUnwindAll()"));
-            }
-            if (ok) triggered += 1;
-        }
-
-        uint256 balanceAfter = IERC20(USDC).balanceOf(address(this));
-        usdcArrivedAtVault = balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0;
-
-        // New USDC at the vault from the unwind is holder NAV — credit the
-        // buffer so it survives the next deposit's `_retainRedemptionBuffer`
-        // and `_fundRedemptionFromLiquidSleeves` paths.
-        if (usdcArrivedAtVault > 0) {
-            idleRedemptionReserveUsdc += usdcArrivedAtVault;
-        }
-
-        // Sleeve manual accounting is left in place — the funded-adapter
-        // values it relied on have been zeroed externally, so subsequent
-        // NAV reads of `_routeAssetsUSDC(sleeve)` return ~0.
-
-        emit SleeveEmergencyUnwound(sleeve, triggered, usdcArrivedAtVault);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -977,16 +898,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit WhitelistUpdated(account, status);
     }
 
-    /// @notice Batch whitelist update (max 200 accounts per call).
-    function setWhitelistedBatch(address[] calldata accounts, bool status) external onlyOwner {
-        if (accounts.length > 200) revert BatchTooLarge(accounts.length, 200);
-        for (uint256 i; i < accounts.length; ++i) {
-            whitelist[accounts[i]] = status;
-            ccrToken.setWhitelisted(accounts[i], status);
-            emit WhitelistUpdated(accounts[i], status);
-        }
-    }
-
     /// @notice Set normal exit fee (max 100 bps = 1 %).
     function setExitFeeBps(uint256 feeBps) external onlyOwner {
         if (feeBps > 100) revert InvalidFeeBps(feeBps);
@@ -1032,6 +943,18 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         emit RedemptionReserveFunded(msg.sender, amount);
     }
 
+    /// @notice Credit existing idle vault USDC to the holder redemption reserve.
+    ///         Used by ClearcrestAdmin after emergency adapter unwinds send USDC
+    ///         directly back to the vault.
+    function creditRedemptionReserveFromIdle(uint256 amount) external onlyOwner {
+        if (amount == 0) revert ZeroAmount();
+        uint256 available = _availableUSDC();
+        if (amount > available) amount = available;
+        if (amount == 0) revert ZeroAmount();
+        idleRedemptionReserveUsdc += amount;
+        emit RedemptionReserveFunded(msg.sender, amount);
+    }
+
     /// @notice Wire the vault to a hub-chain confirmed spoke NAV cache.
     ///         Use address(0) to disconnect hub-spoke accounting.
     function setHubNAV(address newHubNAV) external onlyOwner {
@@ -1049,39 +972,12 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     /// @notice Recover idle USDC from the vault to the treasury/Safe.
-    ///         During bootstrap this executes immediately; after bootstrap it
-    ///         creates a 48-hour pending recovery.
+    ///         The deployed owner is ClearcrestAdmin, which applies the
+    ///         governance timelock before calling this function after launch.
     function recoverTreasuryVaultUSDC(address to, uint256 amount) external onlyOwner nonReentrant {
         if (to == address(0)) revert ZeroAddress();
         if (amount == 0) revert ZeroAmount();
-
-        if (bootstrapMode) {
-            _recoverTreasuryVaultUSDC(to, amount);
-            return;
-        }
-
-        uint256 executeAfter = block.timestamp + FeeLib.AUTOMATION_TIMELOCK_DELAY;
-        pendingTreasuryVaultUSDCRecovery =
-            PendingTreasuryVaultUSDCRecovery({to: to, amount: amount, executeAfter: executeAfter});
-        emit TreasuryVaultUSDCRecoveryProposed(to, amount, executeAfter);
-    }
-
-    /// @notice Execute a pending post-bootstrap USDC recovery after the 48-hour delay.
-    function executeTreasuryVaultUSDCRecovery() external onlyOwner nonReentrant {
-        PendingTreasuryVaultUSDCRecovery memory pending = pendingTreasuryVaultUSDCRecovery;
-        if (pending.to == address(0)) revert NoPendingTreasuryVaultUSDCRecovery();
-        if (block.timestamp < pending.executeAfter) revert TimelockNotReady(pending.executeAfter);
-
-        delete pendingTreasuryVaultUSDCRecovery;
-        _recoverTreasuryVaultUSDC(pending.to, pending.amount);
-    }
-
-    /// @notice Cancel a pending post-bootstrap USDC recovery.
-    function cancelTreasuryVaultUSDCRecovery() external onlyOwner {
-        PendingTreasuryVaultUSDCRecovery memory pending = pendingTreasuryVaultUSDCRecovery;
-        if (pending.to == address(0)) revert NoPendingTreasuryVaultUSDCRecovery();
-        delete pendingTreasuryVaultUSDCRecovery;
-        emit TreasuryVaultUSDCRecoveryCancelled(pending.to, pending.amount);
+        _recoverTreasuryVaultUSDC(to, amount);
     }
 
     /// @notice Configure multiple strategy routes for one sleeve without moving
@@ -1097,8 +993,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     function sleeveAdapterRouteCount(uint8 sleeve) external view returns (uint256) {
-        _validateSleeve(sleeve);
-        return _sleeveAdapterRoutes[sleeve].length;
+        return _sleeveGovernance.routeCount(sleeve);
     }
 
     function sleeveAdapterRouteAt(uint8 sleeve, uint256 index)
@@ -1106,14 +1001,23 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         view
         returns (address adapter, uint16 depositBps, bool active)
     {
-        _validateSleeve(sleeve);
-        SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][index];
-        return (route.adapter, route.depositBps, route.active);
+        return _sleeveGovernance.routeAt(sleeve, index);
     }
 
     function sleeveAdapterActiveDepositBps(uint8 sleeve) external view returns (uint256) {
-        _validateSleeve(sleeve);
-        return _activeRouteDepositBps(sleeve);
+        return _sleeveGovernance.activeRouteDepositBps(sleeve);
+    }
+
+    function trustedSleeveAssets(uint8 sleeve, address asset) external view returns (bool) {
+        return _sleeveGovernance.trustedSleeveAssets[sleeve][asset];
+    }
+
+    function trustedAssetUseCount(address asset) external view returns (uint256) {
+        return _sleeveGovernance.trustedAssetUseCount[asset];
+    }
+
+    function protectedTokens(address token) external view returns (bool) {
+        return _sleeveGovernance.protectedTokens[token];
     }
 
     /// @notice Set vault-level sleeve deposit weights for future deposits.
@@ -1125,14 +1029,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Trusted assets are automatically protected from recoverToken().
     function setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) external onlyOwner {
         _setTrustedSleeveAsset(sleeve, asset, trusted);
-    }
-
-    /// @notice Batch version of setTrustedSleeveAsset.
-    function setTrustedSleeveAssetBatch(uint8 sleeve, address[] calldata assets, bool trusted) external onlyOwner {
-        if (assets.length > 50) revert BatchTooLarge(assets.length, 50);
-        for (uint256 i; i < assets.length; ++i) {
-            _setTrustedSleeveAsset(sleeve, assets[i], trusted);
-        }
     }
 
     /// @notice Set a per-deposit USDC cap. Set to 0 to remove the cap entirely.
@@ -1187,19 +1083,8 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     ///         Call with true before deploying vault funds into a new protocol.
     ///         Call with false only after the position is fully unwound.
     function setProtectedToken(address token, bool _protected) external onlyOwner {
-        if (token == address(0)) revert ZeroAddress();
-        protectedTokens[token] = _protected;
+        _sleeveGovernance.setProtectedToken(token, _protected);
         emit ProtectedTokenUpdated(token, _protected);
-    }
-
-    /// @notice Batch version of setProtectedToken for initial setup.
-    function setProtectedTokenBatch(address[] calldata tokens, bool _protected) external onlyOwner {
-        if (tokens.length > 50) revert BatchTooLarge(tokens.length, 50);
-        for (uint256 i; i < tokens.length; ++i) {
-            if (tokens[i] == address(0)) revert ZeroAddress();
-            protectedTokens[tokens[i]] = _protected;
-            emit ProtectedTokenUpdated(tokens[i], _protected);
-        }
     }
 
     /// @notice Emergency: recover tokens accidentally sent to the vault.
@@ -1210,7 +1095,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         if (token == USDC) revert ProtectedTokenRecovery(token);
         if (token == address(ccrToken)) revert ProtectedTokenRecovery(token);
         if (token == address(cgovToken)) revert ProtectedTokenRecovery(token);
-        if (protectedTokens[token]) revert ProtectedTokenRecovery(token);
+        if (_sleeveGovernance.protectedTokens[token]) revert ProtectedTokenRecovery(token);
         IERC20(token).safeTransfer(to, amount);
     }
 
@@ -1458,22 +1343,22 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function _deployToSleeve(uint8 sleeve, uint256 usdcAmount, bool forceExternalDeploy) internal {
         if (usdcAmount == 0) return;
-        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        uint256 routeCount = _sleeveGovernance.routeCount(sleeve);
         if (routeCount > 0) {
             uint256 allocated;
             for (uint256 i; i < routeCount; ++i) {
-                SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][i];
-                if (!route.active || route.depositBps == 0) continue;
+                (address adapter, uint16 depositBps, bool active) = _sleeveGovernance.routeAt(sleeve, i);
+                if (!active || depositBps == 0) continue;
 
-                uint256 routeAmount = (usdcAmount * route.depositBps) / FeeLib.BPS_DENOM;
+                uint256 routeAmount = (usdcAmount * depositBps) / FeeLib.BPS_DENOM;
                 if (routeAmount == 0) continue;
                 if (!forceExternalDeploy && minSleeveRouteDepositUsdc > 0 && routeAmount < minSleeveRouteDepositUsdc) {
                     continue;
                 }
 
                 allocated += routeAmount;
-                IERC20(USDC).safeTransfer(route.adapter, routeAmount);
-                ISleeveAdapter(route.adapter).deploy(routeAmount);
+                IERC20(USDC).safeTransfer(adapter, routeAmount);
+                ISleeveAdapter(adapter).deploy(routeAmount);
             }
 
             uint256 remainder = usdcAmount - allocated;
@@ -1492,7 +1377,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
 
     function _withdrawFromSleeve(uint8 sleeve, uint256 usdcAmount) internal returns (uint256 usdcReturned) {
         if (usdcAmount == 0) return 0;
-        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
+        uint256 routeCount = _sleeveGovernance.routeCount(sleeve);
         if (routeCount > 0) {
             uint256 remaining = usdcAmount;
             uint256 manual = _manualSleeveValue(sleeve);
@@ -1504,7 +1389,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
             }
 
             for (uint256 i; i < routeCount && remaining > 0; ++i) {
-                address routeAdapter = _sleeveAdapterRoutes[sleeve][i].adapter;
+                (address routeAdapter,,) = _sleeveGovernance.routeAt(sleeve, i);
                 uint256 routeAssets = ISleeveAdapter(routeAdapter).totalAssetsUSDC();
                 if (routeAssets == 0) continue;
 
@@ -1534,19 +1419,20 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
     }
 
     function _reportedOrAdapterValue(uint8 sleeve, uint256 reportedValue) internal view returns (uint256) {
-        if (_sleeveAdapterRoutes[sleeve].length > 0) return _sleeveValue(sleeve);
+        if (_sleeveGovernance.routeCount(sleeve) > 0) return _sleeveValue(sleeve);
         return reportedValue;
     }
 
     function _setReportedSleeveValue(uint8 sleeve, uint256 reportedValue) internal {
-        if (_sleeveAdapterRoutes[sleeve].length == 0) {
+        if (_sleeveGovernance.routeCount(sleeve) == 0) {
             _setSleeveValue(sleeve, reportedValue);
         }
     }
 
     function _sleeveValue(uint8 sleeve) internal view returns (uint256) {
-        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
-        if (routeCount > 0) return _manualSleeveValue(sleeve) + _routeAssetsUSDC(sleeve);
+        if (_sleeveGovernance.routeCount(sleeve) > 0) {
+            return _manualSleeveValue(sleeve) + _sleeveGovernance.routeAssetsUSDC(sleeve);
+        }
         return _manualSleeveValue(sleeve);
     }
 
@@ -1575,92 +1461,16 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable2Step {
         uint16[] memory depositBps,
         bool[] memory active
     ) internal {
-        uint256 activeBps = _validateSleeveAdapterRouteConfig(sleeve, adapters, depositBps, active);
-
-        delete _sleeveAdapterRoutes[sleeve];
-        for (uint256 i; i < adapters.length; ++i) {
-            _sleeveAdapterRoutes[sleeve].push(
-                SleeveAdapterRoute({adapter: adapters[i], depositBps: depositBps[i], active: active[i]})
-            );
-        }
+        uint256 activeBps = _sleeveGovernance.configureSleeveAdapterRoutes(sleeve, adapters, depositBps, active);
 
         emit SleeveAdapterRoutesConfigured(sleeve, adapters.length, activeBps);
     }
 
-    function _validateSleeveAdapterRouteConfig(
-        uint8 sleeve,
-        address[] memory adapters,
-        uint16[] memory depositBps,
-        bool[] memory active
-    ) internal view returns (uint256 activeBps) {
-        _validateSleeve(sleeve);
-        if (adapters.length != depositBps.length || adapters.length != active.length) revert RouteLengthMismatch();
-        if (adapters.length > 10) revert TooManyRoutes(adapters.length, 10);
-
-        for (uint256 i; i < adapters.length; ++i) {
-            address adapter = adapters[i];
-            if (adapter == address(0)) revert ZeroAddress();
-            if (adapter.code.length == 0) revert NotContract(adapter);
-
-            for (uint256 j = i + 1; j < adapters.length; ++j) {
-                if (adapter == adapters[j]) revert DuplicateRoute(adapter);
-            }
-
-            if (active[i]) activeBps += depositBps[i];
-        }
-        if (activeBps > FeeLib.BPS_DENOM) revert RouteBpsTooHigh(activeBps);
-
-        SleeveAdapterRoute[] storage existingRoutes = _sleeveAdapterRoutes[sleeve];
-        uint256 existingCount = existingRoutes.length;
-        for (uint256 i; i < existingCount; ++i) {
-            address existing = existingRoutes[i].adapter;
-            if (_containsAdapter(adapters, existing)) continue;
-
-            uint256 existingAssets = ISleeveAdapter(existing).totalAssetsUSDC();
-            if (existingAssets > 0) revert FundedAdapterRemovalBlocked(sleeve, existing, existingAssets);
-        }
-    }
-
-    function _containsAdapter(address[] memory adapters, address adapter) internal pure returns (bool) {
-        uint256 count = adapters.length;
-        for (uint256 i; i < count; ++i) {
-            if (adapters[i] == adapter) return true;
-        }
-        return false;
-    }
-
-    function _activeRouteDepositBps(uint8 sleeve) internal view returns (uint256 totalBps) {
-        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
-        for (uint256 i; i < routeCount; ++i) {
-            SleeveAdapterRoute memory route = _sleeveAdapterRoutes[sleeve][i];
-            if (route.active) totalBps += route.depositBps;
-        }
-    }
-
-    function _routeAssetsUSDC(uint8 sleeve) internal view returns (uint256 totalUsdc) {
-        uint256 routeCount = _sleeveAdapterRoutes[sleeve].length;
-        for (uint256 i; i < routeCount; ++i) {
-            totalUsdc += ISleeveAdapter(_sleeveAdapterRoutes[sleeve][i].adapter).totalAssetsUSDC();
-        }
-    }
-
     function _setTrustedSleeveAsset(uint8 sleeve, address asset, bool trusted) internal {
-        _validateSleeve(sleeve);
-        if (asset == address(0)) revert ZeroAddress();
-        bool current = trustedSleeveAssets[sleeve][asset];
-        if (current == trusted) return;
-
-        trustedSleeveAssets[sleeve][asset] = trusted;
-        if (trusted) {
-            trustedAssetUseCount[asset] += 1;
-            protectedTokens[asset] = true;
-        } else {
-            uint256 count = trustedAssetUseCount[asset];
-            if (count > 0) trustedAssetUseCount[asset] = count - 1;
-        }
-
+        (bool changed, bool protectedToken) = _sleeveGovernance.setTrustedSleeveAsset(sleeve, asset, trusted);
+        if (!changed) return;
         emit TrustedSleeveAssetUpdated(sleeve, asset, trusted);
-        emit ProtectedTokenUpdated(asset, protectedTokens[asset]);
+        emit ProtectedTokenUpdated(asset, protectedToken);
     }
 
     function _validateSleeve(uint8 sleeve) internal pure {

@@ -13,6 +13,13 @@ interface IERC20MetadataProbe {
 /// @notice Probes confirmed Clearcrest token and oracle inputs on the active chain.
 /// @dev Run against a live RPC or fork before using any address book for deploys.
 contract ProbeMainnetAddresses is Script {
+    error UnsupportedChain(uint256 chainId);
+    error UnexpectedTokenSymbol(string expected, string actual);
+    error UnexpectedTokenDecimals(string symbol, uint8 expected, uint8 actual);
+    error UnexpectedFeedDecimals(string symbol, uint8 expected, uint8 actual);
+    error NonPositivePrice(string symbol, int256 answer);
+    error MissingFeedUpdate(string symbol);
+
     struct AssetProbe {
         string symbol;
         address token;
@@ -32,27 +39,28 @@ contract ProbeMainnetAddresses is Script {
     function _probeAsset(AssetProbe memory probe) internal view {
         string memory actualSymbol = IERC20MetadataProbe(probe.token).symbol();
         uint8 actualTokenDecimals = IERC20MetadataProbe(probe.token).decimals();
-        require(
-            keccak256(bytes(actualSymbol)) == keccak256(bytes(probe.symbol)),
-            string.concat("unexpected token symbol for ", probe.symbol)
-        );
-        require(
-            actualTokenDecimals == probe.tokenDecimals, string.concat("unexpected token decimals for ", probe.symbol)
-        );
+        if (keccak256(bytes(actualSymbol)) != keccak256(bytes(probe.symbol))) {
+            revert UnexpectedTokenSymbol(probe.symbol, actualSymbol);
+        }
+        if (actualTokenDecimals != probe.tokenDecimals) {
+            revert UnexpectedTokenDecimals(probe.symbol, probe.tokenDecimals, actualTokenDecimals);
+        }
 
         IChainlinkAggregator feed = IChainlinkAggregator(probe.priceFeed);
         uint8 actualFeedDecimals = feed.decimals();
-        require(actualFeedDecimals == probe.feedDecimals, string.concat("unexpected feed decimals for ", probe.symbol));
+        if (actualFeedDecimals != probe.feedDecimals) {
+            revert UnexpectedFeedDecimals(probe.symbol, probe.feedDecimals, actualFeedDecimals);
+        }
 
         (, int256 answer,, uint256 updatedAt,) = feed.latestRoundData();
-        require(answer > 0, string.concat("non-positive price for ", probe.symbol));
-        require(updatedAt != 0, string.concat("missing feed update for ", probe.symbol));
+        if (answer <= 0) revert NonPositivePrice(probe.symbol, answer);
+        if (updatedAt == 0) revert MissingFeedUpdate(probe.symbol);
     }
 
     function _probesForChain(uint256 chainId) internal pure returns (AssetProbe[] memory probes) {
         if (chainId == 42161) return _arbitrumProbes();
         if (chainId == 8453) return _baseProbes();
-        revert("unsupported chain");
+        revert UnsupportedChain(chainId);
     }
 
     function _arbitrumProbes() internal pure returns (AssetProbe[] memory probes) {

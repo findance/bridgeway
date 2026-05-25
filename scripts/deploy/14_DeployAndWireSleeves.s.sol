@@ -7,6 +7,7 @@ import "../../contracts/adapters/AerodromeCbbtcStrategy.sol";
 import "../../contracts/adapters/BaseCBBTCYieldAdapter.sol";
 import "../../contracts/adapters/SleeveACbbtcWrapper.sol";
 import "../../contracts/adapters/SleeveBStableYieldAdapter.sol";
+import "../../contracts/core/ClearcrestAdmin.sol";
 import "../../contracts/core/ClearcrestVault.sol";
 
 /// @title 14_DeployAndWireSleeves
@@ -26,11 +27,12 @@ import "../../contracts/core/ClearcrestVault.sol";
 ///   MORPHO_VAULT
 ///
 /// Optional:
-///   AERODROME_GAUGE, STRATEGY_KEEPER, MAX_STALE_SECONDS, AERODROME_ROUTER_V2, RESCUE_RECEIVER
+///   ADMIN, AERODROME_GAUGE, STRATEGY_KEEPER, MAX_STALE_SECONDS, AERODROME_ROUTER_V2, RESCUE_RECEIVER
 ///   INITIAL_AERODROME_NET_APY_BPS, AERO_TO_CBBTC_PATH
 contract DeployAndWireSleeves is Script {
     struct Cfg {
         address vault;
+        address admin;
         address vaultOwner;
         address usdc;
         address cbbtc;
@@ -120,9 +122,7 @@ contract DeployAndWireSleeves is Script {
         console.log("SleeveBStableYieldAdapter:", address(sleeveB));
 
         // 6. Wire into vault
-        _wireVault(
-            ClearcrestVault(c.vault), address(wrapper), address(sleeveB), c.aUsdc, c.morphoVault, c.cbbtc, c.aCbbtc
-        );
+        _wireVault(c, address(wrapper), address(sleeveB));
 
         // 7. Transfer ownerships
         if (c.vaultOwner != deployer) {
@@ -136,22 +136,13 @@ contract DeployAndWireSleeves is Script {
         vm.stopBroadcast();
     }
 
-    function _wireVault(
-        ClearcrestVault vault,
-        address sleeveA,
-        address sleeveB,
-        address aUsdc,
-        address morphoVault,
-        address cbbtc,
-        address aCbbtc
-    ) internal {
+    function _wireVault(Cfg memory c, address sleeveA, address sleeveB) internal {
         address[] memory sleeveARoutes = new address[](1);
         sleeveARoutes[0] = sleeveA;
         uint16[] memory sleeveABps = new uint16[](1);
         sleeveABps[0] = 10_000;
         bool[] memory sleeveAActive = new bool[](1);
         sleeveAActive[0] = true;
-        vault.configureSleeveAdapterRoutes(0, sleeveARoutes, sleeveABps, sleeveAActive);
 
         address[] memory sleeveBRoutes = new address[](1);
         sleeveBRoutes[0] = sleeveB;
@@ -159,23 +150,53 @@ contract DeployAndWireSleeves is Script {
         sleeveBBps[0] = 10_000;
         bool[] memory sleeveBActive = new bool[](1);
         sleeveBActive[0] = true;
-        vault.configureSleeveAdapterRoutes(1, sleeveBRoutes, sleeveBBps, sleeveBActive);
+
+        if (c.admin == address(0)) {
+            ClearcrestVault vault = ClearcrestVault(c.vault);
+            vault.configureSleeveAdapterRoutes(0, sleeveARoutes, sleeveABps, sleeveAActive);
+            vault.configureSleeveAdapterRoutes(1, sleeveBRoutes, sleeveBBps, sleeveBActive);
+            vault.setSleeveDepositWeights(6500, 3500, 0);
+            vault.setProtectedToken(c.aUsdc, true);
+            vault.setProtectedToken(c.morphoVault, true);
+            vault.setProtectedToken(c.cbbtc, true);
+            vault.setProtectedToken(c.aCbbtc, true);
+        } else {
+            address[] memory protectedTokens = new address[](4);
+            protectedTokens[0] = c.aUsdc;
+            protectedTokens[1] = c.morphoVault;
+            protectedTokens[2] = c.cbbtc;
+            protectedTokens[3] = c.aCbbtc;
+
+            ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](4);
+            calls[0] = ClearcrestAdmin.Call({
+                target: c.vault,
+                data: abi.encodeCall(
+                    ClearcrestVault.configureSleeveAdapterRoutes, (0, sleeveARoutes, sleeveABps, sleeveAActive)
+                )
+            });
+            calls[1] = ClearcrestAdmin.Call({
+                target: c.vault,
+                data: abi.encodeCall(
+                    ClearcrestVault.configureSleeveAdapterRoutes, (1, sleeveBRoutes, sleeveBBps, sleeveBActive)
+                )
+            });
+            calls[2] = ClearcrestAdmin.Call({
+                target: c.vault, data: abi.encodeCall(ClearcrestVault.setSleeveDepositWeights, (6500, 3500, 0))
+            });
+            calls[3] = ClearcrestAdmin.Call({
+                target: c.admin, data: abi.encodeCall(ClearcrestAdmin.applyProtectedTokenBatch, (protectedTokens, true))
+            });
+            ClearcrestAdmin(c.admin).executeBootstrapOperation(calls);
+        }
+
         console.log("Sleeves wired: A =", sleeveA, " B =", sleeveB);
-
-        vault.setSleeveDepositWeights(6500, 3500, 0);
         console.log("Deposit weights: 6500 / 3500 / 0");
-
-        address[] memory pt = new address[](4);
-        pt[0] = aUsdc;
-        pt[1] = morphoVault;
-        pt[2] = cbbtc;
-        pt[3] = aCbbtc;
-        vault.setProtectedTokenBatch(pt, true);
         console.log("Protected tokens registered.");
     }
 
     function _load(address deployer) internal view returns (Cfg memory c) {
         c.vault = vm.envAddress("VAULT");
+        c.admin = vm.envOr("ADMIN", address(0));
         c.vaultOwner = vm.envAddress("VAULT_OWNER");
         c.usdc = vm.envAddress("USDC");
         c.cbbtc = vm.envAddress("CBBTC");

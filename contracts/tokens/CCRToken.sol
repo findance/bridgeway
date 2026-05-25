@@ -48,11 +48,15 @@ contract CCRToken is ERC20, AccessControl, Pausable {
     error NotWhitelisted(address account);
     error AccountBlacklisted(address account);
     error GovernanceCompanionAlreadySet();
+    error ZeroAdmin();
+    error MissingBurnerRole(address account);
+    error BatchTooLarge(uint256 count, uint256 max);
+    error ZeroCompanion();
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param admin  Address that receives DEFAULT_ADMIN_ROLE (founder multisig).
     constructor(address admin) ERC20("Clearcrest", "CCR") {
-        if (admin == address(0)) revert("CCR: zero admin");
+        if (admin == address(0)) revert ZeroAdmin();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
         _grantRole(BLACKLIST_ADMIN_ROLE, admin);
@@ -72,7 +76,7 @@ contract CCRToken is ERC20, AccessControl, Pausable {
     /// @dev Used by the vault when injecting the buyback reserve into sleeves.
     ///      The temporary CCR never enters circulation and must not mint/burn CGOV.
     function protocolMintAndBurn(address account, uint256 amount) external onlyRole(MINTER_ROLE) whenNotPaused {
-        require(hasRole(BURNER_ROLE, msg.sender), "CCR: missing burner role");
+        if (!hasRole(BURNER_ROLE, msg.sender)) revert MissingBurnerRole(msg.sender);
         _mint(account, amount);
         suppressGovernanceSync = true;
         _burn(account, amount);
@@ -100,7 +104,7 @@ contract CCRToken is ERC20, AccessControl, Pausable {
 
     /// @notice Batch whitelist update for gas efficiency.
     function setWhitelistedBatch(address[] calldata accounts, bool status) external onlyRole(WHITELIST_ADMIN_ROLE) {
-        require(accounts.length <= 200, "CCR: batch too large");
+        if (accounts.length > 200) revert BatchTooLarge(accounts.length, 200);
         for (uint256 i; i < accounts.length; ++i) {
             whitelist[accounts[i]] = status;
             emit Whitelisted(accounts[i], status);
@@ -130,7 +134,7 @@ contract CCRToken is ERC20, AccessControl, Pausable {
     /// @notice Set the CGOV companion once after both tokens are deployed.
     function setGovernanceCompanion(address companion) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (governanceCompanion != address(0)) revert GovernanceCompanionAlreadySet();
-        require(companion != address(0), "CCR: zero companion");
+        if (companion == address(0)) revert ZeroCompanion();
         governanceCompanion = companion;
         emit GovernanceCompanionSet(companion);
     }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
+import "../../contracts/core/ClearcrestAdmin.sol";
 import "../../contracts/core/ClearcrestAutomation.sol";
 import "../../contracts/core/ClearcrestVault.sol";
 
@@ -36,6 +37,7 @@ contract SetupAutomation is Script {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address automationOwner = vm.envAddress("AUTOMATION_OWNER");
         address vaultAddr = vm.envAddress("VAULT");
+        address adminAddr = vm.envOr("ADMIN", address(0));
         address usdcAddr = vm.envAddress("USDC_ADDRESS");
         bool wireAutomation = vm.envOr("WIRE_AUTOMATION", false);
 
@@ -50,7 +52,15 @@ contract SetupAutomation is Script {
         // 2. Optionally wire automation -> vault.
         //    Keep WIRE_AUTOMATION=false during dry-run and integration testing.
         if (wireAutomation) {
-            vault.setAutomation(address(automation));
+            if (adminAddr == address(0)) {
+                vault.setAutomation(address(automation));
+            } else {
+                ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](1);
+                calls[0] = ClearcrestAdmin.Call({
+                    target: vaultAddr, data: abi.encodeCall(ClearcrestVault.setAutomation, (address(automation)))
+                });
+                ClearcrestAdmin(adminAddr).executeBootstrapOperation(calls);
+            }
             console.log("Automation wired on vault");
         } else {
             console.log("Automation not wired. Set WIRE_AUTOMATION=true when ready.");

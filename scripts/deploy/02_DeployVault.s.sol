@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
+import "../../contracts/core/ClearcrestAdmin.sol";
 import "../../contracts/core/ClearcrestVault.sol";
 import "../../contracts/tokens/CCRToken.sol";
 import "../../contracts/tokens/CGOVToken.sol";
@@ -30,6 +31,9 @@ import "../../contracts/tokens/CGOVToken.sol";
 ///             --verify \
 ///             --etherscan-api-key $BASESCAN_API_KEY
 contract DeployVault is Script {
+    error TokenAdminMustNotBeDeployer();
+    error VaultOwnerMustNotBeDeployer();
+
     function _deployVault(address temporaryOwner) internal returns (ClearcrestVault) {
         return new ClearcrestVault(
             vm.envAddress("CCR_TOKEN"),
@@ -49,8 +53,8 @@ contract DeployVault is Script {
         address tokenAdmin = vm.envAddress("TOKEN_ADMIN");
         address vaultOwner = vm.envAddress("VAULT_OWNER");
         address founderTreasury = vm.envAddress("FOUNDER_TREASURY");
-        require(tokenAdmin != deployer, "TOKEN_ADMIN must not be deployer");
-        require(vaultOwner != deployer, "VAULT_OWNER must not be deployer");
+        if (tokenAdmin == deployer) revert TokenAdminMustNotBeDeployer();
+        if (vaultOwner == deployer) revert VaultOwnerMustNotBeDeployer();
 
         CCRToken ccrToken = CCRToken(vm.envAddress("CCR_TOKEN"));
         CGOVToken cgovToken = CGOVToken(vm.envAddress("CGOV_TOKEN"));
@@ -92,14 +96,21 @@ contract DeployVault is Script {
         cgovToken.revokeRole(cgovToken.DEFAULT_ADMIN_ROLE(), deployer);
         console.log("Token admin handed to:", tokenAdmin);
 
-        vault.transferOwnership(vaultOwner);
-        console.log("Vault ownership transfer started. Pending owner:", vaultOwner);
+        ClearcrestAdmin admin = new ClearcrestAdmin(address(vault), deployer, 0);
+        console.log("ClearcrestAdmin:", address(admin));
+
+        vault.transferOwnership(address(admin));
+        console.log("Vault ownership transferred to admin:", address(admin));
+
+        admin.transferOwnership(vaultOwner);
+        console.log("Admin ownership transfer started. Pending owner:", vaultOwner);
 
         vm.stopBroadcast();
 
         console.log("\n=== Save these for script 03 ===");
         console.log("VAULT=", address(vault));
-        console.log("Vault owner must accept ownership from Safe before owner-only configuration.");
+        console.log("ADMIN=", address(admin));
+        console.log("Admin owner must accept ownership from Safe before Safe-governed configuration.");
         console.log("\n=== Optional liquidity step ===");
         console.log("After seeding CCR/USDC liquidity for secondary-market trading, call:");
         console.log("  vault.setWhitelisted(<pair_address>, true)");

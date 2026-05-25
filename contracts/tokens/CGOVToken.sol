@@ -70,6 +70,20 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     event VaultReferenceExecuted(address indexed oldVault, address indexed newVault);
     event VaultReferenceCancelled(address indexed candidate);
 
+    // ── Errors ───────────────────────────────────────────────────────────────
+    error ZeroTreasury();
+    error ZeroCCR();
+    error ZeroAdmin();
+    error AlreadyInitialized();
+    error ZeroVault();
+    error ZeroDepositor();
+    error DepositorNotWhitelisted(address depositor);
+    error TransfersFollowCCR();
+    error RecipientNotWhitelisted(address recipient);
+    error VaultNotInitialized();
+    error NoPendingVaultRef();
+    error VaultRefTimelockNotElapsed(uint256 executeAfter);
+
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param _founderTreasury Founder / treasury wallet receiving 70 % of each mint.
     /// @param _ccrToken        CCR share token that moves depositor CGOV.
@@ -78,9 +92,9 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
         ERC20("Clearcrest-GOV", "CGOV")
         ERC20Permit("Clearcrest-GOV")
     {
-        if (_founderTreasury == address(0)) revert("CGOV: zero treasury");
-        if (_ccrToken == address(0)) revert("CGOV: zero ccr");
-        if (_admin == address(0)) revert("CGOV: zero admin");
+        if (_founderTreasury == address(0)) revert ZeroTreasury();
+        if (_ccrToken == address(0)) revert ZeroCCR();
+        if (_admin == address(0)) revert ZeroAdmin();
 
         founderTreasury = _founderTreasury;
         ccrToken = _ccrToken;
@@ -95,8 +109,8 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     ///         Resolves the circular deploy dependency: vault address is not
     ///         needed at CGOVToken construction time.
     function initVault(address _vault) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(!vaultInitialized, "CGOV: already initialized");
-        require(_vault != address(0), "CGOV: zero vault");
+        if (vaultInitialized) revert AlreadyInitialized();
+        if (_vault == address(0)) revert ZeroVault();
 
         vaultInitialized = true;
         vault = _vault;
@@ -118,8 +132,8 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
         onlyRole(MINTER_ROLE)
         returns (uint256 depositorAmount, uint256 founderAmount)
     {
-        require(depositor != address(0), "CGOV: zero depositor");
-        require(IWhitelistVault(vault).whitelist(depositor), "CGOV: depositor not whitelisted");
+        if (depositor == address(0)) revert ZeroDepositor();
+        if (!IWhitelistVault(vault).whitelist(depositor)) revert DepositorNotWhitelisted(depositor);
         if (ccrMinted == 0) return (0, 0);
 
         depositorAmount = (ccrMinted * DEPOSITOR_GOV_BPS) / BPS_DENOM;
@@ -157,8 +171,8 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     function _update(address from, address to, uint256 amount) internal override(ERC20, ERC20Votes) {
         address operator = _msgSender();
         if (vaultInitialized && from != address(0) && to != address(0) && from != address(this) && from != vault) {
-            require(operator == ccrToken || from == founderTreasury, "CGOV: transfers follow CCR");
-            require(IWhitelistVault(vault).whitelist(to), "CGOV: recipient not whitelisted");
+            if (operator != ccrToken && from != founderTreasury) revert TransfersFollowCCR();
+            if (!IWhitelistVault(vault).whitelist(to)) revert RecipientNotWhitelisted(to);
         }
         super._update(from, to, amount);
     }
@@ -168,8 +182,8 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     /// @notice Propose replacing the vault whitelist reference (48-hour timelock).
     ///         Required when the vault is redeployed so CGOV token transfers remain usable.
     function proposeVaultReference(address _vault) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(vaultInitialized, "CGOV: vault not initialized yet");
-        require(_vault != address(0), "CGOV: zero vault");
+        if (!vaultInitialized) revert VaultNotInitialized();
+        if (_vault == address(0)) revert ZeroVault();
         uint256 eta = block.timestamp + VAULT_REF_DELAY;
         pendingVaultRef = PendingVaultRef(_vault, eta);
         emit VaultReferenceProposed(_vault, eta);
@@ -179,8 +193,8 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     ///         Revokes MINTER_ROLE from the old vault and grants it to the new one.
     function executeVaultReference() external onlyRole(DEFAULT_ADMIN_ROLE) {
         PendingVaultRef memory p = pendingVaultRef;
-        require(p.value != address(0), "CGOV: no pending vault ref");
-        require(block.timestamp >= p.executeAfter, "CGOV: timelock not elapsed");
+        if (p.value == address(0)) revert NoPendingVaultRef();
+        if (block.timestamp < p.executeAfter) revert VaultRefTimelockNotElapsed(p.executeAfter);
         delete pendingVaultRef;
         address oldVault = vault;
         vault = p.value;
@@ -192,7 +206,7 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     /// @notice Cancel a pending vault reference update before it executes.
     function cancelVaultReference() external onlyRole(DEFAULT_ADMIN_ROLE) {
         address candidate = pendingVaultRef.value;
-        require(candidate != address(0), "CGOV: no pending vault ref");
+        if (candidate == address(0)) revert NoPendingVaultRef();
         delete pendingVaultRef;
         emit VaultReferenceCancelled(candidate);
     }

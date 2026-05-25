@@ -81,13 +81,23 @@ contract ClearcrestAutomation is AutomationCompatibleInterface, Ownable2Step {
     event RebalanceToggled(bool enabled);
     event MaxRebalanceMoveUpdated(uint256 maxMoveUsdc);
 
+    error ZeroVault();
+    error ZeroUSDC();
+    error HarvestNotDue();
+    error RebalanceNotDue();
+    error BuybackThresholdNotMet();
+    error BuybackIntervalNotElapsed(uint256 executeAfter);
+    error UnknownAction(bytes32 action);
+    error HarvestTooSoon(uint256 executeAfter);
+    error AccumulatorTooLow();
+
     // ─────────────────────────────────────────────────────────────────────────
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
 
     constructor(address _vault, address _admin, address _usdc) Ownable(_admin) {
-        require(_vault != address(0), "BA: zero vault");
-        require(_usdc != address(0), "BA: zero usdc");
+        if (_vault == address(0)) revert ZeroVault();
+        if (_usdc == address(0)) revert ZeroUSDC();
         vault = ClearcrestVault(_vault);
         USDC = _usdc;
         // Initialise to deployment time so neither harvest nor buyback fires immediately.
@@ -143,17 +153,18 @@ contract ClearcrestAutomation is AutomationCompatibleInterface, Ownable2Step {
         bytes32 action = abi.decode(performData, (bytes32));
 
         if (action == ACTION_HARVEST) {
-            require(_harvestDue(), "BA: harvest not due");
+            if (!_harvestDue()) revert HarvestNotDue();
             _harvest();
         } else if (action == ACTION_REBALANCE) {
-            require(_rebalanceDue(), "BA: rebalance not due");
+            if (!_rebalanceDue()) revert RebalanceNotDue();
             _rebalance(maxRebalanceMoveUsdc);
         } else if (action == ACTION_BUYBACK) {
-            require(vault.buybackAccumulator() >= BUYBACK_THRESHOLD, "BA: buyback threshold not met");
-            require(block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL, "BA: buyback interval not elapsed");
+            if (vault.buybackAccumulator() < BUYBACK_THRESHOLD) revert BuybackThresholdNotMet();
+            uint256 buybackAfter = lastBuybackTime + BUYBACK_INTERVAL;
+            if (block.timestamp < buybackAfter) revert BuybackIntervalNotElapsed(buybackAfter);
             _buyback();
         } else {
-            revert("BA: unknown action");
+            revert UnknownAction(action);
         }
     }
 
@@ -164,15 +175,17 @@ contract ClearcrestAutomation is AutomationCompatibleInterface, Ownable2Step {
     /// @notice Owner-triggered harvest. Enforces the same MIN_HARVEST_GAP as
     ///         the vault to prevent management-fee spam via repeated manual calls (H-01).
     function manualHarvest() external onlyOwner {
-        require(block.timestamp >= lastHarvestTime + FeeLib.MIN_HARVEST_GAP, "BA: harvest too soon");
+        uint256 harvestAfter = lastHarvestTime + FeeLib.MIN_HARVEST_GAP;
+        if (block.timestamp < harvestAfter) revert HarvestTooSoon(harvestAfter);
         _harvest();
     }
 
     /// @notice Owner-triggered buyback. Enforces the same threshold and interval
     ///         checks as performUpkeep to prevent bypassing the 30-day cooldown (H-01).
     function manualBuyback() external onlyOwner {
-        require(vault.buybackAccumulator() >= BUYBACK_THRESHOLD, "BA: accumulator too low");
-        require(block.timestamp >= lastBuybackTime + BUYBACK_INTERVAL, "BA: buyback interval not elapsed");
+        if (vault.buybackAccumulator() < BUYBACK_THRESHOLD) revert AccumulatorTooLow();
+        uint256 buybackAfter = lastBuybackTime + BUYBACK_INTERVAL;
+        if (block.timestamp < buybackAfter) revert BuybackIntervalNotElapsed(buybackAfter);
         _buyback();
     }
 

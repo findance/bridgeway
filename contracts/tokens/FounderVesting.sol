@@ -46,13 +46,18 @@ contract FounderVesting is Ownable2Step {
     // ── Errors ───────────────────────────────────────────────────────────────
     error NothingToClaim();
     error NotFounder();
+    error ZeroToken();
+    error ZeroFounder();
+    error TransferPending();
+    error ZeroSuccessor();
+    error CannotRecoverCGOVToken();
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param _cgovToken  CGOVToken address
     /// @param _founder   Founder wallet (receives tokens on claim)
     constructor(address _cgovToken, address _founder) Ownable(_founder) {
-        if (_cgovToken == address(0)) revert("FV: zero token");
-        if (_founder == address(0)) revert("FV: zero founder");
+        if (_cgovToken == address(0)) revert ZeroToken();
+        if (_founder == address(0)) revert ZeroFounder();
 
         cgovToken = IERC20(_cgovToken);
         founder = _founder;
@@ -92,7 +97,7 @@ contract FounderVesting is Ownable2Step {
     ///         successor accepts.
     function claim() external {
         if (msg.sender != founder) revert NotFounder();
-        require(pendingOwner() == address(0), "FV: transfer pending");
+        if (pendingOwner() != address(0)) revert TransferPending();
 
         uint256 amount = claimable();
         if (amount == 0) revert NothingToClaim();
@@ -111,7 +116,7 @@ contract FounderVesting is Ownable2Step {
     /// @dev    Old founder loses all future claims permanently.
     function transferFounder(address newFounder) external {
         if (msg.sender != founder) revert NotFounder();
-        if (newFounder == address(0)) revert("FV: zero successor");
+        if (newFounder == address(0)) revert ZeroSuccessor();
         transferOwnership(newFounder); // initiates 2-step transfer
     }
 
@@ -126,7 +131,7 @@ contract FounderVesting is Ownable2Step {
     // ── Emergency: recover non-CGOV tokens sent accidentally ─────────────────
     /// @notice Recover ERC-20 tokens other than the cgov token.
     function recoverToken(address token, uint256 amount) external onlyOwner {
-        require(token != address(cgovToken), "FV: cannot recover cgov token");
+        if (token == address(cgovToken)) revert CannotRecoverCGOVToken();
         IERC20(token).safeTransfer(owner(), amount);
     }
 }
