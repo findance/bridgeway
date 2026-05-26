@@ -1,0 +1,208 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.24;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "../../interfaces/IClearcrestHubNAV.sol";
+import "../../libraries/FeeLib.sol";
+import "./ClearcrestVaultModuleBase.sol";
+
+/// @notice Replaceable delegatecall module for ClearcrestVault redemption flows.
+contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
+    using SafeERC20 for IERC20;
+
+    constructor(address ccrToken_, address cgovToken_, address usdc_, address usdcUsdFeed_)
+        ClearcrestVaultModuleBase(ccrToken_, cgovToken_, usdc_, usdcUsdFeed_)
+    {}
+
+    function redeem(uint256 ccrAmount, uint256 minUSDC) external onlyDelegated {
+        if (ccrAmount == 0) revert ZeroAmount();
+
+        uint256 userBalance = ccrToken.balanceOf(msg.sender);
+        if (userBalance < ccrAmount) revert InsufficientCCR(userBalance, ccrAmount);
+
+        uint256 grossUsdc = _redemptionUSDCAmount((ccrAmount * _navPerCCR()) / 1e18);
+        uint256 feeBps = stressModeActive ? stressExitFeeBps : exitFeeBps;
+        uint256 exitFeeUsdc = FeeLib.calcExitFee(grossUsdc, feeBps);
+
+        uint256 perfFeeUsdc;
+        uint256 currentNav18 = _navPerCCR18();
+        uint256 effectiveHwm = _decayedHWM();
+        if (currentNav18 > effectiveHwm) {
+            uint256 yieldPerCCR18 = currentNav18 - effectiveHwm;
+            uint256 yieldUsdc = (ccrAmount * yieldPerCCR18) / 1e30;
+            perfFeeUsdc = FeeLib.calcPerfFee(yieldUsdc);
+        }
+        uint256 quotedNetUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
+
+        _reducePrincipalForBurn(ccrAmount);
+        ccrToken.adminBurn(msg.sender, ccrAmount);
+
+        if (grossUsdc > _totalLocalNAV()) {
+            _queueRedemption(
+                msg.sender, ccrAmount, grossUsdc, quotedNetUsdc, exitFeeUsdc, perfFeeUsdc, currentNav18, effectiveHwm
+            );
+            return;
+        }
+
+        _fundRedemptionFromLiquidSleeves(grossUsdc);
+
+        uint256 realisedGrossUsdc = _availableUSDC();
+        if (realisedGrossUsdc > grossUsdc) realisedGrossUsdc = grossUsdc;
+        if (realisedGrossUsdc < grossUsdc) {
+            exitFeeUsdc = (exitFeeUsdc * realisedGrossUsdc) / grossUsdc;
+            perfFeeUsdc = (perfFeeUsdc * realisedGrossUsdc) / grossUsdc;
+        }
+        uint256 netUsdc = realisedGrossUsdc - exitFeeUsdc - perfFeeUsdc;
+        if (netUsdc < minUSDC) revert SlippageTooHigh(netUsdc, minUSDC);
+
+        if (perfFeeUsdc > 0) {
+            _distributePerfFee(perfFeeUsdc);
+            if (currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
+                highWaterMark = _navPerCCR18();
+                lastHWMUpdateTime = block.timestamp;
+            }
+        }
+
+        if (exitFeeUsdc > 0) _tryTransferFee(holdbackWallet, exitFeeUsdc);
+
+        IERC20(USDC).safeTransfer(msg.sender, netUsdc);
+        emit Redeemed(msg.sender, ccrAmount, netUsdc, exitFeeUsdc, perfFeeUsdc);
+    }
+
+    function claimQueuedRedemption(uint256 redemptionId) external onlyDelegated {
+        QueuedRedemption storage redemption = _queuedRedemptions[redemptionId];
+        if (redemption.claimant == address(0)) revert UnknownQueuedRedemption(redemptionId);
+        if (redemption.claimant != msg.sender) revert NotQueuedRedemptionClaimant(redemptionId, msg.sender);
+        if (redemption.claimed) revert QueuedRedemptionAlreadyClaimed(redemptionId);
+        if (redemption.navLiabilityUsdc > 0) {
+            revert QueuedRedemptionNotReady(redemptionId, redemption.navLiabilityUsdc);
+        }
+
+        uint256 requiredUsdc = redemption.netUsdc + redemption.exitFeeUsdc + redemption.perfFeeUsdc;
+        uint256 availableUsdc = _availableUSDC();
+        if (availableUsdc < requiredUsdc) revert InsufficientLocalLiquidity(availableUsdc, requiredUsdc);
+
+        redemption.claimed = true;
+        totalQueuedRedemptionGross -= requiredUsdc;
+        _consumeIdleRedemptionReserve(requiredUsdc);
+
+        if (redemption.perfFeeUsdc > 0) _distributePerfFee(redemption.perfFeeUsdc);
+        if (redemption.exitFeeUsdc > 0) _tryTransferFee(holdbackWallet, redemption.exitFeeUsdc);
+
+        IERC20(USDC).safeTransfer(msg.sender, redemption.netUsdc);
+        emit QueuedRedemptionClaimed(
+            redemptionId, msg.sender, redemption.netUsdc, redemption.exitFeeUsdc, redemption.perfFeeUsdc
+        );
+    }
+
+    function acknowledgeQueuedRedemptionLiquidity(uint256 redemptionId, uint256 amount) external onlyDelegated {
+        if (msg.sender != owner() && msg.sender != automation) revert OnlyAutomation();
+        QueuedRedemption storage redemption = _queuedRedemptions[redemptionId];
+        if (redemption.claimant == address(0)) revert UnknownQueuedRedemption(redemptionId);
+        if (redemption.claimed) revert QueuedRedemptionAlreadyClaimed(redemptionId);
+        if (amount > redemption.navLiabilityUsdc) amount = redemption.navLiabilityUsdc;
+
+        uint256 reservedRelease = amount > redemption.spokeNavReservedUsdc ? redemption.spokeNavReservedUsdc : amount;
+        if (reservedRelease > 0 && hubNAV != address(0) && redemption.spokeNavSnapshotUsdc > 0) {
+            uint256 currentSpokeNav = IClearcrestHubNAV(hubNAV).totalSpokeNAVUSDC();
+            uint256 spokeDrop = redemption.spokeNavSnapshotUsdc > currentSpokeNav
+                ? redemption.spokeNavSnapshotUsdc - currentSpokeNav
+                : 0;
+            if (spokeDrop < reservedRelease) revert QueuedRedemptionNotReady(redemptionId, reservedRelease);
+            redemption.spokeNavSnapshotUsdc = currentSpokeNav;
+        }
+
+        redemption.navLiabilityUsdc -= amount;
+        totalQueuedRedemptionNAVLiability -= amount;
+
+        if (reservedRelease > 0) redemption.spokeNavReservedUsdc -= reservedRelease;
+
+        emit QueuedRedemptionLiquidityAcknowledged(redemptionId, amount, redemption.navLiabilityUsdc);
+    }
+
+    function _fundRedemptionFromLiquidSleeves(uint256 grossUsdc) internal returns (uint256 usdcReturned) {
+        uint256 nav = _totalLocalNAV();
+        if (nav == 0) return 0;
+        if (grossUsdc > nav) revert InsufficientLocalLiquidity(nav, grossUsdc);
+
+        uint256 idle = idleRedemptionReserveUsdc;
+        uint256 availableUsdc = _availableUSDC();
+        if (idle > availableUsdc) idle = availableUsdc;
+        if (idle >= grossUsdc) {
+            idleRedemptionReserveUsdc = idle - grossUsdc;
+            return 0;
+        }
+
+        uint256 remaining = grossUsdc - idle;
+        if (idle > 0) idleRedemptionReserveUsdc = 0;
+
+        uint256 sleeveB = _sleeveValue(SLEEVE_B);
+        uint256 request = sleeveB > remaining ? remaining : sleeveB;
+        if (request > 0) {
+            uint256 returned = _withdrawFromSleeve(SLEEVE_B, request);
+            usdcReturned += returned;
+            if (returned > request) idleRedemptionReserveUsdc += returned - request;
+            remaining = returned >= remaining ? 0 : remaining - returned;
+        }
+
+        uint256 sleeveC = _sleeveValue(SLEEVE_C);
+        request = sleeveC > remaining ? remaining : sleeveC;
+        if (request > 0) {
+            uint256 returned = _withdrawFromSleeve(SLEEVE_C, request);
+            usdcReturned += returned;
+            if (returned > request) idleRedemptionReserveUsdc += returned - request;
+            remaining = returned >= remaining ? 0 : remaining - returned;
+        }
+
+        if (remaining > 0) {
+            uint256 returned = _withdrawFromSleeve(SLEEVE_A, remaining);
+            usdcReturned += returned;
+            if (returned > remaining) idleRedemptionReserveUsdc += returned - remaining;
+        }
+    }
+
+    function _queueRedemption(
+        address claimant,
+        uint256 ccrBurned,
+        uint256 grossUsdc,
+        uint256 netUsdc,
+        uint256 exitFeeUsdc,
+        uint256 perfFeeUsdc,
+        uint256 currentNav18,
+        uint256 effectiveHwm
+    ) internal {
+        uint256 localNav = _totalLocalNAV();
+        uint256 spokeReserved = grossUsdc > localNav ? grossUsdc - localNav : 0;
+        address nav = hubNAV;
+        uint256 spokeSnapshot = nav == address(0) ? 0 : IClearcrestHubNAV(nav).totalSpokeNAVUSDC();
+
+        uint256 redemptionId = ++queuedRedemptionCount;
+        _queuedRedemptions[redemptionId] = QueuedRedemption({
+            claimant: claimant,
+            netUsdc: netUsdc,
+            exitFeeUsdc: exitFeeUsdc,
+            perfFeeUsdc: perfFeeUsdc,
+            navLiabilityUsdc: grossUsdc,
+            spokeNavSnapshotUsdc: spokeSnapshot,
+            spokeNavReservedUsdc: spokeReserved,
+            claimed: false
+        });
+        totalQueuedRedemptionGross += grossUsdc;
+        totalQueuedRedemptionNAVLiability += grossUsdc;
+
+        if (perfFeeUsdc > 0 && currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
+            highWaterMark = currentNav18;
+            lastHWMUpdateTime = block.timestamp;
+        }
+
+        emit RedemptionQueued(redemptionId, claimant, ccrBurned, grossUsdc, netUsdc, exitFeeUsdc, perfFeeUsdc);
+    }
+
+    function _consumeIdleRedemptionReserve(uint256 amount) internal {
+        uint256 reserve = idleRedemptionReserveUsdc;
+        if (reserve == 0 || amount == 0) return;
+        idleRedemptionReserveUsdc = amount >= reserve ? 0 : reserve - amount;
+    }
+}

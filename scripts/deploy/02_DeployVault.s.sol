@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import "forge-std/Script.sol";
 import "../../contracts/core/ClearcrestAdmin.sol";
 import "../../contracts/core/ClearcrestVault.sol";
+import "../../contracts/core/modules/ClearcrestMaintenanceModule.sol";
+import "../../contracts/core/modules/ClearcrestRedemptionModule.sol";
 import "../../contracts/tokens/CCRToken.sol";
 import "../../contracts/tokens/CGOVToken.sol";
 
@@ -64,6 +66,25 @@ contract DeployVault is Script {
         ClearcrestVault vault = _deployVault(deployer);
         console.log("ClearcrestVault:", address(vault));
 
+        ClearcrestRedemptionModule redemptionModule = new ClearcrestRedemptionModule(
+            vm.envAddress("CCR_TOKEN"),
+            vm.envAddress("CGOV_TOKEN"),
+            vm.envAddress("USDC_ADDRESS"),
+            vm.envAddress("USDC_USD_FEED")
+        );
+        console.log("ClearcrestRedemptionModule:", address(redemptionModule));
+
+        ClearcrestMaintenanceModule maintenanceModule = new ClearcrestMaintenanceModule(
+            vm.envAddress("CCR_TOKEN"),
+            vm.envAddress("CGOV_TOKEN"),
+            vm.envAddress("USDC_ADDRESS"),
+            vm.envAddress("USDC_USD_FEED")
+        );
+        console.log("ClearcrestMaintenanceModule:", address(maintenanceModule));
+
+        vault.setLogicModules(address(redemptionModule), address(maintenanceModule));
+        console.log("Vault logic modules wired");
+
         ccrToken.grantRole(ccrToken.MINTER_ROLE(), address(vault));
         console.log("Granted MINTER_ROLE to vault on CCR token");
 
@@ -110,6 +131,8 @@ contract DeployVault is Script {
         console.log("\n=== Save these for script 03 ===");
         console.log("VAULT=", address(vault));
         console.log("ADMIN=", address(admin));
+        console.log("REDEMPTION_MODULE=", address(redemptionModule));
+        console.log("MAINTENANCE_MODULE=", address(maintenanceModule));
         console.log("Admin owner must accept ownership from Safe before Safe-governed configuration.");
         console.log("\n=== Optional liquidity step ===");
         console.log("After seeding CCR/USDC liquidity for secondary-market trading, call:");

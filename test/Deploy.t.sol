@@ -6,6 +6,8 @@ import "../contracts/tokens/CCRToken.sol";
 import "../contracts/tokens/CGOVToken.sol";
 import "../contracts/core/ClearcrestVault.sol";
 import "../contracts/core/ClearcrestAutomation.sol";
+import "../contracts/core/modules/ClearcrestMaintenanceModule.sol";
+import "../contracts/core/modules/ClearcrestRedemptionModule.sol";
 import "../contracts/libraries/FeeLib.sol";
 import "../contracts/libraries/ClearcrestDeterministicDeploy.sol";
 
@@ -120,8 +122,13 @@ contract DeployTest is Test {
         vault = new ClearcrestVault(
             address(ccrToken), address(cgovToken), team, holdback, reserve, founder, USDC_ADDR, usdcFeed
         );
+        ClearcrestRedemptionModule redemptionModule =
+            new ClearcrestRedemptionModule(address(ccrToken), address(cgovToken), USDC_ADDR, usdcFeed);
+        ClearcrestMaintenanceModule maintenanceModule =
+            new ClearcrestMaintenanceModule(address(ccrToken), address(cgovToken), USDC_ADDR, usdcFeed);
 
         vm.startPrank(founder);
+        vault.setLogicModules(address(redemptionModule), address(maintenanceModule));
         ccrToken.grantRole(ccrToken.MINTER_ROLE(), address(vault));
         ccrToken.grantRole(ccrToken.BURNER_ROLE(), address(vault)); // H-11
         ccrToken.grantRole(ccrToken.WHITELIST_ADMIN_ROLE(), address(vault));

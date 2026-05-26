@@ -8,6 +8,8 @@ import "../contracts/core/ClearcrestAdmin.sol";
 import "../contracts/core/ClearcrestVault.sol";
 import "../contracts/core/ClearcrestHubNAV.sol";
 import "../contracts/core/ClearcrestSpokeReporter.sol";
+import "../contracts/core/modules/ClearcrestMaintenanceModule.sol";
+import "../contracts/core/modules/ClearcrestRedemptionModule.sol";
 import "../contracts/mocks/MockCamelotRouter.sol";
 import "../contracts/mocks/MockPriceFeed.sol";
 import "../contracts/mocks/MockSleeveAdapter.sol";
@@ -104,9 +106,14 @@ contract ClearcrestVaultTest is Test {
             USDC_ADDR, // _usdc    (M-06: constructor-injected, not bytecode-hardcoded)
             address(usdcUsdFeed)
         );
+        ClearcrestRedemptionModule redemptionModule =
+            new ClearcrestRedemptionModule(address(ccrToken), address(cgovToken), USDC_ADDR, address(usdcUsdFeed));
+        ClearcrestMaintenanceModule maintenanceModule =
+            new ClearcrestMaintenanceModule(address(ccrToken), address(cgovToken), USDC_ADDR, address(usdcUsdFeed));
 
         // ── Wire roles ─────────────────────────────────────────────────────────
         vm.startPrank(founder);
+        vault.setLogicModules(address(redemptionModule), address(maintenanceModule));
 
         ccrToken.setGovernanceCompanion(address(cgovToken));
         ccrToken.grantRole(ccrToken.MINTER_ROLE(), address(vault));
