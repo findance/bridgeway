@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
@@ -15,7 +16,7 @@ import "../interfaces/INativeStakingAdapter.sol";
 /// @notice Chain-local adapter for native staking wrappers that expose an
 ///         ERC4626-style vault interface. It values the native asset with a
 ///         Chainlink USD feed and reports USDC-normalized NAV to the spoke.
-contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step {
+contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20Metadata;
 
     uint256 public constant USDC_DECIMALS = 6;
@@ -62,13 +63,15 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step {
             revert ZeroAddress();
         }
         if (IERC4626(stakingVault_).asset() != asset_) revert InvalidVaultAsset();
+        uint8 assetDecimals_ = IERC20Metadata(asset_).decimals();
+        uint8 feedDecimals_ = IChainlinkAggregator(priceFeed_).decimals();
 
         controller = controller_;
         assetToken = IERC20Metadata(asset_);
         stakingVault = IERC4626(stakingVault_);
         priceFeed = IChainlinkAggregator(priceFeed_);
-        assetDecimals = IERC20Metadata(asset_).decimals();
-        feedDecimals = IChainlinkAggregator(priceFeed_).decimals();
+        assetDecimals = assetDecimals_;
+        feedDecimals = feedDecimals_;
         maxStale = maxStale_ == 0 ? DEFAULT_MAX_STALE : maxStale_;
     }
 
@@ -77,7 +80,7 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     /// @notice Stake asset already transferred into this adapter.
-    function deploy(uint256 assetAmount) external onlyController {
+    function deploy(uint256 assetAmount) external onlyController nonReentrant {
         if (assetAmount == 0) return;
         assetToken.forceApprove(address(stakingVault), assetAmount);
         stakingVault.deposit(assetAmount, address(this));
@@ -85,7 +88,12 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step {
     }
 
     /// @notice Withdraw native asset value back to the spoke/controller.
-    function withdraw(uint256 assetAmount, address receiver) external onlyController returns (uint256 assetReturned) {
+    function withdraw(uint256 assetAmount, address receiver)
+        external
+        onlyController
+        nonReentrant
+        returns (uint256 assetReturned)
+    {
         if (receiver == address(0)) revert ZeroAddress();
         if (assetAmount == 0) return 0;
 
@@ -129,7 +137,7 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step {
         emit MaxStaleUpdated(newMaxStale);
     }
 
-    function emergencyWithdrawAll(address receiver) external onlyOwner returns (uint256 assetReturned) {
+    function emergencyWithdrawAll(address receiver) external onlyOwner nonReentrant returns (uint256 assetReturned) {
         if (receiver == address(0)) revert ZeroAddress();
 
         uint256 shares = stakingVault.balanceOf(address(this));

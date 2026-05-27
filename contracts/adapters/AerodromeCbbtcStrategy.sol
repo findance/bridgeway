@@ -217,28 +217,30 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         if (receiver == address(0)) revert ZeroAddress();
         if (cbbtcAmount == 0) return 0;
 
-        uint256 markReduction = cbbtcAmount > markedTotalAssetsCbbtc ? markedTotalAssetsCbbtc : cbbtcAmount;
-        _removeProRata(cbbtcAmount);
+        uint256 oldMarkedAssets = markedTotalAssetsCbbtc;
+        uint256 markReduction = cbbtcAmount > oldMarkedAssets ? oldMarkedAssets : cbbtcAmount;
+        markedTotalAssetsCbbtc = oldMarkedAssets > markReduction ? oldMarkedAssets - markReduction : 0;
+
+        _removeProRata(cbbtcAmount, oldMarkedAssets);
         _convertIdleToCbbtc();
 
         uint256 available = cbbtc.balanceOf(address(this));
         cbbtcReturned = available > cbbtcAmount ? cbbtcAmount : available;
         if (cbbtcReturned > 0) cbbtc.safeTransfer(receiver, cbbtcReturned);
 
-        if (markedTotalAssetsCbbtc > markReduction) markedTotalAssetsCbbtc -= markReduction;
-        else markedTotalAssetsCbbtc = 0;
-
         emit Withdrawn(cbbtcAmount, cbbtcReturned, receiver);
     }
 
     function withdrawAll(address receiver) external onlyController nonReentrant returns (uint256 cbbtcReturned) {
         if (receiver == address(0)) revert ZeroAddress();
-        _removeAllLiquidity();
+        uint256 oldMarkedAssets = markedTotalAssetsCbbtc;
+        markedTotalAssetsCbbtc = 0;
+
+        _removeAllLiquidity(oldMarkedAssets);
         _convertIdleToCbbtc();
 
         cbbtcReturned = cbbtc.balanceOf(address(this));
         if (cbbtcReturned > 0) cbbtc.safeTransfer(receiver, cbbtcReturned);
-        markedTotalAssetsCbbtc = 0;
 
         emit EmergencyWithdrawn(cbbtcReturned, receiver);
     }
@@ -270,12 +272,14 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     function emergencyWithdrawAll() external onlyOwner nonReentrant returns (uint256 cbbtcReturned) {
         address receiver = controller;
         if (receiver == address(0)) revert ZeroAddress();
-        _removeAllLiquidity();
+        uint256 oldMarkedAssets = markedTotalAssetsCbbtc;
+        markedTotalAssetsCbbtc = 0;
+
+        _removeAllLiquidity(oldMarkedAssets);
         _convertIdleToCbbtc();
 
         cbbtcReturned = cbbtc.balanceOf(address(this));
         if (cbbtcReturned > 0) cbbtc.safeTransfer(receiver, cbbtcReturned);
-        markedTotalAssetsCbbtc = 0;
 
         emit EmergencyWithdrawn(cbbtcReturned, receiver);
     }
@@ -337,22 +341,21 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
         _stakeIfConfigured();
     }
 
-    function _removeProRata(uint256 cbbtcAmount) internal {
-        if (tokenId == 0 || markedTotalAssetsCbbtc == 0) return;
+    function _removeProRata(uint256 cbbtcAmount, uint256 markedAssetsBefore) internal {
+        if (tokenId == 0 || markedAssetsBefore == 0) return;
         uint128 liquidity = currentLiquidity();
         if (liquidity == 0) return;
 
-        uint256 numerator = cbbtcAmount > markedTotalAssetsCbbtc ? markedTotalAssetsCbbtc : cbbtcAmount;
-        uint128 liquidityToRemove =
-            SafeCast.toUint128(Math.mulDiv(uint256(liquidity), numerator, markedTotalAssetsCbbtc));
+        uint256 numerator = cbbtcAmount > markedAssetsBefore ? markedAssetsBefore : cbbtcAmount;
+        uint128 liquidityToRemove = SafeCast.toUint128(Math.mulDiv(uint256(liquidity), numerator, markedAssetsBefore));
         if (liquidityToRemove == 0) return;
 
         _decreaseAndCollect(liquidityToRemove, numerator);
     }
 
-    function _removeAllLiquidity() internal {
+    function _removeAllLiquidity(uint256 markedAssetsBefore) internal {
         uint128 liquidity = currentLiquidity();
-        if (liquidity > 0) _decreaseAndCollect(liquidity, markedTotalAssetsCbbtc);
+        if (liquidity > 0) _decreaseAndCollect(liquidity, markedAssetsBefore);
     }
 
     function _decreaseAndCollect(uint128 liquidity, uint256 cbbtcValueToRemove) internal {

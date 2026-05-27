@@ -77,6 +77,8 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
             revert ZeroAddress();
         }
         if (IAerodromeCbbtcStrategy(aerodromeStrategy_).asset() != cbbtc_) revert InvalidStrategyAsset();
+        uint8 cbbtcDecimals_ = IERC20Metadata(cbbtc_).decimals();
+        uint8 feedDecimals_ = IChainlinkAggregator(priceFeed_).decimals();
 
         controller = controller_;
         rescueReceiver = rescueReceiver_;
@@ -85,8 +87,8 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
         aCbbtc = IERC20Metadata(aCbbtc_);
         aerodromeStrategy = IAerodromeCbbtcStrategy(aerodromeStrategy_);
         priceFeed = IChainlinkAggregator(priceFeed_);
-        cbbtcDecimals = IERC20Metadata(cbbtc_).decimals();
-        feedDecimals = IChainlinkAggregator(priceFeed_).decimals();
+        cbbtcDecimals = cbbtcDecimals_;
+        feedDecimals = feedDecimals_;
         maxStale = maxStale_ == 0 ? DEFAULT_MAX_STALE : maxStale_;
     }
 

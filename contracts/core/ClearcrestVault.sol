@@ -511,23 +511,23 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     /// @param  ccrAmount  CCR to burn (18 dec).
     /// @param  minUSDC    Minimum USDC to accept (slippage guard, 6 dec).
     function redeem(uint256 ccrAmount, uint256 minUSDC) external nonReentrant whenNotPaused {
-        (ccrAmount, minUSDC);
-        _delegateTo(redemptionModule, msg.data);
+        _delegateTo(redemptionModule, abi.encodeWithSelector(this.redeem.selector, ccrAmount, minUSDC));
     }
 
     /// @notice Claim a queued redemption once hub-chain liquidity has arrived
     ///         from spoke unwinds or treasury buffering.
     function claimQueuedRedemption(uint256 redemptionId) external nonReentrant whenNotPaused {
-        redemptionId;
-        _delegateTo(redemptionModule, msg.data);
+        _delegateTo(redemptionModule, abi.encodeWithSelector(this.claimQueuedRedemption.selector, redemptionId));
     }
 
     /// @notice Mark queued redemption NAV as no longer counted in spoke/local
     ///         reports after unwind liquidity has arrived or a source NAV report
     ///         has dropped. This prepares the queue item for claimant withdrawal.
-    function acknowledgeQueuedRedemptionLiquidity(uint256 redemptionId, uint256 amount) external {
-        (redemptionId, amount);
-        _delegateTo(redemptionModule, msg.data);
+    function acknowledgeQueuedRedemptionLiquidity(uint256 redemptionId, uint256 amount) external nonReentrant {
+        _delegateTo(
+            redemptionModule,
+            abi.encodeWithSelector(this.acknowledgeQueuedRedemptionLiquidity.selector, redemptionId, amount)
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -711,16 +711,16 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         onlyAutomationOrOwner
         returns (uint256 movedCToB, uint256 movedBToA)
     {
-        maxMoveUsdc;
-        bytes memory result = _delegateTo(maintenanceModule, msg.data);
+        bytes memory result = _delegateTo(
+            maintenanceModule, abi.encodeWithSelector(this.rebalanceSleevesOneWay.selector, maxMoveUsdc)
+        );
         return abi.decode(result, (uint256, uint256));
     }
 
     /// @notice Deploy idle redemption reserve above the permanent 5 USDC floor
     ///         back through the normal sleeve allocation policy.
     function deployIdleReserve(uint256 amount) external onlyOwner {
-        amount;
-        _delegateTo(maintenanceModule, msg.data);
+        _delegateTo(maintenanceModule, abi.encodeWithSelector(this.deployIdleReserve.selector, amount));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -997,6 +997,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
 
     function _delegateTo(address module, bytes memory data) internal returns (bytes memory result) {
         if (module == address(0)) revert ModuleNotConfigured();
+        // slither-disable-next-line controlled-delegatecall
         (bool ok, bytes memory ret) = module.delegatecall(data);
         if (!ok) {
             assembly {
@@ -1097,50 +1098,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         _withdrawFromSleeve(SLEEVE_C, (_sleeveValue(SLEEVE_C) * grossUsdc) / nav);
     }
 
-    /// @dev Fund redemptions from the most liquid sleeve first. Stable Sleeve B
-    ///      is the first line of defense for routine exits; Sleeve A is touched
-    ///      only when the stable/cash layers are insufficient.
-    function _fundRedemptionFromLiquidSleeves(uint256 grossUsdc) internal returns (uint256 usdcReturned) {
-        uint256 nav = totalLocalNAV();
-        if (nav == 0) return 0;
-        if (grossUsdc > nav) revert InsufficientLocalLiquidity(nav, grossUsdc);
-
-        uint256 idle = idleRedemptionReserveUsdc;
-        uint256 availableUsdc = _availableUSDC();
-        if (idle > availableUsdc) idle = availableUsdc;
-        if (idle >= grossUsdc) {
-            idleRedemptionReserveUsdc = idle - grossUsdc;
-            return 0;
-        }
-
-        uint256 remaining = grossUsdc - idle;
-        if (idle > 0) idleRedemptionReserveUsdc = 0;
-
-        uint256 sleeveB = _sleeveValue(SLEEVE_B);
-        uint256 request = sleeveB > remaining ? remaining : sleeveB;
-        if (request > 0) {
-            uint256 returned = _withdrawFromSleeve(SLEEVE_B, request);
-            usdcReturned += returned;
-            if (returned > request) idleRedemptionReserveUsdc += returned - request;
-            remaining = returned >= remaining ? 0 : remaining - returned;
-        }
-
-        uint256 sleeveC = _sleeveValue(SLEEVE_C);
-        request = sleeveC > remaining ? remaining : sleeveC;
-        if (request > 0) {
-            uint256 returned = _withdrawFromSleeve(SLEEVE_C, request);
-            usdcReturned += returned;
-            if (returned > request) idleRedemptionReserveUsdc += returned - request;
-            remaining = returned >= remaining ? 0 : remaining - returned;
-        }
-
-        if (remaining > 0) {
-            uint256 returned = _withdrawFromSleeve(SLEEVE_A, remaining);
-            usdcReturned += returned;
-            if (returned > remaining) idleRedemptionReserveUsdc += returned - remaining;
-        }
-    }
-
     function _setSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) internal {
         _validateSleeveDepositWeights(sleeveA, sleeveB, sleeveC);
         sleeveADepositBps = sleeveA;
@@ -1152,55 +1109,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     function _validateSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) internal pure {
         uint256 totalBps = uint256(sleeveA) + uint256(sleeveB) + uint256(sleeveC);
         if (totalBps != FeeLib.BPS_DENOM) revert InvalidSleeveDepositWeights(totalBps);
-    }
-
-    function _queueRedemption(
-        address claimant,
-        uint256 ccrBurned,
-        uint256 grossUsdc,
-        uint256 netUsdc,
-        uint256 exitFeeUsdc,
-        uint256 perfFeeUsdc,
-        uint256 currentNav18,
-        uint256 effectiveHwm
-    ) internal {
-        uint256 localNav = totalLocalNAV();
-        uint256 spokeReserved = grossUsdc > localNav ? grossUsdc - localNav : 0;
-        address nav = hubNAV;
-        uint256 spokeSnapshot = nav == address(0) ? 0 : IClearcrestHubNAV(nav).totalSpokeNAVUSDC();
-
-        uint256 redemptionId = ++queuedRedemptionCount;
-        _queuedRedemptions[redemptionId] = QueuedRedemption({
-            claimant: claimant,
-            netUsdc: netUsdc,
-            exitFeeUsdc: exitFeeUsdc,
-            perfFeeUsdc: perfFeeUsdc,
-            navLiabilityUsdc: grossUsdc,
-            spokeNavSnapshotUsdc: spokeSnapshot,
-            spokeNavReservedUsdc: spokeReserved,
-            claimed: false
-        });
-        totalQueuedRedemptionGross += grossUsdc;
-        totalQueuedRedemptionNAVLiability += grossUsdc;
-
-        if (perfFeeUsdc > 0 && currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
-            highWaterMark = currentNav18;
-            lastHWMUpdateTime = block.timestamp;
-        }
-
-        emit RedemptionQueued(redemptionId, claimant, ccrBurned, grossUsdc, netUsdc, exitFeeUsdc, perfFeeUsdc);
-    }
-
-    function _reducePrincipalForBurn(uint256 ccrAmount) internal {
-        uint256 supply = ccrToken.totalSupply();
-        if (supply > 0 && cumulativePrincipal > 0) {
-            uint256 principalSlice = (ccrAmount * cumulativePrincipal) / supply;
-            cumulativePrincipal -= principalSlice;
-        }
-        if (supply > 0 && performanceFeeProfitCheckpointUsdc > 0) {
-            uint256 profitSlice = (ccrAmount * performanceFeeProfitCheckpointUsdc) / supply;
-            performanceFeeProfitCheckpointUsdc -= profitSlice;
-        }
     }
 
     function _availableUSDC() internal view returns (uint256) {
@@ -1230,12 +1138,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         uint256 currentProfit = _currentPerformanceProfitUsdc();
         uint256 checkpoint = performanceFeeProfitCheckpointUsdc;
         return currentProfit > checkpoint ? currentProfit - checkpoint : 0;
-    }
-
-    function _consumeIdleRedemptionReserve(uint256 amount) internal {
-        uint256 reserve = idleRedemptionReserveUsdc;
-        if (reserve == 0 || amount == 0) return;
-        idleRedemptionReserveUsdc = amount >= reserve ? 0 : reserve - amount;
     }
 
     function _recoverTreasuryVaultUSDC(address to, uint256 amount) internal {
@@ -1315,17 +1217,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         usdcReturned = usdcAmount > current ? current : usdcAmount;
         _setSleeveValue(sleeve, current - usdcReturned);
         return usdcReturned;
-    }
-
-    function _moveSleeveValue(uint8 fromSleeve, uint8 toSleeve, uint256 usdcAmount)
-        internal
-        returns (uint256 movedUsdc)
-    {
-        movedUsdc = _withdrawFromSleeve(fromSleeve, usdcAmount);
-        if (movedUsdc == 0) return 0;
-
-        _deployToSleeve(toSleeve, movedUsdc, true);
-        emit SleeveRebalanced(fromSleeve, toSleeve, usdcAmount, movedUsdc);
     }
 
     function _reportedOrAdapterValue(uint8 sleeve, uint256 reportedValue) internal view returns (uint256) {
@@ -1424,12 +1315,6 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
             return;
         }
         _tryTransferFee(recipient, amount);
-    }
-
-    /// @dev Apply the conservative USDC settlement mark for redemptions.
-    ///      USDC above peg is capped at $1; USDC below peg reduces payout value.
-    function _redemptionUSDCAmount(uint256 usdValue6) internal view returns (uint256) {
-        return (usdValue6 * getUSDCPriceForRedemption()) / USD_PRICE_SCALE;
     }
 
     /// @dev Read and normalize a Chainlink USD feed to 8 decimals.

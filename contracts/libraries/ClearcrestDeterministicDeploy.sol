@@ -27,7 +27,7 @@ library ClearcrestDeterministicDeploy {
     }
 
     function ccrTokenInitCode(address admin) internal pure returns (bytes memory) {
-        return abi.encodePacked(type(CCRToken).creationCode, abi.encode(admin));
+        return bytes.concat(type(CCRToken).creationCode, abi.encode(admin));
     }
 
     function cgovTokenInitCode(address founderTreasury, address ccrToken, address admin)
@@ -35,7 +35,7 @@ library ClearcrestDeterministicDeploy {
         pure
         returns (bytes memory)
     {
-        return abi.encodePacked(type(CGOVToken).creationCode, abi.encode(founderTreasury, ccrToken, admin));
+        return bytes.concat(type(CGOVToken).creationCode, abi.encode(founderTreasury, ccrToken, admin));
     }
 
     function predictCCRToken(address factory, address admin) internal pure returns (address) {

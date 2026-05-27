@@ -194,19 +194,21 @@ contract ClearcrestL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
 
     /// @notice Permissionless keeper entry point. CCIP fees are paid from this
     ///         contract's ETH balance; any msg.value stays as future fee cushion.
-    function reportRate() external payable whenNotPaused returns (bytes32 messageId) {
+    function reportRate() external payable nonReentrant whenNotPaused returns (bytes32 messageId) {
         if (block.timestamp - lastReportedTimestamp < minUpdateInterval) revert CooldownActive();
         if (receiverOnL2 == address(0)) revert ReceiverNotConfigured();
+
+        uint256 reportTimestamp = block.timestamp;
+        lastReportedTimestamp = reportTimestamp;
 
         uint256 currentRate;
         try IStakeLinkWstLink(wstLinkL1).getUnderlyingByWrapped(RATE_SAMPLE_INPUT) returns (uint256 rate) {
             currentRate = rate;
         } catch {
-            lastReportedTimestamp = block.timestamp;
             emit RateReadFailed(wstLinkL1);
             return bytes32(0);
         }
-        bytes memory payload = abi.encode(PAYLOAD_VERSION, wstLinkL2, currentRate, block.number, block.timestamp);
+        bytes memory payload = abi.encode(PAYLOAD_VERSION, wstLinkL2, currentRate, block.number, reportTimestamp);
 
         ICCIPRouterClient.EVM2AnyMessage memory message = ICCIPRouterClient.EVM2AnyMessage({
             receiver: abi.encode(receiverOnL2),
@@ -226,10 +228,10 @@ contract ClearcrestL1RateReporter is Ownable2Step, Pausable, ReentrancyGuard {
         }
         if (address(this).balance < fee) revert InsufficientFees();
 
-        lastReportedTimestamp = block.timestamp;
+        // slither-disable-next-line arbitrary-send-eth
         messageId = router.ccipSend{value: fee}(destinationChainSelector, message);
 
-        emit RateReported(messageId, wstLinkL2, currentRate, block.number, block.timestamp, fee);
+        emit RateReported(messageId, wstLinkL2, currentRate, block.number, reportTimestamp, fee);
     }
 
     function withdrawETH(address payable to, uint256 amount) external onlyOwner nonReentrant {

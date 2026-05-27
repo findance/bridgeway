@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../interfaces/ICamelotRouter.sol";
@@ -19,7 +20,7 @@ import "../interfaces/ISleeveAdapter.sol";
 ///         redeploy. It swaps USDC into approved assets, values positions using
 ///         Chainlink-style USD feeds, and unwinds assets pro-rata for vault
 ///         withdrawals.
-contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
+contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS_DENOM = 10_000;
@@ -136,7 +137,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
         emit RegistrySet(newRegistry);
     }
 
-    function setAssets(AssetInput[] calldata newAssets) external onlyOwner {
+    function setAssets(AssetInput[] calldata newAssets) external onlyOwner nonReentrant {
         if (_adapterHasValue()) revert AdapterNotEmpty();
 
         uint256 count = newAssets.length;
@@ -160,34 +161,38 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
 
         if (weightTotal != BPS_DENOM) revert InvalidWeightTotal();
 
-        for (uint256 i; i < _assets.length; ++i) {
-            delete _buyPaths[i];
-            delete _sellPaths[i];
-        }
-        delete _assets;
+        AssetConfig[] memory configs = new AssetConfig[](count);
         for (uint256 i; i < count; ++i) {
             AssetInput calldata input = newAssets[i];
             uint8 tokenDecimals = input.tokenDecimals;
             if (tokenDecimals == 0) {
                 tokenDecimals = IERC20Metadata(input.token).decimals();
             }
-            _assets.push(
-                AssetConfig({
-                    token: input.token,
-                    priceFeed: input.priceFeed,
-                    weightBps: input.weightBps,
-                    tokenDecimals: tokenDecimals,
-                    maxStale: input.maxStale
-                })
-            );
-            _copyPath(_buyPaths[i], input.buyPath);
-            _copyPath(_sellPaths[i], input.sellPath);
+            configs[i] = AssetConfig({
+                token: input.token,
+                priceFeed: input.priceFeed,
+                weightBps: input.weightBps,
+                tokenDecimals: tokenDecimals,
+                maxStale: input.maxStale
+            });
+        }
+
+        uint256 oldCount = _assets.length;
+        for (uint256 i; i < oldCount; ++i) {
+            delete _buyPaths[i];
+            delete _sellPaths[i];
+        }
+        delete _assets;
+        for (uint256 i; i < count; ++i) {
+            _assets.push(configs[i]);
+            _copyPath(_buyPaths[i], newAssets[i].buyPath);
+            _copyPath(_sellPaths[i], newAssets[i].sellPath);
         }
 
         emit AssetsConfigured(count);
     }
 
-    function setAssetsFromRegistry(RegistryAssetInput[] calldata newAssets) external onlyOwner {
+    function setAssetsFromRegistry(RegistryAssetInput[] calldata newAssets) external onlyOwner nonReentrant {
         if (address(registry) == address(0)) revert ZeroAddress();
         if (_adapterHasValue()) revert AdapterNotEmpty();
 
@@ -236,35 +241,39 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
 
         if (weightTotal != BPS_DENOM) revert InvalidWeightTotal();
 
-        for (uint256 i; i < _assets.length; ++i) {
-            delete _buyPaths[i];
-            delete _sellPaths[i];
-        }
-        delete _assets;
+        AssetConfig[] memory configs = new AssetConfig[](count);
         for (uint256 i; i < count; ++i) {
             AssetInput memory input = newAssets[i];
             uint8 tokenDecimals = input.tokenDecimals;
             if (tokenDecimals == 0) {
                 tokenDecimals = IERC20Metadata(input.token).decimals();
             }
-            _assets.push(
-                AssetConfig({
-                    token: input.token,
-                    priceFeed: input.priceFeed,
-                    weightBps: input.weightBps,
-                    tokenDecimals: tokenDecimals,
-                    maxStale: input.maxStale
-                })
-            );
-            _copyPathMemory(_buyPaths[i], input.buyPath);
-            _copyPathMemory(_sellPaths[i], input.sellPath);
+            configs[i] = AssetConfig({
+                token: input.token,
+                priceFeed: input.priceFeed,
+                weightBps: input.weightBps,
+                tokenDecimals: tokenDecimals,
+                maxStale: input.maxStale
+            });
+        }
+
+        uint256 oldCount = _assets.length;
+        for (uint256 i; i < oldCount; ++i) {
+            delete _buyPaths[i];
+            delete _sellPaths[i];
+        }
+        delete _assets;
+        for (uint256 i; i < count; ++i) {
+            _assets.push(configs[i]);
+            _copyPathMemory(_buyPaths[i], newAssets[i].buyPath);
+            _copyPathMemory(_sellPaths[i], newAssets[i].sellPath);
         }
 
         emit AssetsConfigured(count);
     }
 
     /// @notice Deploy USDC already transferred to this adapter into the Sleeve A basket.
-    function deploy(uint256 usdcAmount) external onlyVault {
+    function deploy(uint256 usdcAmount) external onlyVault nonReentrant {
         uint256 count = _assets.length;
         if (count == 0) revert InvalidAssetCount();
 
@@ -281,7 +290,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     }
 
     /// @notice Withdraw USDC-equivalent value by selling positions pro-rata.
-    function withdraw(uint256 usdcAmount) external onlyVault returns (uint256 usdcReturned) {
+    function withdraw(uint256 usdcAmount) external onlyVault nonReentrant returns (uint256 usdcReturned) {
         uint256 navBefore = totalAssetsUSDC();
         if (usdcAmount == 0 || navBefore == 0) return 0;
 
@@ -324,7 +333,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     }
 
     /// @notice Return any idle USDC rewards to the vault as realised yield.
-    function harvest() external onlyVault returns (uint256 yieldUsdc) {
+    function harvest() external onlyVault nonReentrant returns (uint256 yieldUsdc) {
         yieldUsdc = usdc.balanceOf(address(this));
         if (yieldUsdc > 0) {
             usdc.safeTransfer(vault, yieldUsdc);
@@ -335,7 +344,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     /// @notice Rebalance the configured basket back toward approved Sleeve A weights.
     /// @dev Intended for the monthly 15th rebalance job. This only trades inside
     ///      Sleeve A and never moves funds to Sleeve C.
-    function rebalance() external onlyOwner {
+    function rebalance() external onlyOwner nonReentrant {
         uint256 count = _assets.length;
         if (count == 0) revert InvalidAssetCount();
 
@@ -372,7 +381,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     }
 
     /// @notice Sell one configured asset to USDC without relying on oracle value.
-    function emergencyUnwindAsset(uint256 index, uint256 tokenAmount) external onlyOwner {
+    function emergencyUnwindAsset(uint256 index, uint256 tokenAmount) external onlyOwner nonReentrant {
         if (index >= _assets.length) revert InvalidAssetCount();
 
         uint256 balance = IERC20(_assets[index].token).balanceOf(address(this));
@@ -384,7 +393,7 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step {
     }
 
     /// @notice Sell all configured assets to USDC without relying on oracle values.
-    function emergencyUnwindAll() external onlyOwnerOrVault {
+    function emergencyUnwindAll() external onlyOwnerOrVault nonReentrant {
         uint256 count = _assets.length;
         for (uint256 i; i < count; ++i) {
             uint256 balance = IERC20(_assets[i].token).balanceOf(address(this));

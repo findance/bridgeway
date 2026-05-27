@@ -102,14 +102,18 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
             revert ZeroAddress();
         }
         _validateTickSpacing(_tickSpacing);
+        uint8 cbbtcDecimals_ = IERC20MetadataLike(_cbbtc).decimals();
+        uint8 usdcDecimals_ = IERC20MetadataLike(_usdc).decimals();
+        uint8 feedDecimals_ = IChainlinkAggregator(_btcUsdFeed).decimals();
+
         vault = _vault;
         usdc = IERC20(_usdc);
         cbbtc = IERC20(_cbbtc);
         router = IAerodromeSwapRouter(_router);
         btcUsdFeed = IChainlinkAggregator(_btcUsdFeed);
-        cbbtcDecimals = IERC20MetadataLike(_cbbtc).decimals();
-        usdcDecimals = IERC20MetadataLike(_usdc).decimals();
-        feedDecimals = IChainlinkAggregator(_btcUsdFeed).decimals();
+        cbbtcDecimals = cbbtcDecimals_;
+        usdcDecimals = usdcDecimals_;
+        feedDecimals = feedDecimals_;
         tickSpacing = _tickSpacing;
         maxStale = _normalizeMaxStale(_maxStale);
     }
@@ -181,6 +185,8 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     function deploy(uint256 usdcAmount) external onlyVault nonReentrant {
         if (usdcAmount == 0 || address(yieldAdapter) == address(0)) return;
 
+        adapterActivated = true;
+
         // Swap USDC → cbBTC
         uint256 cbbtcBefore = cbbtc.balanceOf(address(this));
         _swap(address(usdc), address(cbbtc), usdcAmount, _minCbbtcOut(usdcAmount));
@@ -190,7 +196,6 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
         if (cbbtcObtained > 0) {
             cbbtc.safeTransfer(address(yieldAdapter), cbbtcObtained);
             yieldAdapter.deploy(cbbtcObtained);
-            adapterActivated = true;
         }
 
         emit Deployed(usdcAmount, cbbtcObtained);

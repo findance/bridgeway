@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../interfaces/ISleeveAdapter.sol";
@@ -14,7 +15,7 @@ import "../interfaces/ISleeveAdapter.sol";
 ///         strategies such as Ethena/Pendle/Curve wrappers. Each strategy must
 ///         be an approved ERC4626 vault whose asset is USDC, and no strategy may
 ///         exceed 50% of Sleeve C policy weight.
-contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
+contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS_DENOM = 10_000;
@@ -76,7 +77,7 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         return _strategies[index];
     }
 
-    function setStrategies(StrategyInput[] calldata newStrategies) external onlyOwner {
+    function setStrategies(StrategyInput[] calldata newStrategies) external onlyOwner nonReentrant {
         if (_adapterHasValue()) revert AdapterNotEmpty();
 
         uint256 count = newStrategies.length;
@@ -107,7 +108,7 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         emit StrategiesConfigured(count);
     }
 
-    function deploy(uint256 usdcAmount) external onlyVault {
+    function deploy(uint256 usdcAmount) external onlyVault nonReentrant {
         uint256 count = _strategies.length;
         if (count == 0) revert InvalidStrategyCount();
 
@@ -123,7 +124,7 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         emit Deployed(usdcAmount);
     }
 
-    function withdraw(uint256 usdcAmount) external onlyVault returns (uint256 usdcReturned) {
+    function withdraw(uint256 usdcAmount) external onlyVault nonReentrant returns (uint256 usdcReturned) {
         if (usdcAmount == 0) return 0;
 
         uint256 nav = totalAssetsUSDC();
@@ -159,7 +160,7 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
 
     /// @notice Realise Sleeve C yield as USDC and return it to the vault so
     ///         automation can compound it into Sleeve B instead of back into C.
-    function harvest() external onlyVault returns (uint256 yieldUsdc) {
+    function harvest() external onlyVault nonReentrant returns (uint256 yieldUsdc) {
         uint256 nav = totalAssetsUSDC();
         if (nav <= accountingPrincipal) {
             emit Harvested(0);
@@ -197,7 +198,7 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         }
     }
 
-    function rebalance() external onlyOwner {
+    function rebalance() external onlyOwner nonReentrant {
         uint256 nav = totalAssetsUSDC();
         if (nav == 0) return;
 
@@ -223,8 +224,9 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         emit Rebalanced(totalAssetsUSDC());
     }
 
-    function emergencyWithdrawAll() external onlyOwnerOrVault returns (uint256 usdcReturned) {
+    function emergencyWithdrawAll() external onlyOwnerOrVault nonReentrant returns (uint256 usdcReturned) {
         uint256 count = _strategies.length;
+        accountingPrincipal = 0;
         for (uint256 i; i < count; ++i) {
             _redeem(_strategies[i].vault, _strategies[i].vault.balanceOf(address(this)));
         }
@@ -232,7 +234,6 @@ contract SleeveCAlphaYieldAdapter is ISleeveAdapter, Ownable2Step {
         if (usdcReturned > 0) {
             usdc.safeTransfer(vault, usdcReturned);
         }
-        accountingPrincipal = 0;
         emit EmergencyWithdrawn(usdcReturned);
     }
 

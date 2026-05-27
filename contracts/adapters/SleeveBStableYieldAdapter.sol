@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../interfaces/IAaveV3.sol";
@@ -13,7 +14,7 @@ import "../interfaces/ISleeveAdapter.sol";
 /// @title SleeveBStableYieldAdapter
 /// @notice Sleeve B adapter for conservative USDC yield: 70% Aave USDC and
 ///         30% approved Morpho-style ERC4626 USDC vault.
-contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
+contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant BPS_DENOM = 10_000;
@@ -67,7 +68,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
         morphoVault = IERC4626(_morphoVault);
     }
 
-    function deploy(uint256 usdcAmount) external onlyVault {
+    function deploy(uint256 usdcAmount) external onlyVault nonReentrant {
         uint256 aaveAmount = Math.mulDiv(usdcAmount, AAVE_WEIGHT_BPS, BPS_DENOM);
         uint256 morphoAmount = usdcAmount - aaveAmount;
         if (morphoAmount < minMorphoDepositUsdc) {
@@ -86,7 +87,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
         emit MinMorphoDepositUpdated(minimum);
     }
 
-    function withdraw(uint256 usdcAmount) external onlyVault returns (uint256 usdcReturned) {
+    function withdraw(uint256 usdcAmount) external onlyVault nonReentrant returns (uint256 usdcReturned) {
         if (usdcAmount == 0) return 0;
 
         usdcReturned = _useIdle(usdcAmount);
@@ -113,7 +114,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
 
     /// @notice Sleeve B yield stays in Sleeve B for compounding. Only idle USDC
     ///         accidentally left in the adapter is returned to the vault.
-    function harvest() external onlyVault returns (uint256 yieldUsdc) {
+    function harvest() external onlyVault nonReentrant returns (uint256 yieldUsdc) {
         yieldUsdc = usdc.balanceOf(address(this));
         if (yieldUsdc > 0) {
             usdc.safeTransfer(vault, yieldUsdc);
@@ -125,7 +126,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
         return usdc.balanceOf(address(this)) + _aaveAssets() + _morphoAssets();
     }
 
-    function rebalance() external onlyOwner {
+    function rebalance() external onlyOwner nonReentrant {
         uint256 nav = totalAssetsUSDC();
         if (nav == 0) return;
 
@@ -144,7 +145,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step {
         emit Rebalanced(totalAssetsUSDC());
     }
 
-    function emergencyWithdrawAll() external onlyOwnerOrVault returns (uint256 usdcReturned) {
+    function emergencyWithdrawAll() external onlyOwnerOrVault nonReentrant returns (uint256 usdcReturned) {
         _withdrawAave(type(uint256).max);
         _redeemMorphoShares(morphoVault.balanceOf(address(this)));
         usdcReturned = usdc.balanceOf(address(this));

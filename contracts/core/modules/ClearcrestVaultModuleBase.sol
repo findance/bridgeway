@@ -17,6 +17,7 @@ import "../../libraries/ClearcrestSleeveGovernance.sol";
 import "../../libraries/FeeLib.sol";
 
 abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownable {
+    // slither-disable-start uninitialized-state,constable-states,immutable-states,unused-state,naming-convention
     using SafeERC20 for IERC20;
     using SafeCast for int256;
     using ClearcrestSleeveGovernance for ClearcrestSleeveGovernance.Layout;
@@ -135,6 +136,7 @@ abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownabl
         USDC_USD_FEED = _usdcUsdFeed;
         SELF = address(this);
     }
+    // slither-disable-end uninitialized-state,constable-states,immutable-states,unused-state,naming-convention
 
     function _totalSpokeNAV() internal view returns (uint256) {
         address nav = hubNAV;

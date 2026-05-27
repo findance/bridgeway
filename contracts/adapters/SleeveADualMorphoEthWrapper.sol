@@ -116,6 +116,9 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
         if (IERC4626(morphoVaultA_).asset() != weth_ || IERC4626(morphoVaultB_).asset() != weth_) {
             revert InvalidMorphoAsset();
         }
+        uint8 usdcDecimals_ = IERC20Metadata(usdc_).decimals();
+        uint8 wethDecimals_ = IERC20Metadata(weth_).decimals();
+        uint8 feedDecimals_ = IChainlinkAggregator(ethUsdFeed_).decimals();
 
         vault = vault_;
         usdc = IERC20Metadata(usdc_);
@@ -124,9 +127,9 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
         ethUsdFeed = IChainlinkAggregator(ethUsdFeed_);
         morphoVaultA = IERC4626(morphoVaultA_);
         morphoVaultB = IERC4626(morphoVaultB_);
-        usdcDecimals = IERC20Metadata(usdc_).decimals();
-        wethDecimals = IERC20Metadata(weth_).decimals();
-        feedDecimals = IChainlinkAggregator(ethUsdFeed_).decimals();
+        usdcDecimals = usdcDecimals_;
+        wethDecimals = wethDecimals_;
+        feedDecimals = feedDecimals_;
         tickSpacing = tickSpacing_;
         maxStale = maxStale_ == 0 ? DEFAULT_MAX_STALE : maxStale_;
     }
@@ -277,13 +280,7 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
         if (pending == address(0)) revert NoPendingMorphoVault(leg);
         if (block.timestamp < eta) revert TimelockNotReady(eta);
 
-        uint256 beforeWeth = weth.balanceOf(address(this));
-        _redeemMorphoShares(current, _shares(current));
-        uint256 wethAssets = weth.balanceOf(address(this)) - beforeWeth;
-
         IERC4626 next = IERC4626(pending);
-        _depositMorpho(next, wethAssets);
-
         if (leg == LEG_A) {
             morphoVaultA = next;
             pendingMorphoVaultA = address(0);
@@ -293,6 +290,12 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
             pendingMorphoVaultB = address(0);
             morphoVaultBEta = 0;
         }
+
+        uint256 beforeWeth = weth.balanceOf(address(this));
+        _redeemMorphoShares(current, _shares(current));
+        uint256 wethAssets = weth.balanceOf(address(this)) - beforeWeth;
+
+        _depositMorpho(next, wethAssets);
 
         emit MorphoVaultMigrated(leg, pending, wethAssets);
     }

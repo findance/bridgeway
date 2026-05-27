@@ -19,9 +19,6 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
     function redeem(uint256 ccrAmount, uint256 minUSDC) external onlyDelegated {
         if (ccrAmount == 0) revert ZeroAmount();
 
-        uint256 userBalance = ccrToken.balanceOf(msg.sender);
-        if (userBalance < ccrAmount) revert InsufficientCCR(userBalance, ccrAmount);
-
         uint256 grossUsdc = _redemptionUSDCAmount((ccrAmount * _navPerCCR()) / 1e18);
         uint256 feeBps = stressModeActive ? stressExitFeeBps : exitFeeBps;
         uint256 exitFeeUsdc = FeeLib.calcExitFee(grossUsdc, feeBps);
@@ -35,16 +32,27 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
             perfFeeUsdc = FeeLib.calcPerfFee(yieldUsdc);
         }
         uint256 quotedNetUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
+        bool crystalliseHwm =
+            perfFeeUsdc > 0 && currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM;
+        if (crystalliseHwm) {
+            highWaterMark = currentNav18;
+            lastHWMUpdateTime = block.timestamp;
+        }
+
+        uint256 userBalance = ccrToken.balanceOf(msg.sender);
+        if (userBalance < ccrAmount) revert InsufficientCCR(userBalance, ccrAmount);
 
         _reducePrincipalForBurn(ccrAmount);
-        ccrToken.adminBurn(msg.sender, ccrAmount);
 
         if (grossUsdc > _totalLocalNAV()) {
             _queueRedemption(
                 msg.sender, ccrAmount, grossUsdc, quotedNetUsdc, exitFeeUsdc, perfFeeUsdc, currentNav18, effectiveHwm
             );
+            ccrToken.adminBurn(msg.sender, ccrAmount);
             return;
         }
+
+        ccrToken.adminBurn(msg.sender, ccrAmount);
 
         _fundRedemptionFromLiquidSleeves(grossUsdc);
 
@@ -59,10 +67,6 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
 
         if (perfFeeUsdc > 0) {
             _distributePerfFee(perfFeeUsdc);
-            if (currentNav18 > (effectiveHwm * FeeLib.HWM_MIN_CRYSTALLISE_BPS) / FeeLib.BPS_DENOM) {
-                highWaterMark = _navPerCCR18();
-                lastHWMUpdateTime = block.timestamp;
-            }
         }
 
         if (exitFeeUsdc > 0) _tryTransferFee(holdbackWallet, exitFeeUsdc);
@@ -105,19 +109,19 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
         if (amount > redemption.navLiabilityUsdc) amount = redemption.navLiabilityUsdc;
 
         uint256 reservedRelease = amount > redemption.spokeNavReservedUsdc ? redemption.spokeNavReservedUsdc : amount;
-        if (reservedRelease > 0 && hubNAV != address(0) && redemption.spokeNavSnapshotUsdc > 0) {
-            uint256 currentSpokeNav = IClearcrestHubNAV(hubNAV).totalSpokeNAVUSDC();
-            uint256 spokeDrop = redemption.spokeNavSnapshotUsdc > currentSpokeNav
-                ? redemption.spokeNavSnapshotUsdc - currentSpokeNav
-                : 0;
-            if (spokeDrop < reservedRelease) revert QueuedRedemptionNotReady(redemptionId, reservedRelease);
-            redemption.spokeNavSnapshotUsdc = currentSpokeNav;
-        }
+        uint256 previousSpokeSnapshot = redemption.spokeNavSnapshotUsdc;
 
         redemption.navLiabilityUsdc -= amount;
         totalQueuedRedemptionNAVLiability -= amount;
 
         if (reservedRelease > 0) redemption.spokeNavReservedUsdc -= reservedRelease;
+
+        if (reservedRelease > 0 && hubNAV != address(0) && previousSpokeSnapshot > 0) {
+            uint256 currentSpokeNav = IClearcrestHubNAV(hubNAV).totalSpokeNAVUSDC();
+            uint256 spokeDrop = previousSpokeSnapshot > currentSpokeNav ? previousSpokeSnapshot - currentSpokeNav : 0;
+            if (spokeDrop < reservedRelease) revert QueuedRedemptionNotReady(redemptionId, reservedRelease);
+            redemption.spokeNavSnapshotUsdc = currentSpokeNav;
+        }
 
         emit QueuedRedemptionLiquidityAcknowledged(redemptionId, amount, redemption.navLiabilityUsdc);
     }
