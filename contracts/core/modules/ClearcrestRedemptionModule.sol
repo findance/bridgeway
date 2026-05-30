@@ -116,6 +116,13 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
 
         if (reservedRelease > 0) redemption.spokeNavReservedUsdc -= reservedRelease;
 
+        // @dev Aderyn H-1 false positive. `hubNAV` is a deployment-time-trusted
+        //      contract and this is a pure NAV read; the only post-read state write
+        //      records the value just read (snapshot used to gate liquidity release).
+        //      No fund-moving call follows. Caller is restricted to owner()/automation
+        //      above. Accepted per SECURITY_PROCESS.md §B/§E.
+        // slither-disable-next-line reentrancy-benign
+        // aderyn-ignore-next-line(reentrancy-state-change)
         if (reservedRelease > 0 && hubNAV != address(0) && previousSpokeSnapshot > 0) {
             uint256 currentSpokeNav = IClearcrestHubNAV(hubNAV).totalSpokeNAVUSDC();
             uint256 spokeDrop = previousSpokeSnapshot > currentSpokeNav ? previousSpokeSnapshot - currentSpokeNav : 0;
