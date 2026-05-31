@@ -79,7 +79,7 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
             revert ZeroAddress();
         }
         if (IAerodromeCbbtcStrategy(aerodromeStrategy_).asset() != cbbtc_) revert InvalidStrategyAsset();
-        (,,,,,,,, address realAToken,,,,,,) = IAaveReserveQuery(aavePool_).getReserveData(cbbtc_);
+        address realAToken = IAaveReserveQuery(aavePool_).getReserveData(cbbtc_).aTokenAddress;
         if (aCbbtc_ != realAToken) revert AdapterAssetMismatch(aCbbtc_, realAToken);
         uint8 cbbtcDecimals_ = IERC20Metadata(cbbtc_).decimals();
         uint8 feedDecimals_ = IChainlinkAggregator(priceFeed_).decimals();

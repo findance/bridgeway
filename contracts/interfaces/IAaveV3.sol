@@ -19,17 +19,34 @@ interface IAaveV3Pool {
         );
 }
 
+library DataTypes {
+  struct ReserveConfigurationMap {
+    uint256 data;
+  }
+
+  struct ReserveData {
+    ReserveConfigurationMap configuration;
+    uint128 liquidityIndex;
+    uint128 currentLiquidityRate;
+    uint128 variableBorrowIndex;
+    uint128 currentVariableBorrowRate;
+    uint128 currentStableBorrowRate;
+    uint40 lastUpdateTimestamp;
+    uint16 id;
+    address aTokenAddress;
+    address stableDebtTokenAddress;
+    address variableDebtTokenAddress;
+    address interestRateStrategyAddress;
+    uint128 accruedToTreasury;
+    uint128 unbacked;
+    uint128 isolationModeTotalDebt;
+  }
+}
+
 /// @notice Minimal view into Aave V3 getReserveData; 9th value is the
 ///         canonical aToken for `asset`. Layout matches the deployed Base pool.
 interface IAaveReserveQuery {
     function getReserveData(address asset)
         external view
-        returns (
-            uint256 configuration, uint128 liquidityIndex, uint128 currentLiquidityRate,
-            uint128 variableBorrowIndex, uint128 currentVariableBorrowRate, uint128 currentStableBorrowRate,
-            uint40 lastUpdateTimestamp, uint16 id,
-            address aTokenAddress,
-            address stableDebtTokenAddress, address variableDebtTokenAddress, address interestRateStrategyAddress,
-            uint128 accruedToTreasury, uint128 unbacked, uint128 isolationModeTotalDebt
-        );
+        returns (DataTypes.ReserveData memory);
 }

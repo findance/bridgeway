@@ -62,7 +62,7 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGu
             revert ZeroAddress();
         }
         if (IERC4626(_morphoVault).asset() != _usdc) revert InvalidMorphoAsset();
-        (,,,,,,,, address realAUsdc,,,,,,) = IAaveReserveQuery(_aavePool).getReserveData(_usdc);
+        address realAUsdc = IAaveReserveQuery(_aavePool).getReserveData(_usdc).aTokenAddress;
         if (_aUsdc != realAUsdc) revert AdapterAssetMismatch(_aUsdc, realAUsdc);
 
         vault = _vault;

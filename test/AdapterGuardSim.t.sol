@@ -17,15 +17,7 @@ interface ILive {
     function rescueReceiver() external view returns (address);
 }
 
-interface IPoolRD {
-    function getReserveData(address)
-        external view
-        returns (
-            uint256, uint128, uint128, uint128, uint128, uint128, uint40, uint16,
-            address aTokenAddress,
-            address, address, address, uint128, uint128, uint128
-        );
-}
+import "../contracts/interfaces/IAaveV3.sol";
 
 interface IERC20bal { function balanceOf(address) external view returns (uint256); }
 
@@ -45,7 +37,7 @@ contract AdapterGuardSim is Test {
         feed = live.priceFeed();
         ctrl = live.controller();
         rescue = live.rescueReceiver();
-        (,,,,,,,, realAToken,,,,,,) = IPoolRD(pool).getReserveData(cbbtc);
+        realAToken = IAaveReserveQuery(pool).getReserveData(cbbtc).aTokenAddress;
     }
 
     function testConstructorAcceptsCorrectAToken() public {
