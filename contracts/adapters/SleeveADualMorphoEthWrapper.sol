@@ -61,6 +61,7 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
     event MaxSlippageSet(uint256 maxSlippageBps);
     event MaxStaleSet(uint256 maxStale);
     event TickSpacingSet(int24 tickSpacing);
+    event EmergencyConverged(address indexed vault, uint256 usdcToVault, address indexed receiver, uint256 wethRemainder);
 
     error OnlyVault();
     error ZeroAddress();
@@ -74,6 +75,7 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
     error Unauthorized();
     error StalePrice(address feed);
     error InvalidPrice(address feed);
+    error OnlySelf();
 
     modifier onlyVault() {
         if (msg.sender != vault) revert OnlyVault();
@@ -316,9 +318,28 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
         if (receiver == address(0)) revert ZeroAddress();
         _redeemMorphoShares(morphoVaultA, _shares(morphoVaultA));
         _redeemMorphoShares(morphoVaultB, _shares(morphoVaultB));
+
+        // Converge to the vault: swap all WETH to USDC and forward it to the
+        // vault; only the remainder that fails to convert is sent to `receiver`.
+        uint256 wethBalance = weth.balanceOf(address(this));
+        uint256 usdcToVault;
+        if (wethBalance > 0) {
+            try this.swapWethToUsdc(wethBalance) returns (uint256) {} catch {}
+            usdcToVault = usdc.balanceOf(address(this));
+            if (usdcToVault > 0) usdc.safeTransfer(vault, usdcToVault);
+        }
+
         wethReturned = weth.balanceOf(address(this));
         if (wethReturned > 0) weth.safeTransfer(receiver, wethReturned);
+        emit EmergencyConverged(vault, usdcToVault, receiver, wethReturned);
         emit EmergencyWithdrawn(receiver, wethReturned);
+    }
+
+    /// @notice Self-call swap helper for the emergency converge path so a
+    ///         failed swap is caught without reverting the whole unwind.
+    function swapWethToUsdc(uint256 wethAmount) external returns (uint256 amountOut) {
+        if (msg.sender != address(this)) revert OnlySelf();
+        amountOut = _swap(address(weth), address(usdc), wethAmount, _minUsdcOut(wethAmount));
     }
 
     function _depositMorpho(IERC4626 morphoVault, uint256 amount) internal {

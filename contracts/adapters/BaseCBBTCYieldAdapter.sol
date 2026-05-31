@@ -46,12 +46,14 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
     event AerodromeExitedToAave(uint256 cbbtcReturned, uint256 netApyBps);
     event EmergencyWithdrawn(uint256 cbbtcReturned, address indexed receiver);
     event MaxStaleUpdated(uint256 maxStale);
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
     error ZeroAddress();
     error OnlyController();
     error InvalidStrategyAsset();
     error StalePrice(address feed);
     error InvalidPrice(address feed);
+    error AdapterAssetMismatch(address configured, address real);
 
     modifier onlyController() {
         if (msg.sender != controller) revert OnlyController();
@@ -77,6 +79,8 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
             revert ZeroAddress();
         }
         if (IAerodromeCbbtcStrategy(aerodromeStrategy_).asset() != cbbtc_) revert InvalidStrategyAsset();
+        (,,,,,,,, address realAToken,,,,,,) = IAaveReserveQuery(aavePool_).getReserveData(cbbtc_);
+        if (aCbbtc_ != realAToken) revert AdapterAssetMismatch(aCbbtc_, realAToken);
         uint8 cbbtcDecimals_ = IERC20Metadata(cbbtc_).decimals();
         uint8 feedDecimals_ = IChainlinkAggregator(priceFeed_).decimals();
 
@@ -181,6 +185,13 @@ contract BaseCBBTCYieldAdapter is INativeStakingAdapter, Ownable2Step, Reentranc
         if (newMaxStale == 0) newMaxStale = DEFAULT_MAX_STALE;
         maxStale = newMaxStale;
         emit MaxStaleUpdated(newMaxStale);
+    }
+
+    /// @notice Owner backstop: sweep an arbitrary stuck token to `to`.
+    function rescueToken(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        IERC20Metadata(token).safeTransfer(to, amount);
+        emit TokenRescued(token, to, amount);
     }
 
     /// @notice Owner-triggered break-glass unwind. cbBTC is sent to the

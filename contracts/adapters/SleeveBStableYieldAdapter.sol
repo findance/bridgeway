@@ -34,10 +34,12 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGu
     event Rebalanced(uint256 navAfter);
     event EmergencyWithdrawn(uint256 usdcReturned);
     event MinMorphoDepositUpdated(uint256 minimum);
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
     error ZeroAddress();
     error OnlyVault();
     error InvalidMorphoAsset();
+    error AdapterAssetMismatch(address configured, address real);
 
     modifier onlyVault() {
         if (msg.sender != vault) revert OnlyVault();
@@ -60,6 +62,8 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGu
             revert ZeroAddress();
         }
         if (IERC4626(_morphoVault).asset() != _usdc) revert InvalidMorphoAsset();
+        (,,,,,,,, address realAUsdc,,,,,,) = IAaveReserveQuery(_aavePool).getReserveData(_usdc);
+        if (_aUsdc != realAUsdc) revert AdapterAssetMismatch(_aUsdc, realAUsdc);
 
         vault = _vault;
         usdc = IERC20(_usdc);
@@ -85,6 +89,13 @@ contract SleeveBStableYieldAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGu
     function setMinMorphoDepositUsdc(uint256 minimum) external onlyOwner {
         minMorphoDepositUsdc = minimum;
         emit MinMorphoDepositUpdated(minimum);
+    }
+
+    /// @notice Owner backstop: sweep an arbitrary stuck token to `to`.
+    function rescueToken(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        IERC20(token).safeTransfer(to, amount);
+        emit TokenRescued(token, to, amount);
     }
 
     function withdraw(uint256 usdcAmount) external onlyVault nonReentrant returns (uint256 usdcReturned) {
