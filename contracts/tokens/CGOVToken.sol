@@ -47,6 +47,7 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     /// @notice ClearcrestVault address — set once by initVault(), updatable via timelock.
     address public vault;
     bool public vaultInitialized;
+    bool public bootstrapMode = true;
 
     // ── Vault-reference timelock (H-05) ──────────────────────────────────────
     uint256 public constant VAULT_REF_DELAY = 48 hours;
@@ -69,6 +70,7 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     event VaultReferenceProposed(address indexed candidate, uint256 executeAfter);
     event VaultReferenceExecuted(address indexed oldVault, address indexed newVault);
     event VaultReferenceCancelled(address indexed candidate);
+    event BootstrapFinalized();
 
     // ── Errors ───────────────────────────────────────────────────────────────
     error ZeroTreasury();
@@ -83,6 +85,7 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     error VaultNotInitialized();
     error NoPendingVaultRef();
     error VaultRefTimelockNotElapsed(uint256 executeAfter);
+    error BootstrapAlreadyFinalized();
 
     // ── Constructor ──────────────────────────────────────────────────────────
     /// @param _founderTreasury Founder / treasury wallet receiving 70 % of each mint.
@@ -118,6 +121,14 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
         _grantRole(MINTER_ROLE, _vault);
 
         emit VaultInitialized(_vault);
+    }
+
+    /// @notice Finalize deployment bootstrap mode. After this, vault reference
+    ///         replacements require the 48 hour governance safety delay.
+    function finalizeConfiguration() external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (!bootstrapMode) revert BootstrapAlreadyFinalized();
+        bootstrapMode = false;
+        emit BootstrapFinalized();
     }
 
     // ── Distribution ─────────────────────────────────────────────────────────
@@ -184,6 +195,10 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
     function proposeVaultReference(address _vault) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (!vaultInitialized) revert VaultNotInitialized();
         if (_vault == address(0)) revert ZeroVault();
+        if (bootstrapMode) {
+            _executeVaultReference(_vault);
+            return;
+        }
         uint256 eta = block.timestamp + VAULT_REF_DELAY;
         pendingVaultRef = PendingVaultRef(_vault, eta);
         emit VaultReferenceProposed(_vault, eta);
@@ -196,11 +211,15 @@ contract CGOVToken is ERC20, ERC20Permit, ERC20Votes, AccessControl {
         if (p.value == address(0)) revert NoPendingVaultRef();
         if (block.timestamp < p.executeAfter) revert VaultRefTimelockNotElapsed(p.executeAfter);
         delete pendingVaultRef;
+        _executeVaultReference(p.value);
+    }
+
+    function _executeVaultReference(address newVault) internal {
         address oldVault = vault;
-        vault = p.value;
+        vault = newVault;
         _revokeRole(MINTER_ROLE, oldVault);
-        _grantRole(MINTER_ROLE, p.value);
-        emit VaultReferenceExecuted(oldVault, p.value);
+        _grantRole(MINTER_ROLE, newVault);
+        emit VaultReferenceExecuted(oldVault, newVault);
     }
 
     /// @notice Cancel a pending vault reference update before it executes.

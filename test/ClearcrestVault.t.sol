@@ -2027,8 +2027,21 @@ contract ClearcrestVaultTest is Test {
 
     // ── H-05: CGOVToken vault reference timelock ────────────────────────────
 
+    function test_VaultReferenceExecutesImmediatelyDuringBootstrap() public {
+        address newVault = makeAddr("newVault");
+        vm.prank(founder);
+        cgovToken.proposeVaultReference(newVault);
+
+        assertEq(cgovToken.vault(), newVault);
+        assertTrue(cgovToken.hasRole(cgovToken.MINTER_ROLE(), newVault));
+        assertFalse(cgovToken.hasRole(cgovToken.MINTER_ROLE(), address(vault)));
+    }
+
     function test_VaultReferenceTimelockPreventsImmediateExecution() public {
         address newVault = makeAddr("newVault");
+        vm.prank(founder);
+        cgovToken.finalizeConfiguration();
+
         vm.prank(founder);
         cgovToken.proposeVaultReference(newVault);
 
@@ -2044,6 +2057,9 @@ contract ClearcrestVaultTest is Test {
     function test_VaultReferenceExecutesAfterDelay() public {
         address newVault = makeAddr("newVault");
         vm.prank(founder);
+        cgovToken.finalizeConfiguration();
+
+        vm.prank(founder);
         cgovToken.proposeVaultReference(newVault);
 
         vm.warp(block.timestamp + cgovToken.VAULT_REF_DELAY());
@@ -2055,6 +2071,9 @@ contract ClearcrestVaultTest is Test {
 
     function test_VaultReferenceCancelClearsProposal() public {
         address newVault = makeAddr("newVault");
+        vm.prank(founder);
+        cgovToken.finalizeConfiguration();
+
         vm.prank(founder);
         cgovToken.proposeVaultReference(newVault);
 
