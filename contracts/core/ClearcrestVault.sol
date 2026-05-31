@@ -162,7 +162,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     uint256 public minDepositUsdc = 1e6;
 
     /// @notice Minimum per-route sleeve allocation to deploy externally. Smaller amounts stay idle in sleeve NAV.
-    uint256 public minSleeveRouteDepositUsdc = 20e6;
+    uint256 public minSleeveRouteDepositUsdc = 5e6;
 
     /// @notice Deposits below this size route entirely to stable Sleeve B. 0 = disabled.
     uint256 public smallDepositStableOnlyThresholdUsdc = 20e6;

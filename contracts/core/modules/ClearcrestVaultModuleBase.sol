@@ -60,7 +60,7 @@ abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownabl
     mapping(address => bool) public whitelist;
     uint256 public maxDepositUsdc;
     uint256 public minDepositUsdc = 1e6;
-    uint256 public minSleeveRouteDepositUsdc = 20e6;
+    uint256 public minSleeveRouteDepositUsdc = 5e6;
     uint256 public smallDepositStableOnlyThresholdUsdc = 20e6;
     uint16 public redemptionBufferBps = 200;
     uint256 public minRedemptionBufferUsdc = 2e6;
