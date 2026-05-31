@@ -19,16 +19,32 @@ interface ILive {
 
 import "../contracts/interfaces/IAaveV3.sol";
 
-interface IERC20bal { function balanceOf(address) external view returns (uint256); }
+interface IERC20bal {
+    function balanceOf(address) external view returns (uint256);
+}
 
 contract AdapterGuardSim is Test {
-    address constant LIVE         = 0x327A430131940DBDdA3A79319c7e30BbdDe1EF15;
+    address constant LIVE = 0x327A430131940DBDdA3A79319c7e30BbdDe1EF15;
     address constant WRONG_ATOKEN = 0x0a1d576f3eFeF75b330424287a95A366e8281D54; // aBasUSDbC (the bug)
-    address constant OWNER        = 0x13c142E565d28b1558BecAA2Af4495CB133801f4;
+    address constant OWNER = 0x13c142E565d28b1558BecAA2Af4495CB133801f4;
+
+    modifier forkOnly() {
+        if (LIVE.code.length == 0) return;
+        _;
+    }
 
     function _params()
-        internal view
-        returns (address cbbtc, address pool, address aero, address feed, address ctrl, address rescue, address realAToken)
+        internal
+        view
+        returns (
+            address cbbtc,
+            address pool,
+            address aero,
+            address feed,
+            address ctrl,
+            address rescue,
+            address realAToken
+        )
     {
         ILive live = ILive(LIVE);
         cbbtc = live.cbbtc();
@@ -40,24 +56,25 @@ contract AdapterGuardSim is Test {
         realAToken = IAaveReserveQuery(pool).getReserveData(cbbtc).aTokenAddress;
     }
 
-    function testConstructorAcceptsCorrectAToken() public {
-        (address cbbtc, address pool, address aero, address feed, address ctrl, address rescue, address realAToken) = _params();
+    function testConstructorAcceptsCorrectAToken() public forkOnly {
+        (address cbbtc, address pool, address aero, address feed, address ctrl, address rescue, address realAToken) =
+            _params();
         BaseCBBTCYieldAdapter ok =
             new BaseCBBTCYieldAdapter(OWNER, ctrl, cbbtc, pool, realAToken, aero, feed, rescue, 0);
         assertEq(address(ok.aCbbtc()), realAToken, "correct aToken should deploy");
     }
 
-    function testConstructorRejectsWrongAToken() public {
+    function testConstructorRejectsWrongAToken() public forkOnly {
         (address cbbtc, address pool, address aero, address feed, address ctrl, address rescue,) = _params();
         // The exact mis-config that stranded funds must now revert at deploy.
         vm.expectRevert();
         new BaseCBBTCYieldAdapter(OWNER, ctrl, cbbtc, pool, WRONG_ATOKEN, aero, feed, rescue, 0);
     }
 
-    function testRescueTokenMovesStuckToken() public {
-        (address cbbtc, address pool, address aero, address feed, address ctrl, address rescue, address realAToken) = _params();
-        BaseCBBTCYieldAdapter a =
-            new BaseCBBTCYieldAdapter(OWNER, ctrl, cbbtc, pool, realAToken, aero, feed, rescue, 0);
+    function testRescueTokenMovesStuckToken() public forkOnly {
+        (address cbbtc, address pool, address aero, address feed, address ctrl, address rescue, address realAToken) =
+            _params();
+        BaseCBBTCYieldAdapter a = new BaseCBBTCYieldAdapter(OWNER, ctrl, cbbtc, pool, realAToken, aero, feed, rescue, 0);
 
         deal(cbbtc, address(a), 1e8);
         vm.prank(OWNER);

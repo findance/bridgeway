@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "forge-std/Script.sol";
+import "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import "../../contracts/adapters/SleeveADualMorphoEthWrapper.sol";
 import "../../contracts/core/ClearcrestAdmin.sol";
@@ -41,6 +42,7 @@ contract DeployAndWireSleeveAEthMorpho is Script {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
         Cfg memory c = _load();
+        _validateConfig(c);
 
         vm.startBroadcast(deployerKey);
 
@@ -123,5 +125,24 @@ contract DeployAndWireSleeveAEthMorpho is Script {
         c.morphoVaultB = vm.envAddress("MORPHO_ETH_VAULT_B");
         c.tickSpacing = int24(vm.envInt("ETH_SWAP_TICK_SPACING"));
         c.maxStale = vm.envOr("MAX_STALE_SECONDS", uint256(0));
+    }
+
+    function _validateConfig(Cfg memory c) internal view {
+        _requireContract(c.vault, "VAULT");
+        if (c.admin != address(0)) _requireContract(c.admin, "ADMIN");
+        _requireContract(c.sleeveACbbtcWrapper, "SLEEVE_A_WRAPPER");
+        _requireContract(c.usdc, "USDC");
+        _requireContract(c.weth, "WETH");
+        _requireContract(c.ethUsdFeed, "ETH_USD_PRICE_FEED");
+        _requireContract(c.swapRouter, "AERODROME_SWAP_ROUTER");
+        _requireContract(c.morphoVaultA, "MORPHO_ETH_VAULT_A");
+        _requireContract(c.morphoVaultB, "MORPHO_ETH_VAULT_B");
+
+        require(IERC4626(c.morphoVaultA).asset() == c.weth, "MORPHO_ETH_VAULT_A_ASSET");
+        require(IERC4626(c.morphoVaultB).asset() == c.weth, "MORPHO_ETH_VAULT_B_ASSET");
+    }
+
+    function _requireContract(address account, string memory label) internal view {
+        require(account.code.length != 0, string.concat(label, "_NOT_CONTRACT"));
     }
 }

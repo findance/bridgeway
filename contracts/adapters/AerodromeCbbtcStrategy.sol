@@ -82,6 +82,7 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     event Withdrawn(uint256 requestedCbbtc, uint256 returnedCbbtc, address indexed receiver);
     event Harvested(uint256 cbbtcBalance, uint256 usdcBalance, uint256 aeroBalance);
     event EmergencyWithdrawn(uint256 cbbtcReturned, address indexed receiver);
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
     error ZeroAddress();
     error OnlyController();
@@ -182,6 +183,13 @@ contract AerodromeCbbtcStrategy is IAerodromeCbbtcStrategy, Ownable2Step, IERC72
     function setMinAeroToCbbtcOut(uint256 minAmountOut) external onlyKeeperOrOwner {
         minAeroToCbbtcOut = minAmountOut;
         emit MinAeroToCbbtcOutSet(minAmountOut);
+    }
+
+    /// @notice Owner backstop for prototype-phase recovery of unexpected ERC20 balances.
+    function rescueToken(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        IERC20Metadata(token).safeTransfer(to, amount);
+        emit TokenRescued(token, to, amount);
     }
 
     function markToMarket(uint256 totalAssetsCbbtc_, uint256 netApyBps_) external onlyKeeperOrOwner {

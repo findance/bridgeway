@@ -60,6 +60,7 @@ contract DeployAndWireSleeves is Script {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
         Cfg memory c = _load(deployer);
+        _validateConfig(c);
 
         vm.startBroadcast(deployerKey);
 
@@ -218,5 +219,31 @@ contract DeployAndWireSleeves is Script {
         c.rescueReceiver = vm.envOr("RESCUE_RECEIVER", c.vaultOwner);
         c.initialAerodromeNetApyBps = vm.envOr("INITIAL_AERODROME_NET_APY_BPS", uint256(500));
         c.aeroToCbbtcPath = vm.envOr("AERO_TO_CBBTC_PATH", bytes(""));
+    }
+
+    function _validateConfig(Cfg memory c) internal view {
+        _requireContract(c.vault, "VAULT");
+        if (c.admin != address(0)) _requireContract(c.admin, "ADMIN");
+        _requireContract(c.usdc, "USDC");
+        _requireContract(c.cbbtc, "CBBTC");
+        _requireContract(c.aavePool, "AAVE_POOL");
+        _requireContract(c.aUsdc, "A_USDC");
+        _requireContract(c.aCbbtc, "A_CBBTC");
+        _requireContract(c.aero, "AERO");
+        _requireContract(c.swapRouter, "AERODROME_SWAP_ROUTER");
+        _requireContract(c.wrapperRouter, "AERODROME_ROUTER_V2");
+        _requireContract(c.positionManager, "AERODROME_POSITION_MANAGER");
+        if (c.gauge != address(0)) _requireContract(c.gauge, "AERODROME_GAUGE");
+        _requireContract(c.btcFeed, "BTC_USD_PRICE_FEED");
+        _requireContract(c.morphoVault, "MORPHO_VAULT");
+
+        address realAUsdc = IAaveReserveQuery(c.aavePool).getReserveData(c.usdc).aTokenAddress;
+        require(c.aUsdc == realAUsdc, "A_USDC_MISMATCH");
+        address realACbbtc = IAaveReserveQuery(c.aavePool).getReserveData(c.cbbtc).aTokenAddress;
+        require(c.aCbbtc == realACbbtc, "A_CBBTC_MISMATCH");
+    }
+
+    function _requireContract(address account, string memory label) internal view {
+        require(account.code.length != 0, string.concat(label, "_NOT_CONTRACT"));
     }
 }

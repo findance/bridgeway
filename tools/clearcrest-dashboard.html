@@ -383,35 +383,47 @@
 
     <div class="links">
       <a href="https://app.morpho.org/base/vault/0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61" target="_blank" rel="noreferrer">Morpho USDC Vault</a>
-      <a href="https://basescan.org/address/0xa9a6848f353ed5f24A62661f1458cef355E37Dd0" target="_blank" rel="noreferrer">Vault On BaseScan</a>
-      <a href="https://basescan.org/address/0x392b2480E1F4F24A32a79A7C5203D158a704Ed3f" target="_blank" rel="noreferrer">CCR Token</a>
-      <a href="https://basescan.org/address/0x1C8112aFB88dB3e52b9Ebf24F0d7246B2343011A" target="_blank" rel="noreferrer">Aerodrome Strategy</a>
+      <a href="https://basescan.org/address/0xAbac6c75f5868B0086ca9D9E2B470258b2525443" target="_blank" rel="noreferrer">Vault On BaseScan</a>
+      <a href="https://basescan.org/address/0x59AC1095ACA60C2e490aACC4Fe9EBA73cABA3ec1" target="_blank" rel="noreferrer">CCR Token</a>
+      <a href="https://basescan.org/address/0xbbE62E3e3429bC522CAE2fad79a741dEb61DF949" target="_blank" rel="noreferrer">Aerodrome Strategy</a>
+      <a href="https://basescan.org/address/0xa1809fe63F410CD1175F9cdE1678Bc4B60a9FAA8" target="_blank" rel="noreferrer">Sleeve A ETH Morpho</a>
+      <a href="https://app.morpho.org/base/vault/0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1" target="_blank" rel="noreferrer">Moonwell ETH Vault</a>
+      <a href="https://app.morpho.org/base/vault/0x6b13c060F13Af1fdB319F52315BbbF3fb1D88844" target="_blank" rel="noreferrer">Gauntlet WETH Vault</a>
     </div>
   </main>
 
   <script>
     const ADDR = {
-      vault: "0xa9a6848f353ed5f24A62661f1458cef355E37Dd0",
-      admin: "0x5142481d5bc94ef7f27aA78393A116cEA7d4E322",
-      automation: "0xA09192e42F3aAF471C2AE17B9513cF861260C74C",
-      ccr: "0x392b2480E1F4F24A32a79A7C5203D158a704Ed3f",
-      cgov: "0x13179865cd9FA494BEA3CfD4bEAC0270f6475889",
+      vault: "0xAbac6c75f5868B0086ca9D9E2B470258b2525443",
+      admin: "0xd6a3dA15548C243A95ecA40F8f3d776a1f3E2361",
+      automation: "0x0000000000000000000000000000000000000000",
+      ccr: "0x59AC1095ACA60C2e490aACC4Fe9EBA73cABA3ec1",
+      cgov: "0xd75c2aeE84cf921747716Fbd6DdD5d0dD36543ef",
       usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      weth: "0x4200000000000000000000000000000000000006",
       cbbtc: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
       aUsdc: "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB",
-      aCbbtc: "0xbdb9300b7cde636d9cd4aff00f6f009ffbbc8ee6",
+      aCbbtc: "0xBdb9300b7CDE636d9cD4AFF00f6F009fFBBc8EE6",
       morpho: "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
-      sleeveA: "0xa1bEc0CC616d2F94b34c258aC98Ed87E0659b51E",
-      strategy: "0x1C8112aFB88dB3e52b9Ebf24F0d7246B2343011A",
-      yield: "0xd99D578a8f3582277a4Bc482eb0fE50f1b4f15a4",
-      sleeveB: "0x8F822D459DbAF22C668e2Edf76974a2bAFb0a46D",
-      gauge: "0x6399ed6725cC163D019aA64FF55b22149D7179A8",
+      sleeveA: "0xf2862e0d9e0BfF6dEEB93c149e12041fa4e8833D",
+      sleeveAEth: "0xa1809fe63F410CD1175F9cdE1678Bc4B60a9FAA8",
+      morphoEthA: "0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1",
+      morphoEthB: "0x6b13c060F13Af1fdB319F52315BbbF3fb1D88844",
+      strategy: "0xbbE62E3e3429bC522CAE2fad79a741dEb61DF949",
+      yield: "0x918f3a8d130a25Bc5D3A555fCB7aC0A1d938c9cA",
+      sleeveB: "0x4806D666b6F6ca3F809AA937C9E6d202835eB218",
+      gauge: "0x0000000000000000000000000000000000000000",
       safe: "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
       founder: "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
     };
 
-    const DEPLOYMENT_FROM_BLOCK = 46442600n;
-    const LOG_BLOCK_SPAN = 10n;
+    const DEPLOYMENT_FROM_BLOCK = 46730000n;
+    const LOG_BLOCK_SPAN = 9000n;
+    const INITIAL_BASIS_USDC = {
+      sleeveABtc: 0n,
+      sleeveAEth: 0n,
+      sleeveB: 0n
+    };
 
     const SIG = {
       navPerCCR: "0x2c4ba983",
@@ -430,6 +442,11 @@
       balanceOf: "0x70a08231",
       totalSupply: "0x18160ddd",
       convertToAssets: "0x07a2d13a",
+      legAssetsWeth: "0xfa07342e",
+      legABps: "0x8d925644",
+      legBBps: "0x0d8464d6",
+      morphoVaultA: "0xfd218450",
+      morphoVaultB: "0x036395f6",
       whitelist: "0x9b19251a",
       allowance: "0xdd62ed3e",
       approve: "0x095ea7b3",
@@ -460,6 +477,7 @@
 
     const TOPIC = {
       wrapperDeployed: "0x5c208b342514b5c549642d978f113df2cc5ce6c41885577302f468a6d8c27cb3",
+      ethWrapperDeployed: "0x4f34b5976d21def485f6f00a0d3ac46db773a46e061f5eba7238c87b9525b1c1",
       sleeveBDeployed: "0x4bfc64d3f76cb5538a27075be8bd59cf2f99da138d13aea2087b608e19916e33",
       adapterWithdrawn: "0x0c875c8d391179c5cf7ad8303d268efd50b8beb78b671f85cd54bfb91eb8ef40"
     };
@@ -634,11 +652,21 @@
       return out;
     }
 
-    async function sleeveBasisUSDC(adapter, deployTopic, latestBlock) {
+    async function safeLogs(address, topic0, latestBlock) {
+      try {
+        return await logs(address, topic0, latestBlock);
+      } catch {
+        return null;
+      }
+    }
+
+    async function sleeveBasisUSDC(adapter, deployTopic, latestBlock, fallbackBasis = 0n) {
       const [deployLogs, withdrawLogs] = await Promise.all([
-        logs(adapter, deployTopic, latestBlock),
-        logs(adapter, TOPIC.adapterWithdrawn, latestBlock)
+        safeLogs(adapter, deployTopic, latestBlock),
+        safeLogs(adapter, TOPIC.adapterWithdrawn, latestBlock)
       ]);
+      if (!deployLogs || !withdrawLogs) return fallbackBasis;
+      if (deployLogs.length === 0) return fallbackBasis;
       const deployed = deployLogs.reduce((sum, log) => sum + wordAt(log.data, 0), 0n);
       const withdrawnRequested = withdrawLogs.reduce((sum, log) => sum + wordAt(log.data, 0), 0n);
       return deployed > withdrawnRequested ? deployed - withdrawnRequested : 0n;
@@ -647,8 +675,13 @@
     function growth(current, basis) {
       current = BigInt(current);
       basis = BigInt(basis);
-      if (basis === 0n) return "-";
+      if (basis === 0n) return "live baseline";
       return diff(current, basis);
+    }
+
+    function basisLabel(basis) {
+      basis = BigInt(basis);
+      return basis === 0n ? "live baseline" : `${fmtUsdc(basis)} basis`;
     }
 
     let rpcQueue = Promise.resolve();
@@ -681,17 +714,56 @@
     }
 
     async function rpcOnce(method, params) {
-      const gapMs = $("rpc").value.includes("mainnet.base.org") ? 450 : 125;
+      const primaryRpc = $("rpc").value.trim();
+      const rpcUrls = primaryRpc === "https://mainnet.base.org"
+        ? [primaryRpc]
+        : [primaryRpc, "https://mainnet.base.org"];
+      let lastError;
+
+      for (const rpcUrl of rpcUrls) {
+        try {
+          return await rpcFetch(rpcUrl, method, params);
+        } catch (error) {
+          lastError = error;
+          if (rpcUrl !== rpcUrls[rpcUrls.length - 1]) {
+            $("status").textContent = "Primary RPC failed. Retrying with Base public RPC...";
+          }
+        }
+      }
+
+      throw lastError;
+    }
+
+    async function rpcFetch(rpcUrl, method, params) {
+      const gapMs = rpcUrl.includes("mainnet.base.org") ? 450 : 125;
       const elapsed = Date.now() - lastRpcAt;
       if (elapsed < gapMs) await sleep(gapMs - elapsed);
       lastRpcAt = Date.now();
 
+      let res;
+      try {
+        res = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params })
+        });
+      } catch (error) {
+        throw new Error(`RPC network fetch failed for ${rpcUrl}: ${error.message}`);
+      }
+
+      if (!res.ok) throw new Error(`RPC HTTP ${res.status} from ${rpcUrl}. Public RPCs may rate-limit refreshes; use your Base Alchemy RPC for smoother reads.`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
+      return json.result;
+    }
+
+    async function walletRpc(method, params) {
       const res = await fetch($("rpc").value.trim(), {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params })
       });
-      if (!res.ok) throw new Error(`RPC HTTP ${res.status}. Public RPCs may rate-limit refreshes; use your Base Alchemy RPC for smoother reads.`);
+      if (!res.ok) throw new Error(`RPC HTTP ${res.status}.`);
       const json = await res.json();
       if (json.error) throw new Error(json.error.message || JSON.stringify(json.error));
       return json.result;
@@ -726,7 +798,7 @@
     }
 
     async function walletRequest(args) {
-      if (!window.ethereum) throw new Error("No browser wallet found. Open this page in a browser with MetaMask or another EIP-1193 wallet.");
+      if (!window.ethereum) throw new Error("No browser wallet found. The in-app browser is read-only for wallet actions; open this same URL in MetaMask, Rabby, or another EIP-1193 browser to buy CCR.");
       return window.ethereum.request(args);
     }
 
@@ -859,7 +931,7 @@
 
         const localNavValue = asUint(localNav);
         $("sleeveRows").innerHTML = [
-          ["Sleeve A", fmtUsdc(asUint(sleeveAValue)), "6500 bps policy", pct(asUint(sleeveAValue), localNavValue), "Use Deep Refresh"],
+          ["Sleeve A", fmtUsdc(asUint(sleeveAValue)), "6500 bps policy / route 60% BTC + 40% ETH", pct(asUint(sleeveAValue), localNavValue), "Use Deep Refresh"],
           ["Sleeve B", fmtUsdc(asUint(sleeveBValue)), "3500 bps policy", pct(asUint(sleeveBValue), localNavValue), "Use Deep Refresh"],
           ["Idle redemption reserve", fmtUsdc(asUint(idleReserve)), `${fmtUsdc(asUint(bufferTarget))} target`, pct(asUint(idleReserve), localNavValue), "-"],
           ["Vault USDC balance", fmtUsdc(asUint(vaultUsdc)), "wallet", "-", "-"],
@@ -882,6 +954,7 @@
           ["CCR token", ADDR.ccr],
           ["CGOV token", ADDR.cgov],
           ["Sleeve A wrapper", ADDR.sleeveA],
+          ["Sleeve A ETH Morpho adapter", ADDR.sleeveAEth],
           ["Base cbBTC yield adapter", ADDR.yield],
           ["Aerodrome strategy", ADDR.strategy],
           ["Sleeve B stable adapter", ADDR.sleeveB]
@@ -950,6 +1023,19 @@
           wrapperTotal,
           wrapperIdleUsdc,
           wrapperIdleCbbtc,
+          ethTotalUsdc,
+          ethLegAssetsWeth,
+          ethIdleUsdc,
+          ethIdleWeth,
+          ethLegABps,
+          ethLegBBps,
+          ethMorphoVaultA,
+          ethMorphoVaultB,
+          ethMorphoSharesA,
+          ethMorphoSharesB,
+          ethPending,
+          ethTickSpacing,
+          ethMaxStale,
           yieldTotalUsdc,
           yieldTotalCbbtc,
           yieldIdleCbbtc,
@@ -981,7 +1067,8 @@
           wrapperTickSpacing,
           routeACount,
           routeBCount,
-          routeA,
+          routeA0,
+          routeA1,
           routeB,
           routeAActiveBps,
           routeBActiveBps,
@@ -1020,6 +1107,19 @@
           call(ADDR.sleeveA, data(SIG.totalAssetsUSDC)),
           call(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveA)])),
           call(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.sleeveA)])),
+          safeCall(ADDR.sleeveAEth, data(SIG.totalAssetsUSDC)),
+          safeCall(ADDR.sleeveAEth, data(SIG.legAssetsWeth)),
+          safeCall(ADDR.usdc, data(SIG.balanceOf, [addrArg(ADDR.sleeveAEth)])),
+          safeCall(ADDR.weth, data(SIG.balanceOf, [addrArg(ADDR.sleeveAEth)])),
+          safeCall(ADDR.sleeveAEth, data(SIG.legABps)),
+          safeCall(ADDR.sleeveAEth, data(SIG.legBBps)),
+          safeCall(ADDR.sleeveAEth, data(SIG.morphoVaultA)),
+          safeCall(ADDR.sleeveAEth, data(SIG.morphoVaultB)),
+          safeCall(ADDR.morphoEthA, data(SIG.balanceOf, [addrArg(ADDR.sleeveAEth)])),
+          safeCall(ADDR.morphoEthB, data(SIG.balanceOf, [addrArg(ADDR.sleeveAEth)])),
+          safeCall(ADDR.sleeveAEth, data(SIG.pendingOwner)),
+          safeCall(ADDR.sleeveAEth, data(SIG.tickSpacing)),
+          safeCall(ADDR.sleeveAEth, data(SIG.maxStale)),
           call(ADDR.yield, data(SIG.totalAssetsUSDC)),
           safeCall(ADDR.yield, data(SIG.totalAssetsAsset)),
           safeCall(ADDR.cbbtc, data(SIG.balanceOf, [addrArg(ADDR.yield)])),
@@ -1053,6 +1153,7 @@
           call(ADDR.vault, data(SIG.sleeveAdapterRouteCount, [uintArg(0)])),
           call(ADDR.vault, data(SIG.sleeveAdapterRouteCount, [uintArg(1)])),
           call(ADDR.vault, data(SIG.sleeveAdapterRouteAt, [uintArg(0), uintArg(0)])),
+          safeCall(ADDR.vault, data(SIG.sleeveAdapterRouteAt, [uintArg(0), uintArg(1)])),
           call(ADDR.vault, data(SIG.sleeveAdapterRouteAt, [uintArg(1), uintArg(0)])),
           call(ADDR.vault, data(SIG.sleeveAdapterActiveDepositBps, [uintArg(0)])),
           call(ADDR.vault, data(SIG.sleeveAdapterActiveDepositBps, [uintArg(1)])),
@@ -1067,13 +1168,21 @@
         const aeroTotal = asUint(aeroTotalCbbtc);
         const morphoShares = asUint(bMorphoShares);
         const morphoAssets = asUint(await safeCall(ADDR.morpho, data(SIG.convertToAssets, [uintArg(morphoShares)])));
+        const ethLegAWeth = wordAt(ethLegAssetsWeth, 0);
+        const ethLegBWeth = wordAt(ethLegAssetsWeth, 1);
+        const ethIdleWethReported = wordAt(ethLegAssetsWeth, 2);
+        const ethMorphoAssetsA = asUint(await safeCall(ADDR.morphoEthA, data(SIG.convertToAssets, [uintArg(asUint(ethMorphoSharesA))])));
+        const ethMorphoAssetsB = asUint(await safeCall(ADDR.morphoEthB, data(SIG.convertToAssets, [uintArg(asUint(ethMorphoSharesB))])));
         const block = Number(asUint(blockHex));
-        const [sleeveABasis, sleeveBBasis] = await Promise.all([
-          sleeveBasisUSDC(ADDR.sleeveA, TOPIC.wrapperDeployed, BigInt(block)),
-          sleeveBasisUSDC(ADDR.sleeveB, TOPIC.sleeveBDeployed, BigInt(block))
+        const [sleeveABtcBasis, sleeveAEthBasis, sleeveBBasis] = await Promise.all([
+          sleeveBasisUSDC(ADDR.sleeveA, TOPIC.wrapperDeployed, BigInt(block), INITIAL_BASIS_USDC.sleeveABtc),
+          sleeveBasisUSDC(ADDR.sleeveAEth, TOPIC.ethWrapperDeployed, BigInt(block), INITIAL_BASIS_USDC.sleeveAEth),
+          sleeveBasisUSDC(ADDR.sleeveB, TOPIC.sleeveBDeployed, BigInt(block), INITIAL_BASIS_USDC.sleeveB)
         ]);
+        const sleeveABasis = sleeveABtcBasis + sleeveAEthBasis;
         const nonce = Number(asUint(nonceHex));
-        const decodedRouteA = decodeRoute(routeA);
+        const decodedRouteA0 = decodeRoute(routeA0);
+        const decodedRouteA1 = decodeRoute(routeA1);
         const decodedRouteB = decodeRoute(routeB);
         const pathBytes = asBytes(aeroPath);
 
@@ -1088,8 +1197,8 @@
 
         const localNavValue = asUint(localNav);
         $("sleeveRows").innerHTML = [
-          ["Sleeve A", fmtUsdc(asUint(sleeveAValue)), `${asUint(sleeveADepositBps).toString()} bps policy / ${fmtUsdc(sleeveABasis)} basis`, pct(asUint(sleeveAValue), localNavValue), growth(asUint(sleeveAValue), sleeveABasis)],
-          ["Sleeve B", fmtUsdc(asUint(sleeveBValue)), `${asUint(sleeveBDepositBps).toString()} bps policy / ${fmtUsdc(sleeveBBasis)} basis`, pct(asUint(sleeveBValue), localNavValue), growth(asUint(sleeveBValue), sleeveBBasis)],
+          ["Sleeve A", fmtUsdc(asUint(sleeveAValue)), `${asUint(sleeveADepositBps).toString()} bps policy / 60% BTC + 40% ETH / ${basisLabel(sleeveABasis)}`, pct(asUint(sleeveAValue), localNavValue), growth(asUint(sleeveAValue), sleeveABasis)],
+          ["Sleeve B", fmtUsdc(asUint(sleeveBValue)), `${asUint(sleeveBDepositBps).toString()} bps policy / ${basisLabel(sleeveBBasis)}`, pct(asUint(sleeveBValue), localNavValue), growth(asUint(sleeveBValue), sleeveBBasis)],
           ["Sleeve C", "0", `${asUint(sleeveCDepositBps).toString()} bps`, "0%", "-"],
           ["Idle redemption reserve", fmtUsdc(asUint(idleReserve)), `${fmtUsdc(asUint(bufferTarget))} target`, pct(asUint(idleReserve), localNavValue), "-"],
           ["Vault USDC balance", fmtUsdc(asUint(vaultUsdc)), "wallet", "-", "-"],
@@ -1098,6 +1207,9 @@
 
         const yieldCbbtc = asUint(yieldTotalCbbtc);
         $("sleeveARows").innerHTML = [
+          ["Sleeve A total", `${fmtUsdc(asUint(sleeveAValue))} USDC`, "100%"],
+          ["cbBTC route", `${fmtUsdc(asUint(wrapperTotal))} USDC`, `${decodedRouteA0.bps} bps route / ${pct(asUint(wrapperTotal), asUint(sleeveAValue))} / ${basisLabel(sleeveABtcBasis)}`],
+          ["ETH Morpho route", `${fmtUsdc(asUint(ethTotalUsdc))} USDC`, `${decodedRouteA1.bps} bps route / ${pct(asUint(ethTotalUsdc), asUint(sleeveAValue))} / ${basisLabel(sleeveAEthBasis)}`],
           ["Wrapper total", `${fmtUsdc(asUint(wrapperTotal))} USDC`, "100%"],
           ["Wrapper idle USDC", `${fmtUsdc(asUint(wrapperIdleUsdc))} USDC`, pct(asUint(wrapperIdleUsdc), asUint(wrapperTotal))],
           ["Wrapper idle cbBTC", `${fmtCbbtc(asUint(wrapperIdleCbbtc))} cbBTC`, "-"],
@@ -1113,7 +1225,15 @@
           ["Aerodrome net APY", `${Number(asUint(aeroApy)) / 100}%`, "-"],
           ["Wrapper tick spacing", Number(asUint(wrapperTickSpacing)).toString(), "validated"],
           ["Sleeve A BTC feed max age", fmtSeconds(asUint(wrapperMaxStale)), "configurable"],
-          ["Yield BTC feed max age", fmtSeconds(asUint(yieldMaxStale)), "configurable"]
+          ["Yield BTC feed max age", fmtSeconds(asUint(yieldMaxStale)), "configurable"],
+          ["ETH Moonwell vault", asAddress(ethMorphoVaultA), asAddress(ethMorphoVaultA).toLowerCase() === ADDR.morphoEthA.toLowerCase() ? "configured" : "check"],
+          ["ETH Gauntlet vault", asAddress(ethMorphoVaultB), asAddress(ethMorphoVaultB).toLowerCase() === ADDR.morphoEthB.toLowerCase() ? "configured" : "check"],
+          ["ETH split", `${asUint(ethLegABps).toString()} / ${asUint(ethLegBBps).toString()} bps`, "Moonwell / Gauntlet"],
+          ["ETH Moonwell assets", `${fmtToken18(ethMorphoAssetsA)} WETH`, pct(ethLegAWeth, ethLegAWeth + ethLegBWeth + ethIdleWethReported)],
+          ["ETH Gauntlet assets", `${fmtToken18(ethMorphoAssetsB)} WETH`, pct(ethLegBWeth, ethLegAWeth + ethLegBWeth + ethIdleWethReported)],
+          ["ETH idle", `${fmtUsdc(asUint(ethIdleUsdc))} USDC / ${fmtToken18(asUint(ethIdleWeth))} WETH`, `${fmtToken18(ethIdleWethReported)} WETH reported`],
+          ["ETH adapter tick spacing", Number(asUint(ethTickSpacing)).toString(), "validated"],
+          ["ETH price feed max age", fmtSeconds(asUint(ethMaxStale)), "configurable"]
         ].map(row).join("");
 
         $("sleeveBRows").innerHTML = [
@@ -1136,6 +1256,7 @@
           ["Admin owner", asAddress(adminOwner)],
           ["Admin pending owner", asAddress(adminPending)],
           ["Sleeve A pending owner", asAddress(wrapperPending)],
+          ["Sleeve A ETH pending owner", asAddress(ethPending)],
           ["Strategy pending owner", asAddress(strategyPending)],
           ["Yield adapter pending owner", asAddress(yieldPending)],
           ["Sleeve B pending owner", asAddress(sleeveBPending)]
@@ -1147,9 +1268,10 @@
           ["Automation", ADDR.automation],
           ["CCR token", ADDR.ccr],
           ["CGOV token", ADDR.cgov],
-          ["Sleeve A route", `${decodedRouteA.adapter} / ${decodedRouteA.bps} bps / ${decodedRouteA.active ? "active" : "inactive"}`],
+          ["Sleeve A route 0", `${decodedRouteA0.adapter} / ${decodedRouteA0.bps} bps / ${decodedRouteA0.active ? "active" : "inactive"}`],
+          ["Sleeve A route 1", `${decodedRouteA1.adapter} / ${decodedRouteA1.bps} bps / ${decodedRouteA1.active ? "active" : "inactive"}`],
           ["Sleeve B route", `${decodedRouteB.adapter} / ${decodedRouteB.bps} bps / ${decodedRouteB.active ? "active" : "inactive"}`],
-          ["Sleeve A route count", `${asUint(routeACount).toString()} route, ${asUint(routeAActiveBps).toString()} active bps`],
+          ["Sleeve A route count", `${asUint(routeACount).toString()} routes, ${asUint(routeAActiveBps).toString()} active bps`],
           ["Sleeve B route count", `${asUint(routeBCount).toString()} route, ${asUint(routeBActiveBps).toString()} active bps`],
           ["Minimum buy", `${fmtUsdc(asUint(minDeposit))} USDC`],
           ["Deposit weights", `A ${asUint(sleeveADepositBps).toString()} / B ${asUint(sleeveBDepositBps).toString()} / C ${asUint(sleeveCDepositBps).toString()} bps`],

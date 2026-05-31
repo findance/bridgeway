@@ -58,6 +58,7 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
     event YieldAdapterProposed(address indexed adapter, uint256 executeAfter);
     event YieldAdapterProposalCancelled(address indexed adapter);
     event EmergencyWithdrawn(uint256 cbbtcWithdrawn, uint256 usdcReturned);
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
     error OnlyVault();
     error OnlySelf();
@@ -175,6 +176,13 @@ contract SleeveACbbtcWrapper is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
         _validateTickSpacing(newTickSpacing);
         tickSpacing = newTickSpacing;
         emit TickSpacingSet(newTickSpacing);
+    }
+
+    /// @notice Owner backstop for prototype-phase recovery of unexpected tokens.
+    function rescueToken(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        IERC20(token).safeTransfer(to, amount);
+        emit TokenRescued(token, to, amount);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

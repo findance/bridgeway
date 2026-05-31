@@ -61,7 +61,10 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
     event MaxSlippageSet(uint256 maxSlippageBps);
     event MaxStaleSet(uint256 maxStale);
     event TickSpacingSet(int24 tickSpacing);
-    event EmergencyConverged(address indexed vault, uint256 usdcToVault, address indexed receiver, uint256 wethRemainder);
+    event EmergencyConverged(
+        address indexed vault, uint256 usdcToVault, address indexed receiver, uint256 wethRemainder
+    );
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
     error OnlyVault();
     error ZeroAddress();
@@ -229,6 +232,13 @@ contract SleeveADualMorphoEthWrapper is ISleeveAdapter, Ownable2Step, Reentrancy
         _validateTickSpacing(newTickSpacing);
         tickSpacing = newTickSpacing;
         emit TickSpacingSet(newTickSpacing);
+    }
+
+    /// @notice Owner backstop for prototype-phase recovery of unexpected tokens.
+    function rescueToken(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        IERC20Metadata(token).safeTransfer(to, amount);
+        emit TokenRescued(token, to, amount);
     }
 
     function proposeMorphoVault(uint8 leg, address newVault) external onlyOwner {

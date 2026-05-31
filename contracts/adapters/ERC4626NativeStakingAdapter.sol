@@ -36,6 +36,7 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step, Ree
     event Harvested(uint256 compoundedAssetValue);
     event EmergencyWithdrawn(uint256 assetReturned, address indexed receiver);
     event MaxStaleUpdated(uint256 maxStale);
+    event TokenRescued(address indexed token, address indexed to, uint256 amount);
 
     error ZeroAddress();
     error OnlyController();
@@ -135,6 +136,13 @@ contract ERC4626NativeStakingAdapter is INativeStakingAdapter, Ownable2Step, Ree
         if (newMaxStale == 0) newMaxStale = DEFAULT_MAX_STALE;
         maxStale = newMaxStale;
         emit MaxStaleUpdated(newMaxStale);
+    }
+
+    /// @notice Owner backstop for prototype-phase recovery of unexpected tokens.
+    function rescueToken(address token, uint256 amount, address to) external onlyOwner nonReentrant {
+        if (token == address(0) || to == address(0)) revert ZeroAddress();
+        IERC20Metadata(token).safeTransfer(to, amount);
+        emit TokenRescued(token, to, amount);
     }
 
     function emergencyWithdrawAll(address receiver) external onlyOwner nonReentrant returns (uint256 assetReturned) {
