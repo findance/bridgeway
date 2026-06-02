@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 
 import "../../interfaces/IClearcrestHubNAV.sol";
 import "../../libraries/FeeLib.sol";
@@ -11,6 +12,7 @@ import "./ClearcrestVaultModuleBase.sol";
 /// @notice Replaceable delegatecall module for ClearcrestVault redemption flows.
 contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
     using SafeERC20 for IERC20;
+    using Math for uint256;
 
     struct RedemptionQuote {
         uint256 grossUsdc;
@@ -29,6 +31,12 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
         uint256 minUsdcOut;
         bool preferInKind;
         bytes32 termsHash;
+    }
+
+    struct QueuedClaimPayout {
+        uint256 baseNetUsdc;
+        uint256 baseExitFeeUsdc;
+        uint256 basePerfFeeUsdc;
     }
 
     constructor(address ccrToken_, address cgovToken_, address usdc_, address usdcUsdFeed_)
@@ -242,21 +250,44 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
             revert QueuedRedemptionNotReady(redemptionId, redemption.navLiabilityUsdc);
         }
 
-        uint256 requiredUsdc = redemption.netUsdc + redemption.exitFeeUsdc + redemption.perfFeeUsdc;
+        uint256 accountingGrossUsdc = redemption.netUsdc + redemption.exitFeeUsdc + redemption.perfFeeUsdc;
+        QueuedClaimPayout memory payout = _queuedClaimPayout(redemptionId, redemption, accountingGrossUsdc);
+        uint256 requiredUsdc = payout.baseNetUsdc + payout.baseExitFeeUsdc + payout.basePerfFeeUsdc;
         uint256 availableUsdc = _availableUSDC();
         if (availableUsdc < requiredUsdc) revert InsufficientLocalLiquidity(availableUsdc, requiredUsdc);
 
         redemption.claimed = true;
-        totalQueuedRedemptionGross -= requiredUsdc;
+        totalQueuedRedemptionGross -= accountingGrossUsdc;
         _consumeIdleRedemptionReserve(requiredUsdc);
 
-        if (redemption.perfFeeUsdc > 0) _distributePerfFee(redemption.perfFeeUsdc);
-        if (redemption.exitFeeUsdc > 0) _tryTransferFee(holdbackWallet, redemption.exitFeeUsdc);
+        if (payout.basePerfFeeUsdc > 0) _distributePerfFee(payout.basePerfFeeUsdc);
+        if (payout.baseExitFeeUsdc > 0) _tryTransferFee(holdbackWallet, payout.baseExitFeeUsdc);
 
-        IERC20(USDC).safeTransfer(msg.sender, redemption.netUsdc);
+        if (payout.baseNetUsdc > 0) IERC20(USDC).safeTransfer(msg.sender, payout.baseNetUsdc);
         emit QueuedRedemptionClaimed(
-            redemptionId, msg.sender, redemption.netUsdc, redemption.exitFeeUsdc, redemption.perfFeeUsdc
+            redemptionId, msg.sender, payout.baseNetUsdc, payout.baseExitFeeUsdc, payout.basePerfFeeUsdc
         );
+    }
+
+    function _queuedClaimPayout(uint256 redemptionId, QueuedRedemption storage redemption, uint256 accountingGrossUsdc)
+        internal
+        view
+        returns (QueuedClaimPayout memory payout)
+    {
+        QueuedSpokeRedemptionClaim storage claim = _queuedSpokeRedemptionClaims[redemptionId];
+        if (!claim.recorded || claim.spokeValueUsdc == 0 || accountingGrossUsdc == 0) {
+            return QueuedClaimPayout({
+                baseNetUsdc: redemption.netUsdc,
+                baseExitFeeUsdc: redemption.exitFeeUsdc,
+                basePerfFeeUsdc: redemption.perfFeeUsdc
+            });
+        }
+
+        uint256 spokeGrossUsdc = claim.spokeValueUsdc > accountingGrossUsdc ? accountingGrossUsdc : claim.spokeValueUsdc;
+        uint256 baseGrossUsdc = accountingGrossUsdc - spokeGrossUsdc;
+        payout.baseNetUsdc = Math.mulDiv(redemption.netUsdc, baseGrossUsdc, accountingGrossUsdc);
+        payout.baseExitFeeUsdc = Math.mulDiv(redemption.exitFeeUsdc, baseGrossUsdc, accountingGrossUsdc);
+        payout.basePerfFeeUsdc = Math.mulDiv(redemption.perfFeeUsdc, baseGrossUsdc, accountingGrossUsdc);
     }
 
     function acknowledgeQueuedRedemptionLiquidity(uint256 redemptionId, uint256 amount) external onlyDelegated {

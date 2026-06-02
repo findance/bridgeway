@@ -719,6 +719,56 @@ contract ClearcrestVaultTest is Test {
         assertTrue(recorded);
     }
 
+    function test_SpokeClaimSettlementCannotDoublePayQueuedRedemption() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        (ClearcrestHubNAV hub, ClearcrestSpokeReporter spoke) = _wireHubNAVWithMoveLimit(3_000e18, 3_000);
+
+        address destinationRecipient = makeAddr("aliceEth");
+        address settlementAsset = makeAddr("ptSusde");
+
+        vm.prank(alice);
+        vault.redeemWithSpokeAssetClaim(
+            500e18,
+            0,
+            1,
+            destinationRecipient,
+            settlementAsset,
+            123e18,
+            0,
+            false,
+            keccak256("PT-sUSDe Aug-2026 in-kind terms")
+        );
+
+        uint256 grossUsdc = 2_000e6;
+        uint256 exitFeeUsdc = (grossUsdc * vault.exitFeeBps()) / FeeLib.BPS_DENOM;
+        uint256 perfFeeUsdc = FeeLib.calcPerfFee((500e18 * (4e18 - 1e18)) / 1e30);
+        uint256 netUsdc = grossUsdc - exitFeeUsdc - perfFeeUsdc;
+        uint256 spokeGrossUsdc = 1_000e6;
+        uint256 spokeNetUsdc = (netUsdc * spokeGrossUsdc) / grossUsdc;
+        uint256 baseGrossUsdc = grossUsdc - spokeGrossUsdc;
+        uint256 basePerfFeeUsdc = (perfFeeUsdc * baseGrossUsdc) / grossUsdc;
+
+        _stepSpokeNAVDownWithinMoveLimit(hub, spoke, 2_000e18);
+
+        vm.prank(founder);
+        vault.acknowledgeQueuedRedemptionLiquidity(1, grossUsdc);
+
+        uint256 baseBefore = MockUSDC(USDC_ADDR).balanceOf(alice);
+        vm.prank(alice);
+        vault.claimQueuedRedemption(1);
+        uint256 baseReceived = MockUSDC(USDC_ADDR).balanceOf(alice) - baseBefore;
+
+        assertEq(baseReceived + spokeNetUsdc, netUsdc);
+        assertEq(baseReceived, netUsdc - spokeNetUsdc);
+        assertEq(MockUSDC(USDC_ADDR).balanceOf(holdback), (exitFeeUsdc / 2) + ((basePerfFeeUsdc * 3_000) / 10_000));
+        assertEq(vault.totalQueuedRedemptionGross(), 0);
+        assertEq(vault.totalQueuedRedemptionNAVLiability(), 0);
+    }
+
     // ── Redeem ────────────────────────────────────────────────────────────────
 
     function test_RedeemReturnsUSDCMinusExitFee() public {
