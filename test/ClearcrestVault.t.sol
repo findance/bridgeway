@@ -599,7 +599,44 @@ contract ClearcrestVaultTest is Test {
         assertEq(ccrToken.balanceOf(alice), 500e18);
     }
 
-    function test_RedeemWithSpokeClaimRecordsPtSettlementMetadata() public {
+    function test_RedeemWithSpokeAssetClaimRecordsSettlementMetadata() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAVWithMoveLimit(3_000e18, 3_000);
+
+        uint64 destinationChainId = 1;
+        address destinationRecipient = makeAddr("aliceEth");
+        address settlementAsset = makeAddr("ptSusde");
+        uint256 assetAmount = 123e18;
+        uint256 minUsdcOut = 1_900e6;
+        bytes32 termsHash = keccak256("PT-sUSDe Aug-2026 in-kind terms");
+
+        vm.prank(alice);
+        vault.redeemWithSpokeAssetClaim(
+            500e18,
+            0,
+            destinationChainId,
+            destinationRecipient,
+            settlementAsset,
+            assetAmount,
+            minUsdcOut,
+            false,
+            termsHash
+        );
+
+        assertEq(vault.queuedRedemptionCount(), 1);
+        assertEq(vault.totalQueuedRedemptionGross(), 2_000e6);
+        assertEq(vault.totalQueuedRedemptionNAVLiability(), 2_000e6);
+
+        _assertQueuedSpokeAssetRedemptionClaim(
+            destinationChainId, destinationRecipient, settlementAsset, assetAmount, minUsdcOut, termsHash
+        );
+    }
+
+    function test_RedeemWithSpokeClaimRecordsLegacyPtSettlementMetadata() public {
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
         vault.deposit(1_000e6, 0);
@@ -619,6 +656,7 @@ contract ClearcrestVaultTest is Test {
         assertEq(vault.totalQueuedRedemptionGross(), 2_000e6);
         assertEq(vault.totalQueuedRedemptionNAVLiability(), 2_000e6);
 
+        _assertQueuedSpokeAssetRedemptionClaim(1, ethRecipient, address(0), ptAmount, minUsdcOut, termsHash);
         _assertQueuedSpokeRedemptionClaim(ethRecipient, ptAmount, minUsdcOut, termsHash);
     }
 
@@ -649,6 +687,34 @@ contract ClearcrestVaultTest is Test {
         assertEq(storedPtAmount, ptAmount);
         assertEq(storedMinUsdcOut, minUsdcOut);
         assertFalse(preferInKind);
+        assertEq(storedTermsHash, termsHash);
+        assertTrue(recorded);
+    }
+
+    function _assertQueuedSpokeAssetRedemptionClaim(
+        uint64 destinationChainId,
+        address destinationRecipient,
+        address settlementAsset,
+        uint256 assetAmount,
+        uint256 minUsdcOut,
+        bytes32 termsHash
+    ) internal view {
+        (
+            ,,
+            uint64 storedDestinationChainId,
+            address storedDestinationRecipient,
+            address storedSettlementAsset,,
+            uint256 storedAssetAmount,
+            uint256 storedMinUsdcOut,,
+            bytes32 storedTermsHash,,
+            bool recorded
+        ) = vault.queuedSpokeAssetRedemptionClaim(1);
+
+        assertEq(storedDestinationChainId, destinationChainId);
+        assertEq(storedDestinationRecipient, destinationRecipient);
+        assertEq(storedSettlementAsset, settlementAsset);
+        assertEq(storedAssetAmount, assetAmount);
+        assertEq(storedMinUsdcOut, minUsdcOut);
         assertEq(storedTermsHash, termsHash);
         assertTrue(recorded);
     }

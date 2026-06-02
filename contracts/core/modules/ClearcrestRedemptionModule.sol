@@ -21,6 +21,16 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
         uint256 effectiveHwm;
     }
 
+    struct SpokeAssetClaimRequest {
+        uint64 destinationChainId;
+        address destinationRecipient;
+        address settlementAsset;
+        uint256 assetAmount;
+        uint256 minUsdcOut;
+        bool preferInKind;
+        bytes32 termsHash;
+    }
+
     constructor(address ccrToken_, address cgovToken_, address usdc_, address usdcUsdFeed_)
         ClearcrestVaultModuleBase(ccrToken_, cgovToken_, usdc_, usdcUsdFeed_)
     {}
@@ -93,8 +103,63 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
         bool preferInKind,
         bytes32 termsHash
     ) external onlyDelegated {
+        _redeemWithSpokeAssetClaim(
+            ccrAmount,
+            minUSDC,
+            SpokeAssetClaimRequest({
+                destinationChainId: 1,
+                destinationRecipient: ethRecipient,
+                settlementAsset: address(0),
+                assetAmount: ptAmount,
+                minUsdcOut: minUsdcOut,
+                preferInKind: preferInKind,
+                termsHash: termsHash
+            }),
+            true
+        );
+    }
+
+    function redeemWithSpokeAssetClaim(
+        uint256 ccrAmount,
+        uint256 minUSDC,
+        uint64 destinationChainId,
+        address destinationRecipient,
+        address settlementAsset,
+        uint256 assetAmount,
+        uint256 minUsdcOut,
+        bool preferInKind,
+        bytes32 termsHash
+    ) external onlyDelegated {
+        _redeemWithSpokeAssetClaim(
+            ccrAmount,
+            minUSDC,
+            SpokeAssetClaimRequest({
+                destinationChainId: destinationChainId,
+                destinationRecipient: destinationRecipient,
+                settlementAsset: settlementAsset,
+                assetAmount: assetAmount,
+                minUsdcOut: minUsdcOut,
+                preferInKind: preferInKind,
+                termsHash: termsHash
+            }),
+            false
+        );
+    }
+
+    function _redeemWithSpokeAssetClaim(
+        uint256 ccrAmount,
+        uint256 minUSDC,
+        SpokeAssetClaimRequest memory request,
+        bool allowZeroSettlementAsset
+    ) internal {
         if (ccrAmount == 0) revert ZeroAmount();
-        if (ethRecipient == address(0) || ptAmount == 0 || termsHash == bytes32(0)) revert InvalidSpokeClaim();
+        if (
+            request.destinationChainId == 0 || request.destinationRecipient == address(0) || request.assetAmount == 0
+                || request.termsHash == bytes32(0)
+                || (!allowZeroSettlementAsset && request.settlementAsset == address(0))
+        ) {
+            revert InvalidSpokeClaim();
+        }
 
         RedemptionQuote memory quote = _quoteRedemption(ccrAmount);
         if (quote.grossUsdc <= _totalLocalNAV()) revert NoSpokeRedemptionRequired();
@@ -117,28 +182,38 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
         ccrToken.adminBurn(msg.sender, ccrAmount);
 
         uint256 spokeReserved = _queuedRedemptions[redemptionId].spokeNavReservedUsdc;
+        _recordSpokeAssetClaim(redemptionId, spokeReserved, request);
+    }
+
+    function _recordSpokeAssetClaim(uint256 redemptionId, uint256 spokeReserved, SpokeAssetClaimRequest memory request)
+        internal
+    {
         bytes32 claimId = keccak256(
             abi.encodePacked(
                 address(this),
                 redemptionId,
                 msg.sender,
-                ethRecipient,
+                request.destinationChainId,
+                request.destinationRecipient,
+                request.settlementAsset,
                 spokeReserved,
-                ptAmount,
-                minUsdcOut,
-                preferInKind,
-                termsHash
+                request.assetAmount,
+                request.minUsdcOut,
+                request.preferInKind,
+                request.termsHash
             )
         );
         _queuedSpokeRedemptionClaims[redemptionId] = QueuedSpokeRedemptionClaim({
             redemptionId: redemptionId,
             claimant: msg.sender,
-            ethRecipient: ethRecipient,
+            destinationChainId: request.destinationChainId,
+            destinationRecipient: request.destinationRecipient,
+            settlementAsset: request.settlementAsset,
             spokeValueUsdc: spokeReserved,
-            ptAmount: ptAmount,
-            minUsdcOut: minUsdcOut,
-            preferInKind: preferInKind,
-            termsHash: termsHash,
+            assetAmount: request.assetAmount,
+            minUsdcOut: request.minUsdcOut,
+            preferInKind: request.preferInKind,
+            termsHash: request.termsHash,
             claimId: claimId,
             recorded: true
         });
@@ -147,12 +222,14 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
             redemptionId,
             claimId,
             msg.sender,
-            ethRecipient,
+            request.destinationChainId,
+            request.destinationRecipient,
+            request.settlementAsset,
             spokeReserved,
-            ptAmount,
-            minUsdcOut,
-            preferInKind,
-            termsHash
+            request.assetAmount,
+            request.minUsdcOut,
+            request.preferInKind,
+            request.termsHash
         );
     }
 

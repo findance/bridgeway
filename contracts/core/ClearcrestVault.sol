@@ -222,9 +222,11 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     struct QueuedSpokeRedemptionClaim {
         uint256 redemptionId;
         address claimant;
-        address ethRecipient;
+        uint64 destinationChainId;
+        address destinationRecipient;
+        address settlementAsset;
         uint256 spokeValueUsdc;
-        uint256 ptAmount;
+        uint256 assetAmount;
         uint256 minUsdcOut;
         bool preferInKind;
         bytes32 termsHash;
@@ -273,9 +275,11 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         uint256 indexed redemptionId,
         bytes32 indexed claimId,
         address indexed claimant,
-        address ethRecipient,
+        uint64 destinationChainId,
+        address destinationRecipient,
+        address settlementAsset,
         uint256 spokeValueUsdc,
-        uint256 ptAmount,
+        uint256 assetAmount,
         uint256 minUsdcOut,
         bool preferInKind,
         bytes32 termsHash
@@ -566,6 +570,38 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         );
     }
 
+    /// @notice Redeem CCR while recording a generic spoke settlement claim.
+    ///         The claim may target any supported destination chain and
+    ///         settlement asset; spoke operators use this metadata to settle
+    ///         cash-first or in-kind according to the recorded preference.
+    function redeemWithSpokeAssetClaim(
+        uint256 ccrAmount,
+        uint256 minUSDC,
+        uint64 destinationChainId,
+        address destinationRecipient,
+        address settlementAsset,
+        uint256 assetAmount,
+        uint256 minUsdcOut,
+        bool preferInKind,
+        bytes32 termsHash
+    ) external nonReentrant whenNotPaused {
+        _delegateTo(
+            redemptionModule,
+            abi.encodeWithSelector(
+                this.redeemWithSpokeAssetClaim.selector,
+                ccrAmount,
+                minUSDC,
+                destinationChainId,
+                destinationRecipient,
+                settlementAsset,
+                assetAmount,
+                minUsdcOut,
+                preferInKind,
+                termsHash
+            )
+        );
+    }
+
     /// @notice Claim a queued redemption once hub-chain liquidity has arrived
     ///         from spoke unwinds or treasury buffering.
     function claimQueuedRedemption(uint256 redemptionId) external nonReentrant whenNotPaused {
@@ -602,9 +638,44 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         return (
             claim.redemptionId,
             claim.claimant,
-            claim.ethRecipient,
+            claim.destinationRecipient,
             claim.spokeValueUsdc,
-            claim.ptAmount,
+            claim.assetAmount,
+            claim.minUsdcOut,
+            claim.preferInKind,
+            claim.termsHash,
+            claim.claimId,
+            claim.recorded
+        );
+    }
+
+    function queuedSpokeAssetRedemptionClaim(uint256 redemptionId)
+        external
+        view
+        returns (
+            uint256 linkedRedemptionId,
+            address claimant,
+            uint64 destinationChainId,
+            address destinationRecipient,
+            address settlementAsset,
+            uint256 spokeValueUsdc,
+            uint256 assetAmount,
+            uint256 minUsdcOut,
+            bool preferInKind,
+            bytes32 termsHash,
+            bytes32 claimId,
+            bool recorded
+        )
+    {
+        QueuedSpokeRedemptionClaim memory claim = _queuedSpokeRedemptionClaims[redemptionId];
+        return (
+            claim.redemptionId,
+            claim.claimant,
+            claim.destinationChainId,
+            claim.destinationRecipient,
+            claim.settlementAsset,
+            claim.spokeValueUsdc,
+            claim.assetAmount,
             claim.minUsdcOut,
             claim.preferInKind,
             claim.termsHash,

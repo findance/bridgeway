@@ -84,9 +84,11 @@ abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownabl
     struct QueuedSpokeRedemptionClaim {
         uint256 redemptionId;
         address claimant;
-        address ethRecipient;
+        uint64 destinationChainId;
+        address destinationRecipient;
+        address settlementAsset;
         uint256 spokeValueUsdc;
-        uint256 ptAmount;
+        uint256 assetAmount;
         uint256 minUsdcOut;
         bool preferInKind;
         bytes32 termsHash;
@@ -125,9 +127,11 @@ abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownabl
         uint256 indexed redemptionId,
         bytes32 indexed claimId,
         address indexed claimant,
-        address ethRecipient,
+        uint64 destinationChainId,
+        address destinationRecipient,
+        address settlementAsset,
         uint256 spokeValueUsdc,
-        uint256 ptAmount,
+        uint256 assetAmount,
         uint256 minUsdcOut,
         bool preferInKind,
         bytes32 termsHash
