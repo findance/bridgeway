@@ -219,10 +219,24 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         bool claimed;
     }
 
+    struct QueuedSpokeRedemptionClaim {
+        uint256 redemptionId;
+        address claimant;
+        address ethRecipient;
+        uint256 spokeValueUsdc;
+        uint256 ptAmount;
+        uint256 minUsdcOut;
+        bool preferInKind;
+        bytes32 termsHash;
+        bytes32 claimId;
+        bool recorded;
+    }
+
     uint256 public queuedRedemptionCount;
     uint256 public totalQueuedRedemptionGross;
     uint256 public totalQueuedRedemptionNAVLiability;
     mapping(uint256 => QueuedRedemption) private _queuedRedemptions;
+    mapping(uint256 => QueuedSpokeRedemptionClaim) private _queuedSpokeRedemptionClaims;
 
     /// @notice Timestamp when fees last failed for each recipient (used by sweepStaleFees).
     mapping(address => uint256) public lastFeeAccrual;
@@ -254,6 +268,17 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     );
     event QueuedRedemptionLiquidityAcknowledged(
         uint256 indexed redemptionId, uint256 amount, uint256 remainingNAVLiability
+    );
+    event QueuedSpokeRedemptionClaimRecorded(
+        uint256 indexed redemptionId,
+        bytes32 indexed claimId,
+        address indexed claimant,
+        address ethRecipient,
+        uint256 spokeValueUsdc,
+        uint256 ptAmount,
+        uint256 minUsdcOut,
+        bool preferInKind,
+        bytes32 termsHash
     );
     event HarvestRecorded(uint256 netYieldUsdc, uint256 perfFeeUsdc, uint256 newHighWaterMark);
     event SleeveHarvested(uint8 indexed sleeve, uint256 totalYieldUsdc, uint256 compoundedIntoSleeveB);
@@ -514,6 +539,33 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         _delegateTo(redemptionModule, abi.encodeWithSelector(this.redeem.selector, ccrAmount, minUSDC));
     }
 
+    /// @notice Redeem CCR when a portion depends on a PT spoke. The ordinary
+    ///         queued redemption is recorded, plus Ethereum settlement metadata
+    ///         for the PT spoke operator.
+    function redeemWithSpokeClaim(
+        uint256 ccrAmount,
+        uint256 minUSDC,
+        address ethRecipient,
+        uint256 ptAmount,
+        uint256 minUsdcOut,
+        bool preferInKind,
+        bytes32 termsHash
+    ) external nonReentrant whenNotPaused {
+        _delegateTo(
+            redemptionModule,
+            abi.encodeWithSelector(
+                this.redeemWithSpokeClaim.selector,
+                ccrAmount,
+                minUSDC,
+                ethRecipient,
+                ptAmount,
+                minUsdcOut,
+                preferInKind,
+                termsHash
+            )
+        );
+    }
+
     /// @notice Claim a queued redemption once hub-chain liquidity has arrived
     ///         from spoke unwinds or treasury buffering.
     function claimQueuedRedemption(uint256 redemptionId) external nonReentrant whenNotPaused {
@@ -527,6 +579,37 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         _delegateTo(
             redemptionModule,
             abi.encodeWithSelector(this.acknowledgeQueuedRedemptionLiquidity.selector, redemptionId, amount)
+        );
+    }
+
+    function queuedSpokeRedemptionClaim(uint256 redemptionId)
+        external
+        view
+        returns (
+            uint256 linkedRedemptionId,
+            address claimant,
+            address ethRecipient,
+            uint256 spokeValueUsdc,
+            uint256 ptAmount,
+            uint256 minUsdcOut,
+            bool preferInKind,
+            bytes32 termsHash,
+            bytes32 claimId,
+            bool recorded
+        )
+    {
+        QueuedSpokeRedemptionClaim memory claim = _queuedSpokeRedemptionClaims[redemptionId];
+        return (
+            claim.redemptionId,
+            claim.claimant,
+            claim.ethRecipient,
+            claim.spokeValueUsdc,
+            claim.ptAmount,
+            claim.minUsdcOut,
+            claim.preferInKind,
+            claim.termsHash,
+            claim.claimId,
+            claim.recorded
         );
     }
 

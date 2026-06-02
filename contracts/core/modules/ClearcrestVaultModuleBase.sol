@@ -81,10 +81,24 @@ abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownabl
         bool claimed;
     }
 
+    struct QueuedSpokeRedemptionClaim {
+        uint256 redemptionId;
+        address claimant;
+        address ethRecipient;
+        uint256 spokeValueUsdc;
+        uint256 ptAmount;
+        uint256 minUsdcOut;
+        bool preferInKind;
+        bytes32 termsHash;
+        bytes32 claimId;
+        bool recorded;
+    }
+
     uint256 public queuedRedemptionCount;
     uint256 public totalQueuedRedemptionGross;
     uint256 public totalQueuedRedemptionNAVLiability;
     mapping(uint256 => QueuedRedemption) internal _queuedRedemptions;
+    mapping(uint256 => QueuedSpokeRedemptionClaim) internal _queuedSpokeRedemptionClaims;
     mapping(address => uint256) public lastFeeAccrual;
     address public redemptionModule;
     address public maintenanceModule;
@@ -107,6 +121,17 @@ abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownabl
     event QueuedRedemptionLiquidityAcknowledged(
         uint256 indexed redemptionId, uint256 amount, uint256 remainingNAVLiability
     );
+    event QueuedSpokeRedemptionClaimRecorded(
+        uint256 indexed redemptionId,
+        bytes32 indexed claimId,
+        address indexed claimant,
+        address ethRecipient,
+        uint256 spokeValueUsdc,
+        uint256 ptAmount,
+        uint256 minUsdcOut,
+        bool preferInKind,
+        bytes32 termsHash
+    );
     event SleeveRebalanced(uint8 indexed fromSleeve, uint8 indexed toSleeve, uint256 requestedUsdc, uint256 movedUsdc);
 
     error ZeroAmount();
@@ -119,6 +144,8 @@ abstract contract ClearcrestVaultModuleBase is ReentrancyGuard, Pausable, Ownabl
     error QueuedRedemptionAlreadyClaimed(uint256 redemptionId);
     error QueuedRedemptionNotReady(uint256 redemptionId, uint256 navLiabilityRemaining);
     error InsufficientLocalLiquidity(uint256 available, uint256 required);
+    error NoSpokeRedemptionRequired();
+    error InvalidSpokeClaim();
     error InvalidOracleRound(uint80 roundId, uint80 answeredInRound);
     error InvalidOraclePrice(int256 answer);
     error InvalidSleeve(uint8 sleeve);

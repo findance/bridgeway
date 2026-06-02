@@ -599,6 +599,60 @@ contract ClearcrestVaultTest is Test {
         assertEq(ccrToken.balanceOf(alice), 500e18);
     }
 
+    function test_RedeemWithSpokeClaimRecordsPtSettlementMetadata() public {
+        vm.startPrank(alice);
+        MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
+        vault.deposit(1_000e6, 0);
+        vm.stopPrank();
+
+        _wireHubNAVWithMoveLimit(3_000e18, 3_000);
+
+        address ethRecipient = makeAddr("aliceEth");
+        uint256 ptAmount = 123e18;
+        uint256 minUsdcOut = 1_900e6;
+        bytes32 termsHash = keccak256("PT-sUSDe Aug-2026 in-kind terms");
+
+        vm.prank(alice);
+        vault.redeemWithSpokeClaim(500e18, 0, ethRecipient, ptAmount, minUsdcOut, false, termsHash);
+
+        assertEq(vault.queuedRedemptionCount(), 1);
+        assertEq(vault.totalQueuedRedemptionGross(), 2_000e6);
+        assertEq(vault.totalQueuedRedemptionNAVLiability(), 2_000e6);
+
+        _assertQueuedSpokeRedemptionClaim(ethRecipient, ptAmount, minUsdcOut, termsHash);
+    }
+
+    function _assertQueuedSpokeRedemptionClaim(
+        address ethRecipient,
+        uint256 ptAmount,
+        uint256 minUsdcOut,
+        bytes32 termsHash
+    ) internal view {
+        (
+            uint256 linkedRedemptionId,
+            address claimant,
+            address storedRecipient,
+            uint256 spokeValueUsdc,
+            uint256 storedPtAmount,
+            uint256 storedMinUsdcOut,
+            bool preferInKind,
+            bytes32 storedTermsHash,
+            bytes32 unusedClaimId,
+            bool recorded
+        ) = vault.queuedSpokeRedemptionClaim(1);
+        unusedClaimId;
+
+        assertEq(linkedRedemptionId, 1);
+        assertEq(claimant, alice);
+        assertEq(storedRecipient, ethRecipient);
+        assertEq(spokeValueUsdc, 1_000e6);
+        assertEq(storedPtAmount, ptAmount);
+        assertEq(storedMinUsdcOut, minUsdcOut);
+        assertFalse(preferInKind);
+        assertEq(storedTermsHash, termsHash);
+        assertTrue(recorded);
+    }
+
     // ── Redeem ────────────────────────────────────────────────────────────────
 
     function test_RedeemReturnsUSDCMinusExitFee() public {

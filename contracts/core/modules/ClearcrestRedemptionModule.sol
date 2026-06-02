@@ -12,6 +12,15 @@ import "./ClearcrestVaultModuleBase.sol";
 contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
     using SafeERC20 for IERC20;
 
+    struct RedemptionQuote {
+        uint256 grossUsdc;
+        uint256 netUsdc;
+        uint256 exitFeeUsdc;
+        uint256 perfFeeUsdc;
+        uint256 currentNav18;
+        uint256 effectiveHwm;
+    }
+
     constructor(address ccrToken_, address cgovToken_, address usdc_, address usdcUsdFeed_)
         ClearcrestVaultModuleBase(ccrToken_, cgovToken_, usdc_, usdcUsdFeed_)
     {}
@@ -73,6 +82,78 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
 
         IERC20(USDC).safeTransfer(msg.sender, netUsdc);
         emit Redeemed(msg.sender, ccrAmount, netUsdc, exitFeeUsdc, perfFeeUsdc);
+    }
+
+    function redeemWithSpokeClaim(
+        uint256 ccrAmount,
+        uint256 minUSDC,
+        address ethRecipient,
+        uint256 ptAmount,
+        uint256 minUsdcOut,
+        bool preferInKind,
+        bytes32 termsHash
+    ) external onlyDelegated {
+        if (ccrAmount == 0) revert ZeroAmount();
+        if (ethRecipient == address(0) || ptAmount == 0 || termsHash == bytes32(0)) revert InvalidSpokeClaim();
+
+        RedemptionQuote memory quote = _quoteRedemption(ccrAmount);
+        if (quote.grossUsdc <= _totalLocalNAV()) revert NoSpokeRedemptionRequired();
+        if (quote.netUsdc < minUSDC) revert SlippageTooHigh(quote.netUsdc, minUSDC);
+
+        uint256 userBalance = ccrToken.balanceOf(msg.sender);
+        if (userBalance < ccrAmount) revert InsufficientCCR(userBalance, ccrAmount);
+
+        _reducePrincipalForBurn(ccrAmount);
+        uint256 redemptionId = _queueRedemption(
+            msg.sender,
+            ccrAmount,
+            quote.grossUsdc,
+            quote.netUsdc,
+            quote.exitFeeUsdc,
+            quote.perfFeeUsdc,
+            quote.currentNav18,
+            quote.effectiveHwm
+        );
+        ccrToken.adminBurn(msg.sender, ccrAmount);
+
+        uint256 spokeReserved = _queuedRedemptions[redemptionId].spokeNavReservedUsdc;
+        bytes32 claimId = keccak256(
+            abi.encodePacked(
+                address(this),
+                redemptionId,
+                msg.sender,
+                ethRecipient,
+                spokeReserved,
+                ptAmount,
+                minUsdcOut,
+                preferInKind,
+                termsHash
+            )
+        );
+        _queuedSpokeRedemptionClaims[redemptionId] = QueuedSpokeRedemptionClaim({
+            redemptionId: redemptionId,
+            claimant: msg.sender,
+            ethRecipient: ethRecipient,
+            spokeValueUsdc: spokeReserved,
+            ptAmount: ptAmount,
+            minUsdcOut: minUsdcOut,
+            preferInKind: preferInKind,
+            termsHash: termsHash,
+            claimId: claimId,
+            recorded: true
+        });
+
+        emit QueuedSpokeRedemptionClaimRecorded(
+            redemptionId,
+            claimId,
+            msg.sender,
+            ethRecipient,
+            spokeReserved,
+            ptAmount,
+            minUsdcOut,
+            preferInKind,
+            termsHash
+        );
     }
 
     function claimQueuedRedemption(uint256 redemptionId) external onlyDelegated {
@@ -174,6 +255,17 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
         }
     }
 
+    function _quoteRedemption(uint256 ccrAmount) internal view returns (RedemptionQuote memory quote) {
+        quote.grossUsdc = _redemptionUSDCAmount((ccrAmount * _navPerCCR()) / 1e18);
+        quote.exitFeeUsdc = FeeLib.calcExitFee(quote.grossUsdc, stressModeActive ? stressExitFeeBps : exitFeeBps);
+        quote.currentNav18 = _navPerCCR18();
+        quote.effectiveHwm = _decayedHWM();
+        if (quote.currentNav18 > quote.effectiveHwm) {
+            quote.perfFeeUsdc = FeeLib.calcPerfFee((ccrAmount * (quote.currentNav18 - quote.effectiveHwm)) / 1e30);
+        }
+        quote.netUsdc = quote.grossUsdc - quote.exitFeeUsdc - quote.perfFeeUsdc;
+    }
+
     function _queueRedemption(
         address claimant,
         uint256 ccrBurned,
@@ -183,13 +275,13 @@ contract ClearcrestRedemptionModule is ClearcrestVaultModuleBase {
         uint256 perfFeeUsdc,
         uint256 currentNav18,
         uint256 effectiveHwm
-    ) internal {
+    ) internal returns (uint256 redemptionId) {
         uint256 localNav = _totalLocalNAV();
         uint256 spokeReserved = grossUsdc > localNav ? grossUsdc - localNav : 0;
         address nav = hubNAV;
         uint256 spokeSnapshot = nav == address(0) ? 0 : IClearcrestHubNAV(nav).totalSpokeNAVUSDC();
 
-        uint256 redemptionId = ++queuedRedemptionCount;
+        redemptionId = ++queuedRedemptionCount;
         _queuedRedemptions[redemptionId] = QueuedRedemption({
             claimant: claimant,
             netUsdc: netUsdc,
