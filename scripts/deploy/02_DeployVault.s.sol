@@ -14,7 +14,7 @@ import "../../contracts/tokens/CGOVToken.sol";
 ///         Run AFTER 01_DeployTokens.s.sol.
 ///
 ///         Required env vars:
-///           DEPLOYER_PRIVATE_KEY
+///           DEPLOYER           signer address used by --account
 ///           TOKEN_ADMIN        final token admin Safe
 ///           VAULT_OWNER        final vault owner Safe
 ///           FOUNDER_TREASURY
@@ -50,8 +50,7 @@ contract DeployVault is Script {
     }
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address tokenAdmin = vm.envAddress("TOKEN_ADMIN");
         address vaultOwner = vm.envAddress("VAULT_OWNER");
         address founderTreasury = vm.envAddress("FOUNDER_TREASURY");
@@ -61,7 +60,7 @@ contract DeployVault is Script {
         CCRToken ccrToken = CCRToken(vm.envAddress("CCR_TOKEN"));
         CGOVToken cgovToken = CGOVToken(vm.envAddress("CGOV_TOKEN"));
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestVault vault = _deployVault(deployer);
         console.log("ClearcrestVault:", address(vault));

@@ -11,7 +11,7 @@ import "../../contracts/core/ClearcrestL1RateReporter.sol";
 /// Run on Ethereum mainnet.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   RATE_REPORTER_OWNER
 ///   ETH_CCIP_ROUTER
 ///   WSTLINK_L1
@@ -19,15 +19,14 @@ import "../../contracts/core/ClearcrestL1RateReporter.sol";
 ///   ARBITRUM_CCIP_SELECTOR
 contract DeployWstLINKL1RateReporter is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address reporterOwner = vm.envAddress("RATE_REPORTER_OWNER");
         address ethRouter = vm.envAddress("ETH_CCIP_ROUTER");
         address wstLinkL1 = vm.envAddress("WSTLINK_L1");
         address wstLinkL2 = vm.envAddress("WSTLINK_L2");
         uint64 arbitrumSelector = uint64(vm.envUint("ARBITRUM_CCIP_SELECTOR"));
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestL1RateReporter reporter =
             new ClearcrestL1RateReporter(deployer, ethRouter, wstLinkL1, wstLinkL2, arbitrumSelector);

@@ -9,7 +9,7 @@ import "../../contracts/core/ClearcrestHubNAV.sol";
 /// @notice Deploys the hub-chain confirmed spoke NAV cache.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   HUB_NAV_OWNER
 ///
 /// Optional next step:
@@ -18,11 +18,10 @@ import "../../contracts/core/ClearcrestHubNAV.sol";
 ///   vault owner Safe/controller.
 contract DeployHubNAV is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address hubOwner = vm.envAddress("HUB_NAV_OWNER");
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestHubNAV hub = new ClearcrestHubNAV(deployer);
         console.log("ClearcrestHubNAV:", address(hub));

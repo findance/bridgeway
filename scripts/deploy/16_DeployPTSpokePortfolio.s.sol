@@ -10,7 +10,7 @@ import "../../contracts/core/ClearcrestPTSpokePortfolio.sol";
 ///         stays explicit because the receiver and hub live on Base.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY, PT_SPOKE_OWNER, PT_SPOKE_OPERATOR
+///   DEPLOYER, PT_SPOKE_OWNER, PT_SPOKE_OPERATOR
 ///   PT_SPOKE_SOURCE_CHAIN_ID, PT_SUSDE, ETH_USDC, PENDLE_PT_MARKET
 ///   PENDLE_PT_ORACLE, USDE_USD_PRICE_FEED, PENDLE_ROUTER
 ///
@@ -36,11 +36,11 @@ contract DeployPTSpokePortfolio is Script {
     }
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        address deployer = vm.envAddress("DEPLOYER");
         Cfg memory c = _load();
         _validateConfig(c);
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestPTSpokePortfolio spoke = new ClearcrestPTSpokePortfolio(
             c.owner,

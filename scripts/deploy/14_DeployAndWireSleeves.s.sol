@@ -20,7 +20,7 @@ import "../../contracts/core/ClearcrestVault.sol";
 /// SleeveACbbtcWrapper address at construction time.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY, VAULT, VAULT_OWNER
+///   DEPLOYER, VAULT, VAULT_OWNER
 ///   USDC, CBBTC, AAVE_POOL, A_USDC, A_CBBTC
 ///   AERO, AERODROME_SWAP_ROUTER, AERODROME_POSITION_MANAGER
 ///   BTC_USD_PRICE_FEED, AERODROME_TICK_SPACING, AERODROME_TICK_LOWER, AERODROME_TICK_UPPER
@@ -57,12 +57,11 @@ contract DeployAndWireSleeves is Script {
     }
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         Cfg memory c = _load(deployer);
         _validateConfig(c);
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         // 1. Sleeve A Wrapper (deploy first — address needed as immutable controller)
         SleeveACbbtcWrapper wrapper = new SleeveACbbtcWrapper(

@@ -11,7 +11,7 @@ import "../../contracts/core/ClearcrestRateRegistry.sol";
 /// Run on Arbitrum One.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   RATE_REGISTRY_OWNER
 ///   ARBITRUM_CCIP_ROUTER
 ///   L1_RATE_REPORTER
@@ -22,8 +22,7 @@ import "../../contracts/core/ClearcrestRateRegistry.sol";
 ///   WSTLINK_MAX_STALENESS_SECONDS (defaults to registry default when omitted or zero)
 contract DeployWstLINKRateRegistry is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address registryOwner = vm.envAddress("RATE_REGISTRY_OWNER");
         address arbitrumRouter = vm.envAddress("ARBITRUM_CCIP_ROUTER");
         address l1Reporter = vm.envAddress("L1_RATE_REPORTER");
@@ -31,7 +30,7 @@ contract DeployWstLINKRateRegistry is Script {
         address wstLinkL2 = vm.envAddress("WSTLINK_L2");
         uint256 maxStaleness = vm.envOr("WSTLINK_MAX_STALENESS_SECONDS", uint256(0));
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestRateRegistry registry =
             new ClearcrestRateRegistry(deployer, arbitrumRouter, l1Reporter, ethereumSelector);

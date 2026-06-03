@@ -10,7 +10,7 @@ import "../../contracts/libraries/ClearcrestChainConfig.sol";
 /// @notice Deploys a chain-local ClearcrestRegistry and seeds approved token/feed configs.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   REGISTRY_OWNER
 ///
 /// Supported chains:
@@ -18,13 +18,12 @@ import "../../contracts/libraries/ClearcrestChainConfig.sol";
 ///   Base: 8453
 contract DeployAndConfigureRegistry is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address registryOwner = vm.envAddress("REGISTRY_OWNER");
 
         ClearcrestChainConfig.AssetSeed[] memory seeds = ClearcrestChainConfig.seeds(block.chainid);
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestRegistry registry = new ClearcrestRegistry(deployer);
         console.log("ClearcrestRegistry:", address(registry));

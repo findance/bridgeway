@@ -11,7 +11,7 @@ import "../../contracts/core/ClearcrestNativeSpokePortfolio.sol";
 ///         adapter for an approved native asset strategy.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   SPOKE_OWNER
 ///   SPOKE_CHAIN_ID
 ///   ASSET
@@ -25,8 +25,7 @@ import "../../contracts/core/ClearcrestNativeSpokePortfolio.sol";
 /// ClearcrestNativeSpokePortfolio.setAdapters() with the full adapter list.
 contract DeployNativeERC4626Spoke is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address spokeOwner = vm.envAddress("SPOKE_OWNER");
         uint64 spokeChainId = uint64(vm.envUint("SPOKE_CHAIN_ID"));
         address asset = vm.envAddress("ASSET");
@@ -34,7 +33,7 @@ contract DeployNativeERC4626Spoke is Script {
         address priceFeed = vm.envAddress("PRICE_FEED");
         uint256 maxStale = vm.envOr("MAX_STALE_SECONDS", uint256(0));
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestNativeSpokePortfolio portfolio = new ClearcrestNativeSpokePortfolio(deployer, spokeChainId);
         ERC4626NativeStakingAdapter adapter =

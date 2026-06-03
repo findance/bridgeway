@@ -13,7 +13,7 @@ import "../../contracts/core/ClearcrestVault.sol";
 ///         60% existing cbBTC route / 40% ETH Morpho route.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY, VAULT, VAULT_OWNER, SLEEVE_A_WRAPPER
+///   DEPLOYER, VAULT, VAULT_OWNER, SLEEVE_A_WRAPPER
 ///   USDC, WETH, ETH_USD_PRICE_FEED, AERODROME_SWAP_ROUTER
 ///   MORPHO_ETH_VAULT_A, MORPHO_ETH_VAULT_B
 ///
@@ -39,12 +39,11 @@ contract DeployAndWireSleeveAEthMorpho is Script {
     }
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         Cfg memory c = _load();
         _validateConfig(c);
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         SleeveADualMorphoEthWrapper ethAdapter = new SleeveADualMorphoEthWrapper(
             c.vault,

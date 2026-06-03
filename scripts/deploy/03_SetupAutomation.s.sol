@@ -11,7 +11,7 @@ import "../../contracts/core/ClearcrestVault.sol";
 ///         Run AFTER 02_DeployVault.s.sol.
 ///
 ///         Required env vars:
-///           DEPLOYER_PRIVATE_KEY
+///           DEPLOYER           signer address used by --account
 ///           AUTOMATION_OWNER
 ///           VAULT              (from script 02 output)
 ///           USDC_ADDRESS
@@ -34,7 +34,7 @@ import "../../contracts/core/ClearcrestVault.sol";
 ///              Fund with LINK (~10-20 LINK recommended)
 contract SetupAutomation is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        address deployer = vm.envAddress("DEPLOYER");
         address automationOwner = vm.envAddress("AUTOMATION_OWNER");
         address vaultAddr = vm.envAddress("VAULT");
         address adminAddr = vm.envOr("ADMIN", address(0));
@@ -43,7 +43,7 @@ contract SetupAutomation is Script {
 
         ClearcrestVault vault = ClearcrestVault(vaultAddr);
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         // 1. Deploy ClearcrestAutomation
         ClearcrestAutomation automation = new ClearcrestAutomation(vaultAddr, automationOwner, usdcAddr);

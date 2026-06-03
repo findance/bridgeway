@@ -12,7 +12,7 @@ import "../../contracts/core/ClearcrestNativeSpokePortfolio.sol";
 ///         Aerodrome yield adapter.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   SPOKE_OWNER
 ///   BASE_CHAIN_ID
 ///   CBBTC
@@ -57,11 +57,10 @@ contract DeployBaseCBBTCYieldSpoke is Script {
     }
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         Config memory cfg = _loadConfig(deployer);
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestNativeSpokePortfolio portfolio = new ClearcrestNativeSpokePortfolio(deployer, cfg.baseChainId);
         AerodromeCbbtcStrategy strategy = new AerodromeCbbtcStrategy(

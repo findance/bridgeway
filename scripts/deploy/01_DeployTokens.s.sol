@@ -17,7 +17,7 @@ import "../../contracts/libraries/ClearcrestDeterministicDeploy.sol";
 ///           CGOV token:     $CGOV_TOKEN
 ///
 /// @dev    Set env vars before running:
-///           DEPLOYER_PRIVATE_KEY   = temporary deployer/admin key
+///           DEPLOYER               = temporary deployer/admin address used by --account
 ///           TOKEN_TEMP_ADMIN       = optional; defaults to deployer and must equal deployer
 ///           FOUNDER_TREASURY       = founder treasury receiving founder CGOV
 ///           BASE_RPC_URL           = Base RPC URL
@@ -36,8 +36,7 @@ contract DeployTokens is Script {
     error TemporaryAdminMustBeDeployer(address temporaryAdmin, address deployer);
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address temporaryAdmin = vm.envOr("TOKEN_TEMP_ADMIN", deployer);
         address founderTreasury = vm.envAddress("FOUNDER_TREASURY");
         address factory = vm.envOr("CREATE2_FACTORY", ClearcrestDeterministicDeploy.defaultCreate2Factory());
@@ -60,7 +59,7 @@ contract DeployTokens is Script {
         if (predictedCCR.code.length != 0) revert PredictedAddressOccupied(predictedCCR);
         if (predictedCGOV.code.length != 0) revert PredictedAddressOccupied(predictedCGOV);
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         // 1. Deploy CCR token with deployer as temporary admin so script 02 can wire roles.
         _deployViaFactory(

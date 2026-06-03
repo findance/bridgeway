@@ -30,12 +30,11 @@ contract DeployVaultReuseTokens is Script {
     }
 
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address vaultOwner = vm.envAddress("VAULT_OWNER");
         if (vaultOwner == deployer) revert VaultOwnerMustNotBeDeployer();
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestVault vault = _deployVault(deployer);
         console.log("ClearcrestVault:", address(vault));
@@ -77,7 +76,9 @@ contract DeployVaultReuseTokens is Script {
         console.log("MAINTENANCE_MODULE=", address(maintenanceModule));
         console.log("\n=== Required Safe token wiring ===");
         console.log("1. CCR grant MINTER_ROLE, BURNER_ROLE, WHITELIST_ADMIN_ROLE to VAULT.");
-        console.log("2. Admin/bootstrap call vault.setWhitelisted(VAULT,true) and vault.setWhitelisted(FOUNDER_TREASURY,true).");
+        console.log(
+            "2. Admin/bootstrap call vault.setWhitelisted(VAULT,true) and vault.setWhitelisted(FOUNDER_TREASURY,true)."
+        );
         console.log("3. CGOV proposeVaultReference(VAULT), wait 48h, then executeVaultReference().");
         console.log("4. Admin owner Safe must accept ClearcrestAdmin ownership.");
     }

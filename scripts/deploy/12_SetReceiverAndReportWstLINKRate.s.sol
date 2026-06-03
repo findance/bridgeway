@@ -12,7 +12,7 @@ import "../../contracts/core/ClearcrestL1RateReporter.sol";
 /// Run on Ethereum mainnet from the reporter owner.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   L1_RATE_REPORTER
 ///   L2_RATE_REGISTRY
 ///
@@ -20,12 +20,12 @@ import "../../contracts/core/ClearcrestL1RateReporter.sol";
 ///   RATE_REPORT_VALUE_WEI (native ETH sent into reportRate as CCIP fee cushion)
 contract SetReceiverAndReportWstLINKRate is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        address deployer = vm.envAddress("DEPLOYER");
         address reporterAddress = vm.envAddress("L1_RATE_REPORTER");
         address l2Registry = vm.envAddress("L2_RATE_REGISTRY");
         uint256 reportValue = vm.envOr("RATE_REPORT_VALUE_WEI", uint256(0));
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestL1RateReporter reporter = ClearcrestL1RateReporter(payable(reporterAddress));
         reporter.setReceiver(l2Registry);

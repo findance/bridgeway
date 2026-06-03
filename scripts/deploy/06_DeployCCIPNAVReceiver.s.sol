@@ -10,7 +10,7 @@ import "../../contracts/core/ClearcrestCCIPNAVReceiver.sol";
 ///         reports into ClearcrestHubNAV.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   CCIP_RECEIVER_OWNER
 ///   CCIP_ROUTER
 ///   HUB_NAV
@@ -20,13 +20,12 @@ import "../../contracts/core/ClearcrestCCIPNAVReceiver.sol";
 ///   2. Call hub.configureSpoke(<spokeChainId>, <receiver>, ...).
 contract DeployCCIPNAVReceiver is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerKey);
+        address deployer = vm.envAddress("DEPLOYER");
         address receiverOwner = vm.envAddress("CCIP_RECEIVER_OWNER");
         address router = vm.envAddress("CCIP_ROUTER");
         address hubNAV = vm.envAddress("HUB_NAV");
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestCCIPNAVReceiver receiver = new ClearcrestCCIPNAVReceiver(deployer, router, hubNAV);
         console.log("ClearcrestCCIPNAVReceiver:", address(receiver));

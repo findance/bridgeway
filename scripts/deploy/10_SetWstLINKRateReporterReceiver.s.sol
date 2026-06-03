@@ -11,16 +11,16 @@ import "../../contracts/core/ClearcrestL1RateReporter.sol";
 /// Run on Ethereum mainnet from the reporter owner.
 ///
 /// Required env vars:
-///   DEPLOYER_PRIVATE_KEY
+///   DEPLOYER  signer address used by --account
 ///   L1_RATE_REPORTER
 ///   L2_RATE_REGISTRY
 contract SetWstLINKRateReporterReceiver is Script {
     function run() external {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        address deployer = vm.envAddress("DEPLOYER");
         address reporterAddress = vm.envAddress("L1_RATE_REPORTER");
         address l2Registry = vm.envAddress("L2_RATE_REGISTRY");
 
-        vm.startBroadcast(deployerKey);
+        vm.startBroadcast(deployer);
 
         ClearcrestL1RateReporter(payable(reporterAddress)).setReceiver(l2Registry);
         console.log("ClearcrestL1RateReporter receiver:", l2Registry);
