@@ -34,6 +34,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     uint32 public immutable twapDuration;
 
     address public operator;
+    address public claimRecorder;
     address public pendleRouter;
     uint256 public maxStale;
     uint256 public fulfillTimeout;
@@ -57,6 +58,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     event CashFulfilled(bytes32 indexed claimId, address indexed recipient, uint256 ptAmount, uint256 usdcOut);
     event InKindFulfilled(bytes32 indexed claimId, address indexed recipient, uint256 ptAmount);
     event OperatorSet(address indexed operator);
+    event ClaimRecorderSet(address indexed claimRecorder);
     event PendleRouterSet(address indexed pendleRouter);
     event MaxStaleSet(uint256 maxStale);
     event FulfillTimeoutSet(uint256 fulfillTimeout);
@@ -64,6 +66,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
 
     error ZeroAddress();
     error OnlyOperator();
+    error OnlyClaimRecorder();
     error InvalidChainId();
     error InvalidTwapDuration();
     error StalePrice(address feed);
@@ -75,6 +78,11 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
 
     modifier onlyOperator() {
         if (msg.sender != operator) revert OnlyOperator();
+        _;
+    }
+
+    modifier onlyClaimRecorder() {
+        if (msg.sender != claimRecorder) revert OnlyClaimRecorder();
         _;
     }
 
@@ -113,8 +121,10 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         fulfillTimeout = fulfillTimeout_;
 
         operator = operator_;
+        claimRecorder = operator_;
         pendleRouter = pendleRouter_;
         emit OperatorSet(operator_);
+        emit ClaimRecorderSet(operator_);
         emit PendleRouterSet(pendleRouter_);
         emit MaxStaleSet(maxStale_);
         emit FulfillTimeoutSet(fulfillTimeout_);
@@ -150,7 +160,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         return _encodedReport();
     }
 
-    function recordClaim(bytes32 claimId, address recipient, uint256 ptAmount) external onlyOperator {
+    function recordClaim(bytes32 claimId, address recipient, uint256 ptAmount) external onlyClaimRecorder {
         if (recipient == address(0)) revert ZeroAddress();
         if (claims[claimId].recipient != address(0)) revert AlreadySettled(claimId);
         claims[claimId] =
@@ -197,6 +207,12 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         if (operator_ == address(0)) revert ZeroAddress();
         operator = operator_;
         emit OperatorSet(operator_);
+    }
+
+    function setClaimRecorder(address claimRecorder_) external onlyOwner {
+        if (claimRecorder_ == address(0)) revert ZeroAddress();
+        claimRecorder = claimRecorder_;
+        emit ClaimRecorderSet(claimRecorder_);
     }
 
     function setPendleRouter(address pendleRouter_) external onlyOwner {

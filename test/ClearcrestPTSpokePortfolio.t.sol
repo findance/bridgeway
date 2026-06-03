@@ -51,6 +51,7 @@ contract ClearcrestPTSpokePortfolioTest is Test {
 
     address owner = makeAddr("owner");
     address operator = makeAddr("operator");
+    address claimRecorder = makeAddr("claimRecorder");
     address recipient = makeAddr("recipient");
     address market = makeAddr("market");
 
@@ -100,6 +101,25 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         assertEq(reportedAt, block.timestamp);
         assertEq(sourceBlockNumber, block.number);
         assertEq(nonce, 1);
+    }
+
+    function test_RecordClaimCanMoveToDedicatedRecorder() public {
+        bytes32 claimId = keccak256("claim");
+
+        vm.prank(owner);
+        spoke.setClaimRecorder(claimRecorder);
+
+        vm.expectRevert(ClearcrestPTSpokePortfolio.OnlyClaimRecorder.selector);
+        vm.prank(operator);
+        spoke.recordClaim(claimId, recipient, 1e18);
+
+        vm.prank(claimRecorder);
+        spoke.recordClaim(claimId, recipient, 1e18);
+
+        (address recordedRecipient, uint256 ptAmount,, bool settled) = spoke.claims(claimId);
+        assertEq(recordedRecipient, recipient);
+        assertEq(ptAmount, 1e18);
+        assertFalse(settled);
     }
 
     function test_StaleFeedRevertsValuation() public {
