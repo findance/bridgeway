@@ -57,6 +57,27 @@ contract MockUSDC {
 /// @dev Minimal contract so setAutomation's code-length check passes.
 contract MockAutomationStub {}
 
+contract MissingEmergencySleeveAdapter {
+    uint256 public totalAssets;
+
+    function deploy(uint256 usdcAmount) external {
+        totalAssets += usdcAmount;
+    }
+
+    function withdraw(uint256 usdcAmount) external returns (uint256 usdcReturned) {
+        usdcReturned = usdcAmount > totalAssets ? totalAssets : usdcAmount;
+        totalAssets -= usdcReturned;
+    }
+
+    function harvest() external pure returns (uint256) {
+        return 0;
+    }
+
+    function totalAssetsUSDC() external view returns (uint256) {
+        return totalAssets;
+    }
+}
+
 contract ClearcrestVaultTest is Test {
     using stdStorage for StdStorage;
 
@@ -1003,10 +1024,11 @@ contract ClearcrestVaultTest is Test {
         bool[] memory active = new bool[](1);
         active[0] = true;
 
-        vm.prank(founder);
+        vm.startPrank(founder);
+        _trustAdapters(routeA);
         vault.configureSleeveAdapterRoutes(0, routeA, bps, active);
-        vm.prank(founder);
         vault.setManagementFeeBps(0);
+        vm.stopPrank();
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -1554,6 +1576,9 @@ contract ClearcrestVaultTest is Test {
         active[0] = true;
 
         vm.startPrank(founder);
+        _trustAdapters(routeA);
+        _trustAdapters(routeB);
+        _trustAdapters(routeC);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_C(), routeC, bps, active);
@@ -1675,8 +1700,10 @@ contract ClearcrestVaultTest is Test {
         bool[] memory firstActive = new bool[](1);
         firstActive[0] = true;
 
-        vm.prank(founder);
+        vm.startPrank(founder);
+        _trustAdapters(firstAdapters);
         vault.configureSleeveAdapterRoutes(sleeveA, firstAdapters, firstBps, firstActive);
+        vm.stopPrank();
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -1690,9 +1717,11 @@ contract ClearcrestVaultTest is Test {
         bool[] memory nextActive = new bool[](1);
         nextActive[0] = true;
 
-        vm.prank(founder);
+        vm.startPrank(founder);
+        _trustAdapters(nextAdapters);
         vm.expectRevert();
         vault.configureSleeveAdapterRoutes(sleeveA, nextAdapters, nextBps, nextActive);
+        vm.stopPrank();
     }
 
     function test_MultipleSleeveAdapterRoutesCanBeAddedWithoutMovingExistingFunds() public {
@@ -1707,8 +1736,10 @@ contract ClearcrestVaultTest is Test {
         bool[] memory firstActive = new bool[](1);
         firstActive[0] = true;
 
-        vm.prank(founder);
+        vm.startPrank(founder);
+        _trustAdapters(firstAdapters);
         vault.configureSleeveAdapterRoutes(sleeveA, firstAdapters, firstBps, firstActive);
+        vm.stopPrank();
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -1727,8 +1758,10 @@ contract ClearcrestVaultTest is Test {
         nextActive[0] = true;
         nextActive[1] = true;
 
-        vm.prank(founder);
+        vm.startPrank(founder);
+        _trustAdapters(nextAdapters);
         vault.configureSleeveAdapterRoutes(sleeveA, nextAdapters, nextBps, nextActive);
+        vm.stopPrank();
 
         assertEq(adapterA1.totalAssetsUSDC(), 650e6);
         assertEq(adapterA2.totalAssetsUSDC(), 0);
@@ -1760,6 +1793,8 @@ contract ClearcrestVaultTest is Test {
         active[0] = true;
 
         vm.startPrank(founder);
+        _trustAdapters(routeA);
+        _trustAdapters(routeB);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
         vm.stopPrank();
@@ -1791,6 +1826,8 @@ contract ClearcrestVaultTest is Test {
         active[0] = true;
 
         vm.startPrank(founder);
+        _trustAdapters(routeA);
+        _trustAdapters(routeB);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
         vm.stopPrank();
@@ -1822,6 +1859,8 @@ contract ClearcrestVaultTest is Test {
         active[0] = true;
 
         vm.startPrank(founder);
+        _trustAdapters(routeA);
+        _trustAdapters(routeB);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
         vault.setRedemptionBuffer(200, 2e6);
@@ -1871,6 +1910,8 @@ contract ClearcrestVaultTest is Test {
         active[0] = true;
 
         vm.startPrank(founder);
+        _trustAdapters(routeA);
+        _trustAdapters(routeB);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
         vault.setRedemptionBuffer(0, 0);
@@ -1906,6 +1947,8 @@ contract ClearcrestVaultTest is Test {
         active[0] = true;
 
         vm.startPrank(founder);
+        _trustAdapters(routeA);
+        _trustAdapters(routeB);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
         vault.setExitFeeBps(0);
@@ -1936,6 +1979,8 @@ contract ClearcrestVaultTest is Test {
         active[0] = true;
 
         vm.startPrank(founder);
+        _trustAdapters(routeA);
+        _trustAdapters(routeB);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_A(), routeA, bps, active);
         vault.configureSleeveAdapterRoutes(vault.SLEEVE_B(), routeB, bps, active);
         vault.setSmallDepositStableOnlyThresholdUsdc(0);
@@ -1966,8 +2011,10 @@ contract ClearcrestVaultTest is Test {
         bool[] memory firstActive = new bool[](1);
         firstActive[0] = true;
 
-        vm.prank(founder);
+        vm.startPrank(founder);
+        _trustAdapters(firstAdapters);
         vault.configureSleeveAdapterRoutes(sleeveA, firstAdapters, firstBps, firstActive);
+        vm.stopPrank();
 
         vm.startPrank(alice);
         MockUSDC(USDC_ADDR).approve(address(vault), 1_000e6);
@@ -1981,13 +2028,15 @@ contract ClearcrestVaultTest is Test {
         bool[] memory unsafeActive = new bool[](1);
         unsafeActive[0] = true;
 
+        vm.startPrank(founder);
+        _trustAdapters(unsafeAdapters);
         vm.expectRevert(
             abi.encodeWithSelector(
                 ClearcrestVault.FundedAdapterRemovalBlocked.selector, sleeveA, address(adapterA1), 650e6
             )
         );
-        vm.prank(founder);
         vault.configureSleeveAdapterRoutes(sleeveA, unsafeAdapters, unsafeBps, unsafeActive);
+        vm.stopPrank();
     }
 
     function test_TrustedSleeveAssetsAreProtectedFromRecovery() public {
@@ -2432,8 +2481,40 @@ contract ClearcrestVaultTest is Test {
         bps[0] = 10_000;
         bool[] memory active = new bool[](1);
         active[0] = true;
-        vm.prank(founder);
+        vm.startPrank(founder);
+        vault.setTrustedSleeveAdapter(adapter, true);
         vault.configureSleeveAdapterRoutes(sleeve, adapters, bps, active);
+        vm.stopPrank();
+    }
+
+    function _trustAdapters(address[] memory adapters) internal {
+        for (uint256 i; i < adapters.length; ++i) {
+            vault.setTrustedSleeveAdapter(adapters[i], true);
+        }
+    }
+
+    function test_ConfigureSleeveAdapterRoutesRequiresTrustedAdapter() public {
+        uint8 sleeveA = vault.SLEEVE_A();
+        MockSleeveAdapter adapterA = new MockSleeveAdapter(address(vault), USDC_ADDR);
+
+        address[] memory adapters = new address[](1);
+        adapters[0] = address(adapterA);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.expectRevert(abi.encodeWithSignature("UntrustedAdapter(address)", address(adapterA)));
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(sleeveA, adapters, bps, active);
+
+        vm.prank(founder);
+        vault.setTrustedSleeveAdapter(address(adapterA), true);
+        assertTrue(vault.trustedSleeveAdapters(address(adapterA)));
+
+        vm.prank(founder);
+        vault.configureSleeveAdapterRoutes(sleeveA, adapters, bps, active);
+        assertEq(vault.sleeveAdapterRouteCount(sleeveA), 1);
     }
 
     function test_HarvestSleevesCompoundsYieldFromABackIntoA() public {
@@ -2607,6 +2688,28 @@ contract ClearcrestVaultTest is Test {
         ClearcrestAdmin admin = _installAdminOwner();
         vm.expectRevert();
         vm.prank(alice);
+        admin.emergencyUnwindSleeves(sleeveA);
+    }
+
+    function test_EmergencyUnwindSleevesRevertsForMissingRequiredExit() public {
+        uint8 sleeveA = vault.SLEEVE_A();
+        MissingEmergencySleeveAdapter adapter = new MissingEmergencySleeveAdapter();
+
+        address[] memory adapters = new address[](1);
+        adapters[0] = address(adapter);
+        uint16[] memory bps = new uint16[](1);
+        bps[0] = 10_000;
+        bool[] memory active = new bool[](1);
+        active[0] = true;
+
+        vm.startPrank(founder);
+        vault.setTrustedSleeveAdapter(address(adapter), true);
+        vault.configureSleeveAdapterRoutes(sleeveA, adapters, bps, active);
+        vm.stopPrank();
+
+        ClearcrestAdmin admin = _installAdminOwner();
+        vm.expectRevert();
+        vm.prank(founder);
         admin.emergencyUnwindSleeves(sleeveA);
     }
 

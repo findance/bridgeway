@@ -17,6 +17,10 @@ interface ISleeveAdapter {
     /// @return yieldUsdc Realised USDC yield sent to the vault.
     function harvest() external returns (uint256 yieldUsdc);
 
+    /// @notice Emergency full unwind, converging recoverable assets back to the vault.
+    /// @return usdcReturned Amount of USDC-equivalent value returned to the vault.
+    function emergencyWithdrawAll() external returns (uint256 usdcReturned);
+
     /// @notice Current adapter position value denominated in USDC (6 decimals).
     function totalAssetsUSDC() external view returns (uint256);
 }

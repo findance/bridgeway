@@ -292,6 +292,7 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
     event SleeveAdapterRoutesConfigured(uint8 indexed sleeve, uint256 routeCount, uint256 activeDepositBps);
     event SleeveDepositWeightsUpdated(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC);
     event TrustedSleeveAssetUpdated(uint8 indexed sleeve, address indexed asset, bool trusted);
+    event TrustedSleeveAdapterUpdated(address indexed adapter, bool trusted);
     event ManagementFeeCharged(uint256 feeUsdc, uint256 elapsed);
     event ManagementFeeBpsUpdated(uint256 newBps);
     event ExitFeeBpsUpdated(uint256 newBps);
@@ -1070,9 +1071,20 @@ contract ClearcrestVault is ReentrancyGuard, Pausable, Ownable {
         return _sleeveGovernance.protectedTokens[token];
     }
 
+    function trustedSleeveAdapters(address adapter) external view returns (bool) {
+        return _sleeveGovernance.trustedSleeveAdapters[adapter];
+    }
+
     /// @notice Set vault-level sleeve deposit weights for future deposits.
     function setSleeveDepositWeights(uint16 sleeveA, uint16 sleeveB, uint16 sleeveC) external onlyOwner {
         _setSleeveDepositWeights(sleeveA, sleeveB, sleeveC);
+    }
+
+    /// @notice Approve or revoke a reviewed sleeve adapter before routing funds to it.
+    function setTrustedSleeveAdapter(address adapter, bool trusted) external onlyOwner {
+        if (_sleeveGovernance.setTrustedSleeveAdapter(adapter, trusted)) {
+            emit TrustedSleeveAdapterUpdated(adapter, trusted);
+        }
     }
 
     /// @notice Mark an asset as approved for a sleeve strategy.

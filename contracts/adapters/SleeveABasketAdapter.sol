@@ -394,6 +394,16 @@ contract SleeveABasketAdapter is ISleeveAdapter, Ownable2Step, ReentrancyGuard {
 
     /// @notice Sell all configured assets to USDC without relying on oracle values.
     function emergencyUnwindAll() external onlyOwnerOrVault nonReentrant {
+        _emergencyUnwindAll();
+    }
+
+    function emergencyWithdrawAll() external onlyOwnerOrVault nonReentrant returns (uint256 usdcReturned) {
+        _emergencyUnwindAll();
+        usdcReturned = usdc.balanceOf(address(this));
+        if (usdcReturned > 0) usdc.safeTransfer(vault, usdcReturned);
+    }
+
+    function _emergencyUnwindAll() internal {
         uint256 count = _assets.length;
         for (uint256 i; i < count; ++i) {
             uint256 balance = IERC20(_assets[i].token).balanceOf(address(this));

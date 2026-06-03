@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "./ClearcrestVault.sol";
 import "../libraries/FeeLib.sol";
+import "../interfaces/ISleeveAdapter.sol";
 
 /// @title ClearcrestAdmin
 /// @notice Timelocked governance controller for ClearcrestVault.
@@ -153,11 +154,8 @@ contract ClearcrestAdmin is Ownable2Step {
         for (uint256 i; i < routeCount; ++i) {
             (address adapter,,) = vault.sleeveAdapterRouteAt(sleeve, i);
             if (adapter == address(0)) continue;
-            (bool ok,) = adapter.call(abi.encodeWithSignature("emergencyWithdrawAll()"));
-            if (!ok) {
-                (ok,) = adapter.call(abi.encodeWithSignature("emergencyUnwindAll()"));
-            }
-            if (ok) triggered += 1;
+            ISleeveAdapter(adapter).emergencyWithdrawAll();
+            triggered += 1;
         }
 
         uint256 balanceAfter = IERC20(usdc).balanceOf(address(vault));

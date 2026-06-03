@@ -16,6 +16,7 @@ library ClearcrestSleeveGovernance {
     struct Layout {
         mapping(uint8 => SleeveAdapterRoute[]) sleeveAdapterRoutes;
         mapping(uint8 => mapping(address => bool)) trustedSleeveAssets;
+        mapping(address => bool) trustedSleeveAdapters;
         mapping(address => uint256) trustedAssetUseCount;
         mapping(address => bool) protectedTokens;
     }
@@ -26,6 +27,7 @@ library ClearcrestSleeveGovernance {
     error ZeroAddress();
     error NotContract(address account);
     error DuplicateRoute(address adapter);
+    error UntrustedAdapter(address adapter);
     error RouteBpsTooHigh(uint256 totalBps);
     error FundedAdapterRemovalBlocked(uint8 sleeve, address adapter, uint256 assetsUsdc);
 
@@ -67,6 +69,7 @@ library ClearcrestSleeveGovernance {
             address adapter = adapters[i];
             if (adapter == address(0)) revert ZeroAddress();
             if (adapter.code.length == 0) revert NotContract(adapter);
+            if (!self.trustedSleeveAdapters[adapter]) revert UntrustedAdapter(adapter);
 
             for (uint256 j = i + 1; j < adapters.length; ++j) {
                 if (adapter == adapters[j]) revert DuplicateRoute(adapter);
@@ -141,6 +144,14 @@ library ClearcrestSleeveGovernance {
     function setProtectedToken(Layout storage self, address token, bool protectedToken) public {
         if (token == address(0)) revert ZeroAddress();
         self.protectedTokens[token] = protectedToken;
+    }
+
+    function setTrustedSleeveAdapter(Layout storage self, address adapter, bool trusted) public returns (bool changed) {
+        if (adapter == address(0)) revert ZeroAddress();
+        if (adapter.code.length == 0) revert NotContract(adapter);
+        if (self.trustedSleeveAdapters[adapter] == trusted) return false;
+        self.trustedSleeveAdapters[adapter] = trusted;
+        return true;
     }
 
     function validateSleeve(uint8 sleeve) public pure {
