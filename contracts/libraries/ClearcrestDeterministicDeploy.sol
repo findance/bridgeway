@@ -11,8 +11,8 @@ import "../tokens/CGOVToken.sol";
 library ClearcrestDeterministicDeploy {
     address internal constant DEFAULT_CREATE2_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
-    bytes32 internal constant CCR_TOKEN_SALT = keccak256("clearcrest.ccr.token.v4.2026-05-31");
-    bytes32 internal constant CGOV_TOKEN_SALT = keccak256("clearcrest.cgov.token.v4.2026-05-31");
+    bytes32 internal constant CCR_TOKEN_SALT = keccak256("clearcrest.ccr.token.v5.2026-06-03");
+    bytes32 internal constant CGOV_TOKEN_SALT = keccak256("clearcrest.cgov.token.v5.2026-06-03");
 
     function defaultCreate2Factory() internal pure returns (address) {
         return DEFAULT_CREATE2_FACTORY;
