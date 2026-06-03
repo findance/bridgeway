@@ -90,17 +90,26 @@ contract DeployAndWireSleeveAEthMorpho is Script {
 
         if (c.admin == address(0)) {
             ClearcrestVault vault = ClearcrestVault(c.vault);
+            vault.setTrustedSleeveAdapter(c.sleeveACbbtcWrapper, true);
+            vault.setTrustedSleeveAdapter(ethAdapter, true);
             vault.configureSleeveAdapterRoutes(0, sleeveARoutes, sleeveABps, sleeveAActive);
             vault.setTrustedSleeveAsset(0, c.weth, true);
         } else {
-            ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](2);
+            ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](4);
             calls[0] = ClearcrestAdmin.Call({
+                target: c.vault,
+                data: abi.encodeCall(ClearcrestVault.setTrustedSleeveAdapter, (c.sleeveACbbtcWrapper, true))
+            });
+            calls[1] = ClearcrestAdmin.Call({
+                target: c.vault, data: abi.encodeCall(ClearcrestVault.setTrustedSleeveAdapter, (ethAdapter, true))
+            });
+            calls[2] = ClearcrestAdmin.Call({
                 target: c.vault,
                 data: abi.encodeCall(
                     ClearcrestVault.configureSleeveAdapterRoutes, (0, sleeveARoutes, sleeveABps, sleeveAActive)
                 )
             });
-            calls[1] = ClearcrestAdmin.Call({
+            calls[3] = ClearcrestAdmin.Call({
                 target: c.vault, data: abi.encodeCall(ClearcrestVault.setTrustedSleeveAsset, (0, c.weth, true))
             });
             ClearcrestAdmin(c.admin).executeBootstrapOperation(calls);

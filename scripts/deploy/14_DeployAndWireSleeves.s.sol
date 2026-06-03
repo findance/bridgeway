@@ -154,6 +154,8 @@ contract DeployAndWireSleeves is Script {
 
         if (c.admin == address(0)) {
             ClearcrestVault vault = ClearcrestVault(c.vault);
+            vault.setTrustedSleeveAdapter(sleeveA, true);
+            vault.setTrustedSleeveAdapter(sleeveB, true);
             vault.configureSleeveAdapterRoutes(0, sleeveARoutes, sleeveABps, sleeveAActive);
             vault.configureSleeveAdapterRoutes(1, sleeveBRoutes, sleeveBBps, sleeveBActive);
             vault.setSleeveDepositWeights(6500, 3500, 0);
@@ -168,23 +170,29 @@ contract DeployAndWireSleeves is Script {
             protectedTokens[2] = c.cbbtc;
             protectedTokens[3] = c.aCbbtc;
 
-            ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](4);
+            ClearcrestAdmin.Call[] memory calls = new ClearcrestAdmin.Call[](6);
             calls[0] = ClearcrestAdmin.Call({
+                target: c.vault, data: abi.encodeCall(ClearcrestVault.setTrustedSleeveAdapter, (sleeveA, true))
+            });
+            calls[1] = ClearcrestAdmin.Call({
+                target: c.vault, data: abi.encodeCall(ClearcrestVault.setTrustedSleeveAdapter, (sleeveB, true))
+            });
+            calls[2] = ClearcrestAdmin.Call({
                 target: c.vault,
                 data: abi.encodeCall(
                     ClearcrestVault.configureSleeveAdapterRoutes, (0, sleeveARoutes, sleeveABps, sleeveAActive)
                 )
             });
-            calls[1] = ClearcrestAdmin.Call({
+            calls[3] = ClearcrestAdmin.Call({
                 target: c.vault,
                 data: abi.encodeCall(
                     ClearcrestVault.configureSleeveAdapterRoutes, (1, sleeveBRoutes, sleeveBBps, sleeveBActive)
                 )
             });
-            calls[2] = ClearcrestAdmin.Call({
+            calls[4] = ClearcrestAdmin.Call({
                 target: c.vault, data: abi.encodeCall(ClearcrestVault.setSleeveDepositWeights, (6500, 3500, 0))
             });
-            calls[3] = ClearcrestAdmin.Call({
+            calls[5] = ClearcrestAdmin.Call({
                 target: c.admin, data: abi.encodeCall(ClearcrestAdmin.applyProtectedTokenBatch, (protectedTokens, true))
             });
             ClearcrestAdmin(c.admin).executeBootstrapOperation(calls);
