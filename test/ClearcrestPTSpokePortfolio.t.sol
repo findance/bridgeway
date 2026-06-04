@@ -103,6 +103,7 @@ contract ClearcrestPTSpokePortfolioTest is Test {
     MockERC20 usdc;
     MockPendlePtOracle oracle;
     MockPriceFeed assetUsdFeed;
+    MockPriceFeed discountedFeed;
     MockPendleRouter router;
 
     address owner = makeAddr("owner");
@@ -118,6 +119,7 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         oracle = new MockPendlePtOracle();
         assetUsdFeed = new MockPriceFeed(1e8, 8);
+        discountedFeed = new MockPriceFeed(0.5e8, 8);
         router = new MockPendleRouter(pt, usdc);
         market = address(new MockPendleMarket(block.timestamp + 30 days));
 
@@ -185,6 +187,21 @@ contract ClearcrestPTSpokePortfolioTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(ClearcrestPTSpokePortfolio.StalePrice.selector, address(assetUsdFeed)));
         spoke.totalAssetsUSDC();
+    }
+
+    function test_PositionCanUseDedicatedUsdFeed() public {
+        MockERC20 nextPt = new MockERC20("PT RWA", "PT-RWA", 18);
+        address nextMarket = makeAddr("nextMarket");
+
+        vm.prank(owner);
+        spoke.addPositionWithFeed(address(nextPt), nextMarket, address(discountedFeed), uint64(block.timestamp + 60 days));
+
+        nextPt.mint(address(spoke), 100e18);
+
+        assertEq(spoke.totalAssetsUSDC(), 50e6);
+
+        (,, address positionFeed,,) = spoke.positionAt(1);
+        assertEq(positionFeed, address(discountedFeed));
     }
 
     function test_CashSettlementSellsAndRemitsUSDC() public {
