@@ -35,3 +35,5 @@ Thumbs.db
 
 # Local deployment transcripts
 /*_RAW.log
+
+.local/

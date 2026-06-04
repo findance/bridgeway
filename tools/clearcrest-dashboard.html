@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Clearcrest Operator Dashboard</title>
+  <title>Clearcrest Deployment Dashboard</title>
   <style>
     :root {
       color-scheme: light;
@@ -245,7 +245,7 @@
 <body>
   <header>
     <div class="topline">
-      <h1>Clearcrest Operator Dashboard</h1>
+      <h1>Clearcrest Deployment Dashboard</h1>
       <div class="pill">Base Mainnet</div>
     </div>
   </header>
@@ -253,12 +253,12 @@
   <main>
     <div class="controls">
       <label>
-        RPC URL
-        <input id="rpc" value="https://base-mainnet.g.alchemy.com/v2/PRhoD3X6orZwD8NtGSvb5">
+        Read RPC
+        <input id="rpc" value="https://mainnet.base.org">
       </label>
       <label>
         Wallet / Depositor
-        <input id="wallet" value="0x13c142E565d28b1558BecAA2Af4495CB133801f4">
+        <input id="wallet" value="0xe5b36D08bB2765855B746d36228604550B2A826d">
       </label>
       <button id="refresh">Refresh</button>
       <button id="deepRefresh" class="secondary">Deep Refresh</button>
@@ -268,11 +268,11 @@
 
     <div class="buy-panel">
       <label>
-        Buy CCR With USDC
-        <input id="buyAmount" inputmode="decimal" type="number" min="1" step="0.000001" value="1">
+        Deposit USDC For CCR
+        <input id="buyAmount" inputmode="decimal" type="number" min="1" step="0.000001" value="70">
       </label>
       <button id="connectWallet" class="secondary">Connect Wallet</button>
-      <button id="buyCcr">Buy CCR</button>
+      <button id="buyCcr">Deposit</button>
     </div>
 
     <div class="grid">
@@ -383,41 +383,45 @@
 
     <div class="links">
       <a href="https://app.morpho.org/base/vault/0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61" target="_blank" rel="noreferrer">Morpho USDC Vault</a>
-      <a href="https://basescan.org/address/0xAbac6c75f5868B0086ca9D9E2B470258b2525443" target="_blank" rel="noreferrer">Vault On BaseScan</a>
-      <a href="https://basescan.org/address/0x59AC1095ACA60C2e490aACC4Fe9EBA73cABA3ec1" target="_blank" rel="noreferrer">CCR Token</a>
-      <a href="https://basescan.org/address/0xbbE62E3e3429bC522CAE2fad79a741dEb61DF949" target="_blank" rel="noreferrer">Aerodrome Strategy</a>
-      <a href="https://basescan.org/address/0xa1809fe63F410CD1175F9cdE1678Bc4B60a9FAA8" target="_blank" rel="noreferrer">Sleeve A ETH Morpho</a>
+      <a href="https://basescan.org/address/0x46B529842C3F855FaF48F72F7186C281E78C23C1" target="_blank" rel="noreferrer">Vault On BaseScan</a>
+      <a href="https://basescan.org/address/0xB02515d52A10F3e13153a7ca6aac94FE5936f20F" target="_blank" rel="noreferrer">CCR Token</a>
+      <a href="https://basescan.org/address/0x01f05823846B2f967fCc08dD2f998C0c42A0fF41" target="_blank" rel="noreferrer">Aerodrome Strategy</a>
+      <a href="https://basescan.org/address/0x5B966D65B8ce3397a0C986828C5D3D588Ecb6C09" target="_blank" rel="noreferrer">Sleeve A ETH Morpho</a>
       <a href="https://app.morpho.org/base/vault/0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1" target="_blank" rel="noreferrer">Moonwell ETH Vault</a>
       <a href="https://app.morpho.org/base/vault/0x6b13c060F13Af1fdB319F52315BbbF3fb1D88844" target="_blank" rel="noreferrer">Gauntlet WETH Vault</a>
     </div>
   </main>
 
   <script>
+    const WALLETCONNECT_PROJECT_ID = "03cc4eaa060f7b728fd078b820561b16";
+    const BASE_CHAIN_ID = 8453;
+    const BASE_CHAIN_ID_HEX = "0x2105";
+
     const ADDR = {
-      vault: "0xAbac6c75f5868B0086ca9D9E2B470258b2525443",
-      admin: "0xd6a3dA15548C243A95ecA40F8f3d776a1f3E2361",
-      automation: "0x0000000000000000000000000000000000000000",
-      ccr: "0x59AC1095ACA60C2e490aACC4Fe9EBA73cABA3ec1",
-      cgov: "0xd75c2aeE84cf921747716Fbd6DdD5d0dD36543ef",
+      vault: "0x46B529842C3F855FaF48F72F7186C281E78C23C1",
+      admin: "0x119C928046fff24a6f18DB938C3E7BF230ec38f3",
+      automation: "0x4728A66d2B73F9AAf96A74c047c085c4AAFd0C27",
+      ccr: "0xB02515d52A10F3e13153a7ca6aac94FE5936f20F",
+      cgov: "0xbE30e134a19E7d05D5aEc4EA2886CF3d8291b122",
       usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
       weth: "0x4200000000000000000000000000000000000006",
       cbbtc: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf",
       aUsdc: "0x4e65fE4DbA92790696d040ac24Aa414708F5c0AB",
       aCbbtc: "0xBdb9300b7CDE636d9cD4AFF00f6F009fFBBc8EE6",
       morpho: "0xeE8F4eC5672F09119b96Ab6fB59C27E1b7e44b61",
-      sleeveA: "0xf2862e0d9e0BfF6dEEB93c149e12041fa4e8833D",
-      sleeveAEth: "0xa1809fe63F410CD1175F9cdE1678Bc4B60a9FAA8",
+      sleeveA: "0xF5Bf2c9332CCEC564F0fA206Ec964A0a7239d6Dc",
+      sleeveAEth: "0x5B966D65B8ce3397a0C986828C5D3D588Ecb6C09",
       morphoEthA: "0xa0E430870c4604CcfC7B38Ca7845B1FF653D0ff1",
       morphoEthB: "0x6b13c060F13Af1fdB319F52315BbbF3fb1D88844",
-      strategy: "0xbbE62E3e3429bC522CAE2fad79a741dEb61DF949",
-      yield: "0x918f3a8d130a25Bc5D3A555fCB7aC0A1d938c9cA",
-      sleeveB: "0x4806D666b6F6ca3F809AA937C9E6d202835eB218",
+      strategy: "0x01f05823846B2f967fCc08dD2f998C0c42A0fF41",
+      yield: "0x0Cf5A938F0C75A99636eD0AA4761206A6a59102E",
+      sleeveB: "0x5c35EaaB8102F21030BdE4294E8628c6c2F6b389",
       gauge: "0x0000000000000000000000000000000000000000",
       safe: "0x3f276b5355d34DA9D72Bba6D0ea0c103D3f15348",
       founder: "0x57Cd13D05Ef79092858bc64FFEc1d89ee07d9625"
     };
 
-    const DEPLOYMENT_FROM_BLOCK = 46730000n;
+    const DEPLOYMENT_FROM_BLOCK = 46850000n;
     const LOG_BLOCK_SPAN = 9000n;
     const INITIAL_BASIS_USDC = {
       sleeveABtc: 0n,
@@ -485,6 +489,8 @@
     const MIN_BUY_USDC = 1000000n;
 
     const $ = (id) => document.getElementById(id);
+    let activeWalletProvider = null;
+    let walletConnectProvider = null;
 
     function cleanHex(hex) {
       if (!hex || hex === "0x") return "0x0";
@@ -797,23 +803,91 @@
       return asUint(await call(token, data(SIG.balanceOf, [addrArg(holder)])));
     }
 
+    function readRpcUrl() {
+      return $("rpc").value.trim() || "https://mainnet.base.org";
+    }
+
+    async function getWalletConnectProvider() {
+      if (walletConnectProvider) return walletConnectProvider;
+
+      $("status").textContent = "Loading WalletConnect QR modal...";
+      const { EthereumProvider } = await import("https://esm.sh/@walletconnect/ethereum-provider@2.21.1");
+      walletConnectProvider = await EthereumProvider.init({
+        projectId: WALLETCONNECT_PROJECT_ID,
+        chains: [BASE_CHAIN_ID],
+        optionalChains: [BASE_CHAIN_ID],
+        showQrModal: true,
+        rpcMap: { [BASE_CHAIN_ID]: readRpcUrl() },
+        methods: ["eth_sendTransaction", "personal_sign"],
+        optionalMethods: [
+          "eth_accounts",
+          "eth_requestAccounts",
+          "eth_call",
+          "wallet_switchEthereumChain",
+          "wallet_addEthereumChain"
+        ],
+        events: ["chainChanged", "accountsChanged"],
+        optionalEvents: ["disconnect", "connect"],
+        metadata: {
+          name: "Clearcrest Dashboard",
+          description: "Clearcrest deployment dashboard",
+          url: window.location.origin || "https://clearcrest.local",
+          icons: []
+        },
+        qrModalOptions: {
+          themeMode: "light"
+        }
+      });
+
+      walletConnectProvider.on("accountsChanged", (accounts) => {
+        if (accounts && accounts.length) $("wallet").value = accounts[0];
+      });
+      walletConnectProvider.on("chainChanged", () => {
+        $("status").textContent = "Wallet network changed.";
+      });
+      walletConnectProvider.on("disconnect", () => {
+        activeWalletProvider = null;
+        $("status").textContent = "Wallet disconnected.";
+      });
+
+      return walletConnectProvider;
+    }
+
     async function walletRequest(args) {
-      if (!window.ethereum) throw new Error("No browser wallet found. The in-app browser is read-only for wallet actions; open this same URL in MetaMask, Rabby, or another EIP-1193 browser to buy CCR.");
-      return window.ethereum.request(args);
+      if (!activeWalletProvider) {
+        if (window.ethereum) activeWalletProvider = window.ethereum;
+        else activeWalletProvider = await getWalletConnectProvider();
+      }
+      return activeWalletProvider.request(args);
     }
 
     async function connectWallet() {
-      const accounts = await walletRequest({ method: "eth_requestAccounts" });
+      let accounts;
+      if (!window.ethereum) {
+        const provider = await getWalletConnectProvider();
+        activeWalletProvider = provider;
+        $("status").textContent = "Scan the WalletConnect QR code in your wallet...";
+        await provider.connect({
+          chains: [BASE_CHAIN_ID],
+          optionalChains: [BASE_CHAIN_ID],
+          rpcMap: { [BASE_CHAIN_ID]: readRpcUrl() }
+        });
+        accounts = provider.accounts || await provider.request({ method: "eth_accounts" });
+      } else {
+        activeWalletProvider = window.ethereum;
+        accounts = await walletRequest({ method: "eth_requestAccounts" });
+      }
       if (!accounts.length) throw new Error("Wallet did not return an account.");
       $("wallet").value = accounts[0];
       return accounts[0];
     }
 
     async function ensureBase() {
+      if (activeWalletProvider === walletConnectProvider) return;
       try {
         await walletRequest({
           method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x2105" }]
+          params: [{ chainId: BASE_CHAIN_ID_HEX }]
         });
       } catch (error) {
         if (error.code !== 4902) throw error;
@@ -856,11 +930,11 @@
           await sleep(4500);
         }
 
-        $("status").textContent = "Confirm CCR purchase in your wallet...";
+        $("status").textContent = "Confirm Clearcrest deposit in your wallet...";
         const depositHash = await sendTransaction(ADDR.vault, data(SIG.deposit, [uintArg(amount), uintArg(0)]));
-        $("status").textContent = `Buy transaction sent: ${depositHash}`;
+        $("status").textContent = `Deposit transaction sent: ${depositHash}`;
       } catch (error) {
-        $("status").textContent = `Buy failed: ${error.message}`;
+        $("status").textContent = `Deposit failed: ${error.message}`;
       } finally {
         button.disabled = false;
       }

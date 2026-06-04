@@ -19,11 +19,21 @@ contract MockPendlePtOracle {
     }
 }
 
+contract MockPendleMarket {
+    uint256 public immutable expiry;
+
+    constructor(uint256 expiry_) {
+        expiry = expiry_;
+    }
+}
+
 contract MockPendleRouter {
     MockERC20 public immutable pt;
     MockERC20 public immutable usdc;
     uint256 public spendPt;
     uint256 public mintUsdc;
+    uint256 public spendUsdc;
+    uint256 public mintPt;
 
     constructor(MockERC20 pt_, MockERC20 usdc_) {
         pt = pt_;
@@ -35,9 +45,55 @@ contract MockPendleRouter {
         mintUsdc = mintUsdc_;
     }
 
+    function setBuy(uint256 spendUsdc_, uint256 mintPt_) external {
+        spendUsdc = spendUsdc_;
+        mintPt = mintPt_;
+    }
+
     function swap() external {
         pt.transferFrom(msg.sender, address(this), spendPt);
         usdc.mint(msg.sender, mintUsdc);
+    }
+
+    function buy() external {
+        usdc.transferFrom(msg.sender, address(this), spendUsdc);
+        pt.mint(msg.sender, mintPt);
+    }
+}
+
+contract MockPendleRollRouter {
+    MockERC20 public immutable oldPt;
+    MockERC20 public immutable nextPt;
+    MockERC20 public immutable usdc;
+    uint256 public spendOldPt;
+    uint256 public mintUsdc;
+    uint256 public spendUsdc;
+    uint256 public mintNextPt;
+
+    constructor(MockERC20 oldPt_, MockERC20 nextPt_, MockERC20 usdc_) {
+        oldPt = oldPt_;
+        nextPt = nextPt_;
+        usdc = usdc_;
+    }
+
+    function setRedeem(uint256 spendOldPt_, uint256 mintUsdc_) external {
+        spendOldPt = spendOldPt_;
+        mintUsdc = mintUsdc_;
+    }
+
+    function setBuy(uint256 spendUsdc_, uint256 mintNextPt_) external {
+        spendUsdc = spendUsdc_;
+        mintNextPt = mintNextPt_;
+    }
+
+    function redeem() external {
+        oldPt.transferFrom(msg.sender, address(this), spendOldPt);
+        usdc.mint(msg.sender, mintUsdc);
+    }
+
+    function buy() external {
+        usdc.transferFrom(msg.sender, address(this), spendUsdc);
+        nextPt.mint(msg.sender, mintNextPt);
     }
 }
 
@@ -53,7 +109,7 @@ contract ClearcrestPTSpokePortfolioTest is Test {
     address operator = makeAddr("operator");
     address claimRecorder = makeAddr("claimRecorder");
     address recipient = makeAddr("recipient");
-    address market = makeAddr("market");
+    address market;
 
     function setUp() public {
         vm.warp(10 days);
@@ -63,6 +119,7 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         oracle = new MockPendlePtOracle();
         assetUsdFeed = new MockPriceFeed(1e8, 8);
         router = new MockPendleRouter(pt, usdc);
+        market = address(new MockPendleMarket(block.timestamp + 30 days));
 
         spoke = new ClearcrestPTSpokePortfolio(
             owner,
@@ -160,5 +217,70 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         spoke.claimInKindAfterTimeout(claimId);
 
         assertEq(pt.balanceOf(recipient), 3e18);
+    }
+
+    function test_BuyPtWithUsdcRequiresApprovedSubParPrice() public {
+        usdc.mint(address(spoke), 1_000e6);
+        router.setBuy(990e6, 1_000e18);
+
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestPTSpokePortfolio.PriceAboveLimit.selector, 0.99e18, 0.98e18));
+        vm.prank(operator);
+        spoke.buyPtWithUsdc(0, 990e6, 1_000e18, 0.98e18, 0, abi.encodeWithSelector(MockPendleRouter.buy.selector));
+    }
+
+    function test_BuyPtWithUsdcRequiresMinimumImpliedApy() public {
+        usdc.mint(address(spoke), 1_000e6);
+        router.setBuy(990e6, 1_000e18);
+
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestPTSpokePortfolio.ImpliedApyTooLow.selector, 1228, 2_000));
+        vm.prank(operator);
+        spoke.buyPtWithUsdc(0, 990e6, 1_000e18, 0.995e18, 2_000, abi.encodeWithSelector(MockPendleRouter.buy.selector));
+    }
+
+    function test_BuyPtWithUsdcAcceptsDiscountedFill() public {
+        usdc.mint(address(spoke), 1_000e6);
+        router.setBuy(950e6, 1_000e18);
+
+        vm.prank(operator);
+        (uint256 usdcSpent, uint256 ptReceived, uint256 actualPrice) =
+            spoke.buyPtWithUsdc(0, 950e6, 1_000e18, 0.96e18, 100, abi.encodeWithSelector(MockPendleRouter.buy.selector));
+
+        assertEq(usdcSpent, 950e6);
+        assertEq(ptReceived, 1_000e18);
+        assertEq(actualPrice, 0.95e18);
+        assertEq(pt.balanceOf(address(spoke)), 1_000e18);
+    }
+
+    function test_RollMaturedRebuysUnderEntryGuard() public {
+        MockERC20 nextPt = new MockERC20("PT sUSDe Next", "PT-sUSDe-N", 18);
+        MockPendleRollRouter nextRouter = new MockPendleRollRouter(pt, nextPt, usdc);
+        address nextMarket = makeAddr("nextMarket");
+
+        vm.prank(owner);
+        spoke.addPosition(address(nextPt), nextMarket, uint64(block.timestamp + 180 days));
+        vm.prank(owner);
+        spoke.setPendleRouter(address(nextRouter));
+
+        pt.mint(address(spoke), 1_000e18);
+        vm.warp(block.timestamp + 31 days);
+        nextRouter.setRedeem(1_000e18, 1_000e6);
+        nextRouter.setBuy(950e6, 1_000e18);
+
+        vm.prank(operator);
+        (uint256 usdcReceived, uint256 ptReceived, uint256 actualPrice) = spoke.rollMatured(
+            0,
+            1,
+            1_000e6,
+            ClearcrestPTSpokePortfolio.BuyConstraints({
+                maxUsdcIn: 0, minPtOut: 1_000e18, maxPtPriceUsdc18: 0.96e18, minImpliedApyBps: 100
+            }),
+            abi.encodeWithSelector(MockPendleRollRouter.redeem.selector),
+            abi.encodeWithSelector(MockPendleRollRouter.buy.selector)
+        );
+
+        assertEq(usdcReceived, 1_000e6);
+        assertEq(ptReceived, 1_000e18);
+        assertEq(actualPrice, 0.95e18);
+        assertEq(nextPt.balanceOf(address(spoke)), 1_000e18);
     }
 }
