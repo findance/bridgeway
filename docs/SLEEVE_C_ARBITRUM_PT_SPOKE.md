@@ -28,6 +28,8 @@ Within Sleeve C, target a conservative ladder:
 
 thBILL has the highest quoted APY but the thinnest liquidity and KYC/redemption dependency, so it should stay capped unless the issuer and redemption path are fully approved.
 
+Enforce this with per-position caps on the spoke, not only operator convention. Use `setPositionCapUsdc(positionId, capUsdc)` after each position exists. A cap of `0` means uncapped and should not be used for live Sleeve C positions.
+
 ## Validated Arbitrum Config
 
 These were validated on Arbitrum One against public RPC before deployment prep.
@@ -99,6 +101,8 @@ Validated:
 ## Multi-Position Claim Safety
 
 The spoke supports multiple PT positions and every claim should use `recordClaimForPosition(claimId, recipient, positionId, ptAmount)` once more than one PT token is live. The legacy `recordClaim(...)` remains available for the default position `0`, but Sleeve C operators should treat the position-specific function as mandatory.
+
+Capital limits are also per-position. Guarded buys call the cap check after settlement, so a fill that would push a PT position over its configured cap reverts.
 
 ## Required Public Config
 
@@ -173,4 +177,5 @@ forge script scripts/deploy/16_DeployPTSpokePortfolio.s.sol \
 - Keep Sleeve C deposit weight at `0` until the Arbitrum PT spoke reports a valid NAV and fork tests pass.
 - For first capital, use a small guarded `buyPtWithUsdc` with explicit `maxPtPriceUsdc18` and `minImpliedApyBps`.
 - After the dust test, add the remaining USDai/thBILL PT positions through owner governance with `addPositionWithFeed(...)`.
+- Set per-position caps with `setPositionCapUsdc(...)` before any non-dust buy.
 - Only then move Base vault weights to `6000 / 3000 / 1000`.

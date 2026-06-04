@@ -201,8 +201,19 @@ contract ClearcrestPTSpokePortfolioTest is Test {
 
         assertEq(spoke.totalAssetsUSDC(), 50e6);
 
-        (,, address positionFeed,,) = spoke.positionAt(1);
+        (,, address positionFeed,,,) = spoke.positionAt(1);
         assertEq(positionFeed, address(discountedFeed));
+    }
+
+    function test_PositionCapLimitsValuation() public {
+        pt.mint(address(spoke), 100e18);
+
+        vm.prank(owner);
+        spoke.setPositionCapUsdc(0, 100e6);
+
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestPTSpokePortfolio.PositionCapExceeded.selector, 0, 100e6, 99e6));
+        vm.prank(owner);
+        spoke.setPositionCapUsdc(0, 99e6);
     }
 
     function test_CashSettlementSellsAndRemitsUSDC() public {
@@ -288,6 +299,18 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         assertEq(ptReceived, 1_000e18);
         assertEq(actualPrice, 0.95e18);
         assertEq(pt.balanceOf(address(spoke)), 1_000e18);
+    }
+
+    function test_BuyPtWithUsdcRejectsPositionCapExceeded() public {
+        usdc.mint(address(spoke), 1_000e6);
+        router.setBuy(950e6, 1_000e18);
+
+        vm.prank(owner);
+        spoke.setPositionCapUsdc(0, 900e6);
+
+        vm.expectRevert(abi.encodeWithSelector(ClearcrestPTSpokePortfolio.PositionCapExceeded.selector, 0, 1_000e6, 900e6));
+        vm.prank(operator);
+        spoke.buyPtWithUsdc(0, 950e6, 1_000e18, 0.96e18, 100, abi.encodeWithSelector(MockPendleRouter.buy.selector));
     }
 
     function test_RollMaturedRebuysUnderEntryGuard() public {

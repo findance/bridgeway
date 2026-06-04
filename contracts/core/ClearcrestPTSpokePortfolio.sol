@@ -52,6 +52,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         address pendleMarket;
         IChainlinkAggregator assetUsdFeed;
         uint64 maturity;
+        uint256 capUsdc;
         uint8 feedDecimals;
         bool enabled;
     }
@@ -79,9 +80,11 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         address indexed pt,
         address indexed pendleMarket,
         address assetUsdFeed,
-        uint64 maturity
+        uint64 maturity,
+        uint256 capUsdc
     );
     event PositionEnabled(uint256 indexed positionId, bool enabled);
+    event PositionCapSet(uint256 indexed positionId, uint256 capUsdc);
     event PTBought(
         uint256 indexed positionId,
         address indexed pt,
@@ -117,6 +120,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     error InvalidMaturity(uint256 maturity);
     error PositionDisabled(uint256 positionId);
     error PositionLimitExceeded();
+    error PositionCapExceeded(uint256 positionId, uint256 valueUsdc, uint256 capUsdc);
     error StalePrice(address feed);
     error InvalidPrice(address feed);
     error PriceAboveLimit(uint256 actualPriceUsdc18, uint256 maxPriceUsdc18);
@@ -174,7 +178,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         maxStale = maxStale_;
         fulfillTimeout = fulfillTimeout_;
 
-        _addPosition(pt_, pendleMarket_, assetUsdFeed_, _deriveMaturity(pendleMarket_));
+        _addPosition(pt_, pendleMarket_, assetUsdFeed_, _deriveMaturity(pendleMarket_), 0);
 
         operator = operator_;
         claimRecorder = operator_;
@@ -197,17 +201,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
             Position storage position = _positions[i];
             if (!position.enabled) continue;
 
-            uint256 bal = position.pt.balanceOf(address(this));
-            if (bal == 0) continue;
-
-            uint256 ptToAsset = ptOracle.getPtToAssetRate(position.pendleMarket, twapDuration);
-            if (ptToAsset > PAR) ptToAsset = PAR;
-
-            uint256 assetUsd = _assetUsd(position.assetUsdFeed);
-            uint256 assetAmount = Math.mulDiv(bal, ptToAsset, PAR);
-            totalUsdc += Math.mulDiv(
-                assetAmount, assetUsd * (10 ** USDC_DECIMALS), 10 ** (position.pt.decimals() + position.feedDecimals)
-            );
+            totalUsdc += _positionValueUSDC(position);
         }
         return totalUsdc;
     }
@@ -233,7 +227,14 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     function positionAt(uint256 positionId)
         external
         view
-        returns (address positionPt, address positionMarket, address positionFeed, uint64 maturity, bool enabled)
+        returns (
+            address positionPt,
+            address positionMarket,
+            address positionFeed,
+            uint64 maturity,
+            uint256 capUsdc,
+            bool enabled
+        )
     {
         Position storage position = _position(positionId);
         return (
@@ -241,6 +242,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
             position.pendleMarket,
             address(position.assetUsdFeed),
             position.maturity,
+            position.capUsdc,
             position.enabled
         );
     }
@@ -253,14 +255,31 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         public
         onlyOwner
     {
+        addPositionWithFeedAndCap(pt_, pendleMarket_, assetUsdFeed_, maturity_, 0);
+    }
+
+    function addPositionWithFeedAndCap(
+        address pt_,
+        address pendleMarket_,
+        address assetUsdFeed_,
+        uint64 maturity_,
+        uint256 capUsdc_
+    ) public onlyOwner {
         if (maturity_ <= block.timestamp) revert InvalidMaturity(maturity_);
-        _addPosition(pt_, pendleMarket_, assetUsdFeed_, maturity_);
+        _addPosition(pt_, pendleMarket_, assetUsdFeed_, maturity_, capUsdc_);
     }
 
     function setPositionEnabled(uint256 positionId, bool enabled) external onlyOwner {
         Position storage position = _position(positionId);
         position.enabled = enabled;
         emit PositionEnabled(positionId, enabled);
+    }
+
+    function setPositionCapUsdc(uint256 positionId, uint256 capUsdc_) external onlyOwner {
+        Position storage position = _position(positionId);
+        position.capUsdc = capUsdc_;
+        _enforcePositionCap(positionId, position);
+        emit PositionCapSet(positionId, capUsdc_);
     }
 
     /// @notice Buy PT through the configured Pendle router while enforcing the
@@ -453,6 +472,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         if (impliedApyBps < constraints.minImpliedApyBps) {
             revert ImpliedApyTooLow(impliedApyBps, constraints.minImpliedApyBps);
         }
+        _enforcePositionCap(positionId, position);
 
         emit PTBought(positionId, address(position.pt), usdcSpent, ptReceived, actualPriceUsdc18, impliedApyBps);
     }
@@ -486,7 +506,9 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         return Math.mulDiv(Math.mulDiv(discount, YEAR, priceUsdc18), BPS_DENOM, secondsToMaturity);
     }
 
-    function _addPosition(address pt_, address pendleMarket_, address assetUsdFeed_, uint64 maturity_) internal {
+    function _addPosition(address pt_, address pendleMarket_, address assetUsdFeed_, uint64 maturity_, uint256 capUsdc_)
+        internal
+    {
         if (pt_ == address(0) || pendleMarket_ == address(0) || assetUsdFeed_ == address(0)) revert ZeroAddress();
         if (_positions.length >= MAX_POSITIONS) revert PositionLimitExceeded();
         _positions.push(
@@ -495,16 +517,37 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
                 pendleMarket: pendleMarket_,
                 assetUsdFeed: IChainlinkAggregator(assetUsdFeed_),
                 maturity: maturity_,
+                capUsdc: capUsdc_,
                 feedDecimals: IChainlinkAggregator(assetUsdFeed_).decimals(),
                 enabled: true
             })
         );
-        emit PositionAdded(_positions.length - 1, pt_, pendleMarket_, assetUsdFeed_, maturity_);
+        emit PositionAdded(_positions.length - 1, pt_, pendleMarket_, assetUsdFeed_, maturity_, capUsdc_);
     }
 
     function _position(uint256 positionId) internal view returns (Position storage position) {
         if (positionId >= _positions.length) revert InvalidPosition(positionId);
         return _positions[positionId];
+    }
+
+    function _positionValueUSDC(Position storage position) internal view returns (uint256) {
+        uint256 bal = position.pt.balanceOf(address(this));
+        if (bal == 0) return 0;
+
+        uint256 ptToAsset = ptOracle.getPtToAssetRate(position.pendleMarket, twapDuration);
+        if (ptToAsset > PAR) ptToAsset = PAR;
+
+        uint256 assetUsd = _assetUsd(position.assetUsdFeed);
+        uint256 assetAmount = Math.mulDiv(bal, ptToAsset, PAR);
+        return Math.mulDiv(
+            assetAmount, assetUsd * (10 ** USDC_DECIMALS), 10 ** (position.pt.decimals() + position.feedDecimals)
+        );
+    }
+
+    function _enforcePositionCap(uint256 positionId, Position storage position) internal view {
+        if (position.capUsdc == 0) return;
+        uint256 valueUsdc = _positionValueUSDC(position);
+        if (valueUsdc > position.capUsdc) revert PositionCapExceeded(positionId, valueUsdc, position.capUsdc);
     }
 
     function _deriveMaturity(address market_) internal view returns (uint64 maturity_) {
