@@ -175,9 +175,10 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         vm.prank(claimRecorder);
         spoke.recordClaim(claimId, recipient, 1e18);
 
-        (address recordedRecipient, uint256 ptAmount,, bool settled) = spoke.claims(claimId);
+        (address recordedRecipient, uint256 ptAmount, uint256 positionId,, bool settled) = spoke.claims(claimId);
         assertEq(recordedRecipient, recipient);
         assertEq(ptAmount, 1e18);
+        assertEq(positionId, 0);
         assertFalse(settled);
     }
 
@@ -218,6 +219,27 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         assertEq(usdcOut, 9_900_000);
         assertEq(usdc.balanceOf(recipient), 9_900_000);
         assertEq(pt.balanceOf(address(router)), 10e18);
+    }
+
+    function test_InKindSettlementUsesRecordedPositionToken() public {
+        MockERC20 nextPt = new MockERC20("PT RWA", "PT-RWA", 18);
+        address nextMarket = makeAddr("nextMarket");
+        bytes32 claimId = keccak256("position-claim");
+
+        vm.prank(owner);
+        spoke.addPositionWithFeed(address(nextPt), nextMarket, address(discountedFeed), uint64(block.timestamp + 60 days));
+        nextPt.mint(address(spoke), 4e18);
+        pt.mint(address(spoke), 7e18);
+
+        vm.prank(operator);
+        spoke.recordClaimForPosition(claimId, recipient, 1, 4e18);
+
+        vm.prank(operator);
+        spoke.fulfillInKind(claimId);
+
+        assertEq(nextPt.balanceOf(recipient), 4e18);
+        assertEq(pt.balanceOf(recipient), 0);
+        assertEq(pt.balanceOf(address(spoke)), 7e18);
     }
 
     function test_TimeoutAllowsPermissionlessInKindClaim() public {

@@ -8,7 +8,97 @@ Use this path for Pendle PT exposure when Ethereum mainnet gas or PT-sUSDe yield
 - Sleeve: C (`ClearcrestSleeveCPTSpokePortfolio`)
 - Strategy: PT-only, no YT
 - Entry rule: buy PT only sub-par and only when realized implied APY clears the configured minimum
-- Suggested market class: USDai / sUSDai PT markets on Arbitrum, after risk review of the underlying
+- Suggested market class: USDai / sUSDai / thBILL PT markets on Arbitrum, after risk review of the underlying
+
+## Proposed Allocation
+
+Keep the Base vault at `A=6500 / B=3500 / C=0` until the Arbitrum spoke is deployed, has a dust PT balance, and reports NAV back to the Base hub correctly.
+
+After validation, move the vault sleeve deposit weights to:
+
+- Sleeve A: `6000`
+- Sleeve B: `3000`
+- Sleeve C: `1000`
+
+Within Sleeve C, target a conservative ladder:
+
+- sUSDai PT: `5000`
+- USDai PT: `3000`
+- thBILL PT: `2000`
+
+thBILL has the highest quoted APY but the thinnest liquidity and KYC/redemption dependency, so it should stay capped unless the issuer and redemption path are fully approved.
+
+## Validated Arbitrum Config
+
+These were validated on Arbitrum One against public RPC before deployment prep.
+
+```bash
+export CHAIN_USDC=0xaf88d065e77c8cC2239327C5EDb3A432268e5831
+export PENDLE_PT_ORACLE=0x5542be50420E88dd7D5B4a3D488FA6ED82F6DAc2
+export PENDLE_ROUTER=0x888888888889758F76e7103c6CbF23ABbF58F946
+export PENDLE_PT_TWAP_SECONDS=900
+
+export ARB_USDC_USD_FEED=0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3
+export ARB_USDAI_USD_FEED=0xF3d6b05E69918d71807Ab005791daCcEC5de8C78
+```
+
+### sUSDai PT
+
+Use the USDAI/USD feed because this Pendle market's accounting asset is USDai.
+
+```bash
+export PT_TOKEN=0x07bc5bD6cE9A17f0e7aa91E0Adbc9070dcB1d1dE
+export PENDLE_PT_MARKET=0x299674f6dA858f903D77486fBA50Bc9f2e0DB24D
+export ASSET_USD_PRICE_FEED=$ARB_USDAI_USD_FEED
+```
+
+Validated:
+
+- PT name: `PT Staked USDai 18JUN2026`
+- SY: `0x30Ccf4Bbee313fCD19F3e295b3ba2920A24e2f62`
+- YT: `0x7032cEe758fBA530C1c71Ab52de1727E555B8Ed4`
+- Maturity: `1781740800`
+- PT oracle sample rate: `996631417965046844`
+
+### USDai PT
+
+Use the USDAI/USD feed because this market's accounting asset is USDai.
+
+```bash
+export PT_USDAI_TOKEN=0x1cdDE40e29dA213f42A7fA109CcADCA372d9Ee1B
+export PENDLE_USDAI_MARKET=0x8A8a557B90ec79496A18A1F9c9da8bbD7dB86Fd3
+export USDAI_ASSET_USD_PRICE_FEED=$ARB_USDAI_USD_FEED
+```
+
+Validated:
+
+- PT name: `PT USDai 18JUN2026`
+- SY: `0x5edCBC20Cac67AdC2e724d4348Ff85132B085b82`
+- YT: `0x5De2065F3C709b24f31c736Ef28c1CbB27cEedfc`
+- Maturity: `1781740800`
+- PT oracle sample rate: `997315850616532980`
+
+### thBILL PT
+
+Use USDC/USD as the feed because this Pendle market's accounting asset is Arbitrum USDC.
+
+```bash
+export PT_THBILL_TOKEN=0xE46271ecb1d5c7c5134868760F10c18B03021eF1
+export PENDLE_THBILL_MARKET=0x22d95CeC2B962C142Fff9bE88Cfc7EF15043419f
+export THBILL_ASSET_USD_PRICE_FEED=$ARB_USDC_USD_FEED
+```
+
+Validated:
+
+- PT name: `PT thBILL 18JUN2026`
+- SY: `0xc32e96B4C7EB7959B6A92f3f7eD5d2321e6ed3D4`
+- YT: `0x58C40BF59d1714D7B84060dE9f7197AcCC0b3954`
+- Maturity: `1781740800`
+- PT oracle sample rate: `995923519411213753`
+
+## Multi-Position Claim Safety
+
+The spoke supports multiple PT positions and every claim should use `recordClaimForPosition(claimId, recipient, positionId, ptAmount)` once more than one PT token is live. The legacy `recordClaim(...)` remains available for the default position `0`, but Sleeve C operators should treat the position-specific function as mandatory.
 
 ## Required Public Config
 
@@ -20,13 +110,14 @@ export PT_SPOKE_SOURCE_CHAIN_ID=42161
 export PT_SPOKE_OWNER=$PROTOCOL_SAFE
 export PT_SPOKE_OPERATOR=$DEPLOYER
 
-# Arbitrum token/market config. Fill these from Pendle + oracle docs and validate code exists.
+# Arbitrum token/market config. Start with one validated market, then add more
+# positions through owner governance after deploy.
 export CHAIN_USDC=0xaf88d065e77c8cC2239327C5EDb3A432268e5831
-export PT_TOKEN=<arbitrum_pt_token>
-export PENDLE_PT_MARKET=<arbitrum_pendle_market>
-export PENDLE_PT_ORACLE=<arbitrum_pendle_pt_oracle>
-export ASSET_USD_PRICE_FEED=<underlying_usd_chainlink_feed>
-export PENDLE_ROUTER=<arbitrum_pendle_router>
+export PT_TOKEN=0x07bc5bD6cE9A17f0e7aa91E0Adbc9070dcB1d1dE
+export PENDLE_PT_MARKET=0x299674f6dA858f903D77486fBA50Bc9f2e0DB24D
+export PENDLE_PT_ORACLE=0x5542be50420E88dd7D5B4a3D488FA6ED82F6DAc2
+export ASSET_USD_PRICE_FEED=0xF3d6b05E69918d71807Ab005791daCcEC5de8C78
+export PENDLE_ROUTER=0x888888888889758F76e7103c6CbF23ABbF58F946
 export PENDLE_PT_TWAP_SECONDS=900
 ```
 
@@ -81,3 +172,5 @@ forge script scripts/deploy/16_DeployPTSpokePortfolio.s.sol \
 - Wire/report through the existing Base hub/spoke path.
 - Keep Sleeve C deposit weight at `0` until the Arbitrum PT spoke reports a valid NAV and fork tests pass.
 - For first capital, use a small guarded `buyPtWithUsdc` with explicit `maxPtPriceUsdc18` and `minImpliedApyBps`.
+- After the dust test, add the remaining USDai/thBILL PT positions through owner governance with `addPositionWithFeed(...)`.
+- Only then move Base vault weights to `6000 / 3000 / 1000`.

@@ -66,6 +66,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     struct Claim {
         address recipient;
         uint256 ptAmount;
+        uint256 positionId;
         uint64 recordedAt;
         bool settled;
     }
@@ -97,7 +98,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         uint256 actualPriceUsdc18
     );
     event ReportPrepared(uint256 navUsd18, uint256 reportedAt, uint256 sourceBlockNumber, uint64 nonce);
-    event ClaimRecorded(bytes32 indexed claimId, address indexed recipient, uint256 ptAmount);
+    event ClaimRecorded(bytes32 indexed claimId, address indexed recipient, uint256 indexed positionId, uint256 ptAmount);
     event CashFulfilled(bytes32 indexed claimId, address indexed recipient, uint256 ptAmount, uint256 usdcOut);
     event InKindFulfilled(bytes32 indexed claimId, address indexed recipient, uint256 ptAmount);
     event OperatorSet(address indexed operator);
@@ -313,11 +314,28 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     }
 
     function recordClaim(bytes32 claimId, address recipient, uint256 ptAmount) external onlyClaimRecorder {
+        _recordClaim(claimId, recipient, 0, ptAmount);
+    }
+
+    function recordClaimForPosition(bytes32 claimId, address recipient, uint256 positionId, uint256 ptAmount)
+        external
+        onlyClaimRecorder
+    {
+        _recordClaim(claimId, recipient, positionId, ptAmount);
+    }
+
+    function _recordClaim(bytes32 claimId, address recipient, uint256 positionId, uint256 ptAmount) internal {
         if (recipient == address(0)) revert ZeroAddress();
+        _position(positionId);
         if (claims[claimId].recipient != address(0)) revert AlreadySettled(claimId);
-        claims[claimId] =
-            Claim({recipient: recipient, ptAmount: ptAmount, recordedAt: uint64(block.timestamp), settled: false});
-        emit ClaimRecorded(claimId, recipient, ptAmount);
+        claims[claimId] = Claim({
+            recipient: recipient,
+            ptAmount: ptAmount,
+            positionId: positionId,
+            recordedAt: uint64(block.timestamp),
+            settled: false
+        });
+        emit ClaimRecorded(claimId, recipient, positionId, ptAmount);
     }
 
     function sellAndRemit(bytes32 claimId, bytes calldata pendleSwapData, uint256 minUsdcOut)
@@ -327,11 +345,13 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         returns (uint256 usdcOut)
     {
         Claim storage claim = _openClaim(claimId);
+        Position storage claimPosition = _position(claim.positionId);
 
-        IERC20(address(pt)).forceApprove(pendleRouter, claim.ptAmount);
+        IERC20(address(claimPosition.pt)).forceApprove(pendleRouter, claim.ptAmount);
         uint256 beforeUsdc = usdc.balanceOf(address(this));
         (bool ok,) = pendleRouter.call(pendleSwapData);
         require(ok, "pendle swap failed");
+        IERC20(address(claimPosition.pt)).forceApprove(pendleRouter, 0);
         usdcOut = usdc.balanceOf(address(this)) - beforeUsdc;
         if (usdcOut < minUsdcOut) revert SlippageTooHigh(usdcOut, minUsdcOut);
 
@@ -342,16 +362,18 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
 
     function fulfillInKind(bytes32 claimId) external onlyOperator nonReentrant {
         Claim storage claim = _openClaim(claimId);
+        Position storage claimPosition = _position(claim.positionId);
         claim.settled = true;
-        IERC20(address(pt)).safeTransfer(claim.recipient, claim.ptAmount);
+        IERC20(address(claimPosition.pt)).safeTransfer(claim.recipient, claim.ptAmount);
         emit InKindFulfilled(claimId, claim.recipient, claim.ptAmount);
     }
 
     function claimInKindAfterTimeout(bytes32 claimId) external nonReentrant {
         Claim storage claim = _openClaim(claimId);
+        Position storage claimPosition = _position(claim.positionId);
         if (block.timestamp < claim.recordedAt + fulfillTimeout) revert TimeoutNotReached(claimId);
         claim.settled = true;
-        IERC20(address(pt)).safeTransfer(claim.recipient, claim.ptAmount);
+        IERC20(address(claimPosition.pt)).safeTransfer(claim.recipient, claim.ptAmount);
         emit InKindFulfilled(claimId, claim.recipient, claim.ptAmount);
     }
 
