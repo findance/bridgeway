@@ -3,6 +3,8 @@ pragma solidity 0.8.24;
 
 import "forge-std/Test.sol";
 
+import "@openzeppelin/contracts/utils/Pausable.sol";
+
 import "../contracts/core/ClearcrestPTSpokePortfolio.sol";
 import "../contracts/mocks/MockERC20.sol";
 import "../contracts/mocks/MockPriceFeed.sol";
@@ -301,6 +303,23 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         assertEq(pt.balanceOf(address(spoke)), 1_000e18);
     }
 
+    function test_PauseBlocksNormalBuyButAllowsUnpause() public {
+        usdc.mint(address(spoke), 1_000e6);
+        router.setBuy(950e6, 1_000e18);
+
+        vm.prank(owner);
+        spoke.pause();
+        assertTrue(spoke.paused());
+
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        vm.prank(operator);
+        spoke.buyPtWithUsdc(0, 950e6, 1_000e18, 0.96e18, 100, abi.encodeWithSelector(MockPendleRouter.buy.selector));
+
+        vm.prank(owner);
+        spoke.unpause();
+        assertFalse(spoke.paused());
+    }
+
     function test_BuyPtWithUsdcRejectsPositionCapExceeded() public {
         usdc.mint(address(spoke), 1_000e6);
         router.setBuy(950e6, 1_000e18);
@@ -344,5 +363,44 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         assertEq(ptReceived, 1_000e18);
         assertEq(actualPrice, 0.95e18);
         assertEq(nextPt.balanceOf(address(spoke)), 1_000e18);
+    }
+
+    function test_EmergencyWithdrawAllReturnsPtAndUsdc() public {
+        MockERC20 nextPt = new MockERC20("PT RWA", "PT-RWA", 18);
+        address nextMarket = makeAddr("nextMarket");
+        address receiver = makeAddr("receiver");
+
+        vm.prank(owner);
+        spoke.addPositionWithFeed(address(nextPt), nextMarket, address(discountedFeed), uint64(block.timestamp + 60 days));
+
+        pt.mint(address(spoke), 5e18);
+        nextPt.mint(address(spoke), 3e18);
+        usdc.mint(address(spoke), 12e6);
+
+        vm.prank(owner);
+        uint256 usdcReturned = spoke.emergencyWithdrawAll(receiver);
+
+        assertEq(usdcReturned, 12e6);
+        assertEq(pt.balanceOf(receiver), 5e18);
+        assertEq(nextPt.balanceOf(receiver), 3e18);
+        assertEq(usdc.balanceOf(receiver), 12e6);
+        assertEq(spoke.totalAssetsUSDC(), 0);
+    }
+
+    function test_EmergencyRedeemPositionWorksWhilePaused() public {
+        address receiver = makeAddr("receiver");
+        pt.mint(address(spoke), 10e18);
+        router.setSwap(10e18, 9_900_000);
+
+        vm.prank(owner);
+        spoke.pause();
+
+        vm.prank(owner);
+        uint256 usdcOut =
+            spoke.emergencyRedeemPosition(0, abi.encodeWithSelector(MockPendleRouter.swap.selector), 9_800_000, receiver);
+
+        assertEq(usdcOut, 9_900_000);
+        assertEq(usdc.balanceOf(receiver), 9_900_000);
+        assertEq(pt.balanceOf(address(router)), 10e18);
     }
 }

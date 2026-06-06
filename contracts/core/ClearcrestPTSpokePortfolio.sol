@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -17,7 +18,7 @@ import "../interfaces/IPendlePtOracle.sol";
 ///         conservative USDC NAV to the Base hub using the existing spoke tuple.
 ///         Entries are balance-checked after the Pendle router call so PT can
 ///         only enter at an approved sub-par price / annualized implied APY.
-contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, ReentrancyGuard {
+contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 public constant USDC_DECIMALS = 6;
@@ -110,6 +111,10 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     event MaxStaleSet(uint256 maxStale);
     event FulfillTimeoutSet(uint256 fulfillTimeout);
     event TokenRescued(address indexed token, address indexed to, uint256 amount);
+    event EmergencyPositionRedeemed(
+        uint256 indexed positionId, address indexed receiver, uint256 ptBalanceBefore, uint256 usdcOut
+    );
+    event EmergencyWithdrawAll(address indexed receiver, uint256 usdcAmount);
 
     error ZeroAddress();
     error OnlyOperator();
@@ -206,7 +211,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         return totalUsdc;
     }
 
-    function prepareReport() external onlyOperator returns (bytes memory) {
+    function prepareReport() external onlyOperator whenNotPaused returns (bytes memory) {
         navUsd18 = totalAssetsUSDC() * 1e12;
         reportedAt = block.timestamp;
         sourceBlockNumber = block.number;
@@ -316,7 +321,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         BuyConstraints calldata buyConstraints,
         bytes calldata pendleRedeemData,
         bytes calldata pendleBuyData
-    ) external onlyOperator nonReentrant returns (uint256, uint256, uint256) {
+    ) external onlyOperator whenNotPaused nonReentrant returns (uint256, uint256, uint256) {
         uint256 usdcReceived = _redeemMaturedPosition(fromPositionId, pendleRedeemData);
         if (usdcReceived < minUsdcOut) revert InsufficientUSDCReceived(usdcReceived, minUsdcOut);
 
@@ -332,13 +337,14 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         return (usdcReceived, ptReceived, actualPriceUsdc18);
     }
 
-    function recordClaim(bytes32 claimId, address recipient, uint256 ptAmount) external onlyClaimRecorder {
+    function recordClaim(bytes32 claimId, address recipient, uint256 ptAmount) external onlyClaimRecorder whenNotPaused {
         _recordClaim(claimId, recipient, 0, ptAmount);
     }
 
     function recordClaimForPosition(bytes32 claimId, address recipient, uint256 positionId, uint256 ptAmount)
         external
         onlyClaimRecorder
+        whenNotPaused
     {
         _recordClaim(claimId, recipient, positionId, ptAmount);
     }
@@ -360,6 +366,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
     function sellAndRemit(bytes32 claimId, bytes calldata pendleSwapData, uint256 minUsdcOut)
         external
         onlyOperator
+        whenNotPaused
         nonReentrant
         returns (uint256 usdcOut)
     {
@@ -379,7 +386,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         emit CashFulfilled(claimId, claim.recipient, claim.ptAmount, usdcOut);
     }
 
-    function fulfillInKind(bytes32 claimId) external onlyOperator nonReentrant {
+    function fulfillInKind(bytes32 claimId) external onlyOperator whenNotPaused nonReentrant {
         Claim storage claim = _openClaim(claimId);
         Position storage claimPosition = _position(claim.positionId);
         claim.settled = true;
@@ -387,7 +394,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         emit InKindFulfilled(claimId, claim.recipient, claim.ptAmount);
     }
 
-    function claimInKindAfterTimeout(bytes32 claimId) external nonReentrant {
+    function claimInKindAfterTimeout(bytes32 claimId) external whenNotPaused nonReentrant {
         Claim storage claim = _openClaim(claimId);
         Position storage claimPosition = _position(claim.positionId);
         if (block.timestamp < claim.recordedAt + fulfillTimeout) revert TimeoutNotReached(claimId);
@@ -424,6 +431,50 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
         emit FulfillTimeoutSet(fulfillTimeout_);
     }
 
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    function emergencyRedeemPosition(
+        uint256 positionId,
+        bytes calldata pendleRedeemData,
+        uint256 minUsdcOut,
+        address receiver
+    ) external onlyOwner nonReentrant returns (uint256 usdcOut) {
+        if (receiver == address(0)) revert ZeroAddress();
+        Position storage position = _position(positionId);
+
+        uint256 ptBalance = position.pt.balanceOf(address(this));
+        uint256 beforeUsdc = usdc.balanceOf(address(this));
+        IERC20(address(position.pt)).forceApprove(pendleRouter, ptBalance);
+        (bool ok,) = pendleRouter.call(pendleRedeemData);
+        IERC20(address(position.pt)).forceApprove(pendleRouter, 0);
+        require(ok, "pendle emergency redeem failed");
+
+        usdcOut = usdc.balanceOf(address(this)) - beforeUsdc;
+        if (usdcOut < minUsdcOut) revert SlippageTooHigh(usdcOut, minUsdcOut);
+        usdc.safeTransfer(receiver, usdcOut);
+        emit EmergencyPositionRedeemed(positionId, receiver, ptBalance, usdcOut);
+    }
+
+    function emergencyWithdrawAll(address receiver) external onlyOwner nonReentrant returns (uint256 usdcAmount) {
+        if (receiver == address(0)) revert ZeroAddress();
+        uint256 count = _positions.length;
+        for (uint256 i; i < count; ++i) {
+            IERC20Metadata positionPt = _positions[i].pt;
+            uint256 ptBalance = positionPt.balanceOf(address(this));
+            if (ptBalance != 0) IERC20(address(positionPt)).safeTransfer(receiver, ptBalance);
+        }
+
+        usdcAmount = usdc.balanceOf(address(this));
+        if (usdcAmount != 0) usdc.safeTransfer(receiver, usdcAmount);
+        emit EmergencyWithdrawAll(receiver, usdcAmount);
+    }
+
     function rescueToken(address token, uint256 amount, address to) external onlyOwner nonReentrant {
         if (token == address(0) || to == address(0)) revert ZeroAddress();
         IERC20(token).safeTransfer(to, amount);
@@ -444,6 +495,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Reentranc
 
     function _buyPtWithUsdc(uint256 positionId, BuyConstraints memory constraints, bytes calldata pendleSwapData)
         internal
+        whenNotPaused
         returns (uint256 usdcSpent, uint256 ptReceived, uint256 actualPriceUsdc18)
     {
         Position storage position = _position(positionId);
