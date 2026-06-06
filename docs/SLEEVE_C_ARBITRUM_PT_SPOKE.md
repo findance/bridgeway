@@ -104,6 +104,20 @@ The spoke supports multiple PT positions and every claim should use `recordClaim
 
 Capital limits are also per-position. Guarded buys call the cap check after settlement, so a fill that would push a PT position over its configured cap reverts.
 
+## Prototype Ownership And Emergency Receiver
+
+For prototype testing, deploy the spoke with the deployer as `PT_SPOKE_OWNER` and `PT_SPOKE_OPERATOR`. This keeps caps, added positions, pause/unpause, and dust emergency recovery fast. The contract initializes `emergencyReceiver` to the owner, so before finalize it points at the deployer.
+
+Before real allocation or moving Sleeve C above `0`, run the production handoff:
+
+1. `setEmergencyReceiver(PROTOCOL_SAFE)`
+2. `setOperator(<production_operator_or_ccip_handler>)`
+3. `setClaimRecorder(<production_ccip_claim_recorder>)`
+4. `transferOwnership(PROTOCOL_SAFE)`
+5. Safe accepts ownership
+
+After this handoff, emergency withdraw/redeem proceeds always go to the configured Safe receiver instead of an arbitrary call-time address.
+
 ## Required Public Config
 
 Set these before simulating. Do not put private keys or private RPC keys in committed files.
@@ -111,7 +125,7 @@ Set these before simulating. Do not put private keys or private RPC keys in comm
 ```bash
 export DEPLOY_SLEEVE_C_PT_SPOKE=true
 export PT_SPOKE_SOURCE_CHAIN_ID=42161
-export PT_SPOKE_OWNER=$PROTOCOL_SAFE
+export PT_SPOKE_OWNER=$DEPLOYER
 export PT_SPOKE_OPERATOR=$DEPLOYER
 
 # Arbitrum token/market config. Start with one validated market, then add more

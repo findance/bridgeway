@@ -40,6 +40,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Pausable,
     address public operator;
     address public claimRecorder;
     address public pendleRouter;
+    address public emergencyReceiver;
     uint256 public maxStale;
     uint256 public fulfillTimeout;
 
@@ -110,6 +111,7 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Pausable,
     event PendleRouterSet(address indexed pendleRouter);
     event MaxStaleSet(uint256 maxStale);
     event FulfillTimeoutSet(uint256 fulfillTimeout);
+    event EmergencyReceiverSet(address indexed emergencyReceiver);
     event TokenRescued(address indexed token, address indexed to, uint256 amount);
     event EmergencyPositionRedeemed(
         uint256 indexed positionId, address indexed receiver, uint256 ptBalanceBefore, uint256 usdcOut
@@ -188,9 +190,11 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Pausable,
         operator = operator_;
         claimRecorder = operator_;
         pendleRouter = pendleRouter_;
+        emergencyReceiver = owner_;
         emit OperatorSet(operator_);
         emit ClaimRecorderSet(operator_);
         emit PendleRouterSet(pendleRouter_);
+        emit EmergencyReceiverSet(owner_);
         emit MaxStaleSet(maxStale_);
         emit FulfillTimeoutSet(fulfillTimeout_);
     }
@@ -431,6 +435,12 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Pausable,
         emit FulfillTimeoutSet(fulfillTimeout_);
     }
 
+    function setEmergencyReceiver(address emergencyReceiver_) external onlyOwner {
+        if (emergencyReceiver_ == address(0)) revert ZeroAddress();
+        emergencyReceiver = emergencyReceiver_;
+        emit EmergencyReceiverSet(emergencyReceiver_);
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
@@ -439,12 +449,13 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Pausable,
         _unpause();
     }
 
-    function emergencyRedeemPosition(
-        uint256 positionId,
-        bytes calldata pendleRedeemData,
-        uint256 minUsdcOut,
-        address receiver
-    ) external onlyOwner nonReentrant returns (uint256 usdcOut) {
+    function emergencyRedeemPosition(uint256 positionId, bytes calldata pendleRedeemData, uint256 minUsdcOut)
+        external
+        onlyOwner
+        nonReentrant
+        returns (uint256 usdcOut)
+    {
+        address receiver = emergencyReceiver;
         if (receiver == address(0)) revert ZeroAddress();
         Position storage position = _position(positionId);
 
@@ -461,7 +472,8 @@ contract ClearcrestPTSpokePortfolio is IClearcrestSpoke, Ownable2Step, Pausable,
         emit EmergencyPositionRedeemed(positionId, receiver, ptBalance, usdcOut);
     }
 
-    function emergencyWithdrawAll(address receiver) external onlyOwner nonReentrant returns (uint256 usdcAmount) {
+    function emergencyWithdrawAll() external onlyOwner nonReentrant returns (uint256 usdcAmount) {
+        address receiver = emergencyReceiver;
         if (receiver == address(0)) revert ZeroAddress();
         uint256 count = _positions.length;
         for (uint256 i; i < count; ++i) {

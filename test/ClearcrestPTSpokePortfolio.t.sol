@@ -164,6 +164,17 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         assertEq(nonce, 1);
     }
 
+    function test_EmergencyReceiverDefaultsToOwnerAndCanBeChanged() public {
+        address nextReceiver = makeAddr("nextReceiver");
+
+        assertEq(spoke.emergencyReceiver(), owner);
+
+        vm.prank(owner);
+        spoke.setEmergencyReceiver(nextReceiver);
+
+        assertEq(spoke.emergencyReceiver(), nextReceiver);
+    }
+
     function test_RecordClaimCanMoveToDedicatedRecorder() public {
         bytes32 claimId = keccak256("claim");
 
@@ -378,7 +389,10 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         usdc.mint(address(spoke), 12e6);
 
         vm.prank(owner);
-        uint256 usdcReturned = spoke.emergencyWithdrawAll(receiver);
+        spoke.setEmergencyReceiver(receiver);
+
+        vm.prank(owner);
+        uint256 usdcReturned = spoke.emergencyWithdrawAll();
 
         assertEq(usdcReturned, 12e6);
         assertEq(pt.balanceOf(receiver), 5e18);
@@ -396,8 +410,10 @@ contract ClearcrestPTSpokePortfolioTest is Test {
         spoke.pause();
 
         vm.prank(owner);
-        uint256 usdcOut =
-            spoke.emergencyRedeemPosition(0, abi.encodeWithSelector(MockPendleRouter.swap.selector), 9_800_000, receiver);
+        spoke.setEmergencyReceiver(receiver);
+
+        vm.prank(owner);
+        uint256 usdcOut = spoke.emergencyRedeemPosition(0, abi.encodeWithSelector(MockPendleRouter.swap.selector), 9_800_000);
 
         assertEq(usdcOut, 9_900_000);
         assertEq(usdc.balanceOf(receiver), 9_900_000);
