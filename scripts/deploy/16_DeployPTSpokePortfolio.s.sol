@@ -12,7 +12,7 @@ import "../../contracts/core/ClearcrestSleeveCPTSpokePortfolio.sol";
 ///         explicit because the receiver and hub live on Base.
 ///
 /// Required env vars:
-///   DEPLOYER, PT_SPOKE_OWNER, PT_SPOKE_OPERATOR
+///   DEPLOYER
 ///   PT_SPOKE_SOURCE_CHAIN_ID, PT_TOKEN, CHAIN_USDC, PENDLE_PT_MARKET
 ///   PENDLE_PT_ORACLE, ASSET_USD_PRICE_FEED, PENDLE_ROUTER
 ///
@@ -20,7 +20,7 @@ import "../../contracts/core/ClearcrestSleeveCPTSpokePortfolio.sol";
 ///   PENDLE_PT_TWAP_SECONDS
 ///
 /// Optional:
-///   MAX_STALE_SECONDS, PT_FULFILL_TIMEOUT_SECONDS
+///   PT_SPOKE_OWNER, PT_SPOKE_OPERATOR, MAX_STALE_SECONDS, PT_FULFILL_TIMEOUT_SECONDS
 ///   DEPLOY_SLEEVE_C_PT_SPOKE=true to deploy the Sleeve C-named wrapper
 ///
 /// Backward-compatible env aliases:
@@ -45,7 +45,7 @@ contract DeployPTSpokePortfolio is Script {
 
     function run() external {
         address deployer = vm.envAddress("DEPLOYER");
-        Cfg memory c = _load();
+        Cfg memory c = _load(deployer);
         _validateConfig(c);
 
         vm.startBroadcast(deployer);
@@ -99,9 +99,9 @@ contract DeployPTSpokePortfolio is Script {
         if (c.sourceChainId == 42161) console.log("Source chain:", "Arbitrum One");
     }
 
-    function _load() internal view returns (Cfg memory c) {
-        c.owner = vm.envAddress("PT_SPOKE_OWNER");
-        c.operator = vm.envAddress("PT_SPOKE_OPERATOR");
+    function _load(address deployer) internal view returns (Cfg memory c) {
+        c.owner = vm.envOr("PT_SPOKE_OWNER", deployer);
+        c.operator = vm.envOr("PT_SPOKE_OPERATOR", deployer);
         c.sourceChainId = uint64(vm.envUint("PT_SPOKE_SOURCE_CHAIN_ID"));
         c.pt = _envAddressFallback("PT_TOKEN", "PT_SUSDE", "PT_TOKEN");
         c.usdc = _envAddressWithTwoFallbacks("CHAIN_USDC", "ARBITRUM_USDC", "ETH_USDC", "CHAIN_USDC");
